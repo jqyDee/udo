@@ -1,0 +1,20 @@
+[package]
+name = "udo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "1.1.4"
+chrono = { version = "0.4.45", features = ["serde"] }
+
+crossterm = "0.29.0"
+ratatui = "0.30.2"
+
+tokio = { version = "1.53.1", features = ["full"] }
+
+walkdir = "2.5.0"
+
+clap = { version = "4.4", features = ["derive"] }
+directories = "5.0"
+tempfile = "3"

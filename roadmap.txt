@@ -1,0 +1,100 @@
+================================================================================
+                    UDO: THE ACADEMIC WORKSPACE & CLI ROADMAP
+================================================================================
+
+PROJECT OVERVIEW:
+A high-performance, asynchronous Rust CLI and TUI tool designed for university 
+students to manage coursework, automate local file/folder generation, track time 
+spent per assignment using adaptive strategies (Tmux & File Watchers), and 
+provide deep productivity insights.
+
+--------------------------------------------------------------------------------
+PHASE 1: FOUNDATION & CONFIGURATION
+--------------------------------------------------------------------------------
+Goal: Establish cross-platform configuration storage and asynchronous file system bindings.
+
+[ ] 1.1 Global Configuration Engine
+    * Integrate the `directories` crate to handle OS-agnostic config paths 
+      (~/.config/udo/ on Linux/Mac, AppData on Windows).
+    * Implement `AppConfig` struct with `serde` for TOML serialization.
+    * Implement "First Run" bootstrapper (`load_or_create`) using `tokio::fs`.
+
+[ ] 1.2 Workspace Architecture
+    * Define root workspace directory pointing to `~/udo/` (or user preference).
+    * Create core data structures (`CourseData`, `Task`, `TaskStatus`) in `models.rs`.
+    * Establish fallback hierarchy (Global Config -> Course Config -> Task Override).
+
+--------------------------------------------------------------------------------
+PHASE 2: CORE FILE SYSTEM & TASK MANAGEMENT
+--------------------------------------------------------------------------------
+Goal: Build robust CLI commands to manipulate local folders and TOML metadata.
+
+[ ] 2.1 The `Add` Command
+    * Implement `add_task` in `fs_manager.rs` with `tokio::fs`.
+    * Automatic "Load or Create" pattern for course folders and `course.toml`.
+    * Duplicate task protection using iterator `.any()` checks.
+    * Automatic scaffolding of physical assignment directories.
+
+[ ] 2.2 Template & Boilerplate Generation
+    * Setup a local template directory (`~/.config/udo/templates/`).
+    * Auto-copy standard file structures (e.g., `main.typ`, configuration files) 
+      upon assignment creation.
+
+--------------------------------------------------------------------------------
+PHASE 3: THE TIME-TRACKING ARCHITECTURE (STRATEGY PATTERN)
+--------------------------------------------------------------------------------
+Goal: Decouple time tracking from core business logic using a polymorphic Trait.
+
+[ ] 3.1 The Time-Tracking Trait
+    * Define the `TimeTrackingStrategy` async trait in `time_tracker.rs`.
+    * Implement a strategy factory registry to dynamically load tracking methods 
+      based on configuration or metadata.
+
+--------------------------------------------------------------------------------
+PHASE 4: SPECIALIZED TIME-TRACKING PLUGINS
+--------------------------------------------------------------------------------
+Goal: Build contextual work trackers matching specific software workflows.
+
+[ ] 4.1 The Tmux/Neovim Strategy ("Process Existence" Tracker)
+    * Spawn detached tmux sessions (`tmux new-session -d`) bound to task folders.
+    * Implement smart client switching (detecting if already inside tmux via `$TMUX`).
+    * Spawn a background tokio task (`tokio::spawn`) to poll session status via 
+      `tmux has-session` without blocking the main thread.
+    * Automatically calculate elapsed seconds on session death and update `course.toml`.
+
+[ ] 4.2 The File Watcher Strategy ("Activity Polling" Tracker)
+    * Implement the `notify` crate to watch target directories for file modifications.
+    * Track file-save events as active work increments.
+    * Implement an idle timeout mechanism to automatically pause tracking after 
+      prolonged inactivity.
+
+--------------------------------------------------------------------------------
+PHASE 5: ACADEMIC & PRODUCTIVITY ENHANCEMENTS
+--------------------------------------------------------------------------------
+Goal: Transform raw tracking data into actionable insights and utility features.
+
+[ ] 5.1 Context-Switching "Brain Dump" (Scratchpads)
+    * Implement an `udo note` command to read/write quick markdown/text notes 
+      inside individual task directories.
+    * Print the last note automatically when starting a work session.
+
+[ ] 5.2 Deadline Velocity & Analytics (`udo stats`)
+    * Compute required daily pacing based on remaining time and logged `time_spent_secs`.
+    * Build an aggregation engine to print course-by-course time distribution reports.
+
+[ ] 5.3 Archive Management
+    * Implement an `udo archive` command to bundle completed courses, move them 
+      to an archive directory, and prune them from active tracking lists.
+
+--------------------------------------------------------------------------------
+PHASE 6: THE RATATUI INTERFACE & SYSTEM INTEGRATION
+--------------------------------------------------------------------------------
+Goal: Wrap the entire engine in a blazing-fast, immersive Terminal UI.
+
+[ ] 6.1 TUI Layout & State Management
+    * Implement a multi-pane layout using `ratatui` (Courses, Tasks, Details/Stats).
+    * Wire asynchronous event loops using `crossterm`.
+
+[ ] 6.2 Terminal Suspension & Interoperability
+    * Implement "Suspend and Restore" logic for launching external interactive terminal 
+      apps (Neovim/Tmux) safely without breaking the TUI canvas.
