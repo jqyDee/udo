@@ -1,14 +1,11 @@
-use std::{
-    io,
-    path::{PathBuf, absolute},
-};
+use std::path::{PathBuf, absolute};
 
 use chrono::NaiveDateTime;
 use clap::{Parser, Subcommand};
-use crossterm::event;
 
 use crate::{
     Res,
+    tui,
     model::{
         container::{ContainerKind, ContainerPatch, ContainerSettings},
         node::{Node, NodePatch},
@@ -18,7 +15,12 @@ use crate::{
 };
 
 #[derive(Parser)]
-#[command(name = "udo", about = "University task and script manager", version)]
+#[command(
+    name = "udo",
+    about = "University task and script manager",
+    version,
+    after_help = "Environment:\n  UDO_ROOT=<dir>  use <dir> as data root instead of ~/.config/udo"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -66,23 +68,7 @@ pub enum Commands {
 impl Cli {
     pub async fn execute(&self, tree: &mut Tree) -> Res<()> {
         match &self.command {
-            None => {
-                let mut should_exit = false;
-                ratatui::run(|terminal| {
-                    loop {
-                        terminal.draw(|frame| frame.render_widget("Hello World!", frame.area()))?;
-                        if event::read()?.is_key_press() {
-                            should_exit = true;
-                            break;
-                        }
-                    }
-                    Ok::<(), io::Error>(())
-                })?;
-                tree.save_view().await?; // remember collapsed containers
-                if should_exit {
-                    return Ok(());
-                }
-            }
+            None => tui::run(tree).await?,
             Some(cmd) => match cmd {
                 Commands::List => print_tree(tree),
                 Commands::CreateWorkspace {
