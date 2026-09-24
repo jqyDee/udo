@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf, absolute},
+};
 
 use async_recursion::async_recursion;
 use directories::BaseDirs;
@@ -281,10 +284,22 @@ impl From<&Container> for ContainerData {
     }
 }
 
+/// Env var that overrides the root dir (test data, throwaway setups).
+pub const ROOT_ENV: &str = "UDO_ROOT";
+
+/// `$UDO_ROOT` if set and non-empty, else `~/.config/udo`.
 fn root_dir() -> Res<PathBuf> {
+    root_dir_from(std::env::var_os(ROOT_ENV))
+}
+
+/// `root_dir` with the env value passed in, so tests don't touch the real env.
+fn root_dir_from(env: Option<OsString>) -> Res<PathBuf> {
+    if let Some(dir) = env.filter(|d| !d.is_empty()) {
+        // absolute: children paths are stored absolute, cwd must not matter
+        return Ok(absolute(PathBuf::from(dir))?);
+    }
     let base_dirs = BaseDirs::new().ok_or("Could not acquire Base dirs")?;
-    let config_dir = base_dirs.home_dir().join(".config").join("udo");
-    Ok(config_dir)
+    Ok(base_dirs.home_dir().join(".config").join("udo"))
 }
 
 #[cfg(test)]
@@ -867,5 +882,28 @@ collapsed: false,
     #[test]
     fn nearest_file_owner_none_for_missing() {
         assert_eq!(tree().nearest_file_owner(&[9]), None);
+    }
+
+    // ---------- root dir ----------
+
+    #[test]
+    fn root_dir_uses_env_override() {
+        let dir = root_dir_from(Some("/tmp/udo-test".into())).unwrap();
+        assert_eq!(dir, PathBuf::from("/tmp/udo-test"));
+    }
+
+    #[test]
+    fn root_dir_makes_relative_override_absolute() {
+        let dir = root_dir_from(Some("udo-test".into())).unwrap();
+        assert!(dir.is_absolute());
+        assert!(dir.ends_with("udo-test"));
+    }
+
+    #[test]
+    fn root_dir_defaults_to_config_when_unset_or_empty() {
+        for env in [None, Some(OsString::new())] {
+            let dir = root_dir_from(env).unwrap();
+            assert!(dir.ends_with(".config/udo"));
+        }
     }
 }
