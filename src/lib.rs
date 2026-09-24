@@ -4,6 +4,5 @@ pub type Res<T> = Result<T, Box<dyn std::error::Error>>;
 
 pub mod cli;
 pub mod persist;
-pub mod list;
 pub mod tui;
 pub mod model;
