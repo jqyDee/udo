@@ -99,6 +99,7 @@ mod tests {
             kind: ContainerKind::Workspace,
             settings: ContainerSettings::default(),
             unloaded: vec![],
+            collapsed: false,
             children,
         }
     }

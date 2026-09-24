@@ -13,6 +13,8 @@ pub struct Container {
     /// Child dirs listed in the file but not loadable (e.g. drive unmounted).
     /// Not shown in the tree, but written back on save so they stay registered.
     pub unloaded: Vec<PathBuf>,
+    /// View state: children hidden in `Tree::rows()`. Runtime only, not saved.
+    pub collapsed: bool,
 }
 
 impl Container {
@@ -24,6 +26,7 @@ impl Container {
             kind,
             settings: ContainerSettings::default(),
             unloaded: vec![],
+            collapsed: false,
             children: vec![],
         }
     }
@@ -112,6 +115,7 @@ mod tests {
             kind: ContainerKind::Workspace,
             settings: ContainerSettings::default(),
             unloaded: vec![],
+            collapsed: false,
             children,
         }
     }

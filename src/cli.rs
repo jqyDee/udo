@@ -11,7 +11,7 @@ use crate::{
     Res,
     model::{
         container::{ContainerKind, ContainerPatch, ContainerSettings},
-        node::NodePatch,
+        node::{Node, NodePatch},
         task::Task,
         tree::{NodePath, Tree},
     },
@@ -78,14 +78,13 @@ impl Cli {
                     }
                     Ok::<(), io::Error>(())
                 })?;
+                tree.save_view().await?; // remember collapsed containers
                 if should_exit {
                     return Ok(());
                 }
             }
             Some(cmd) => match cmd {
-                Commands::List => {
-                    todo!("List is not yet done!");
-                }
+                Commands::List => print_tree(tree),
                 Commands::CreateWorkspace {
                     name,
                     dir,
@@ -163,6 +162,32 @@ impl Cli {
             },
         }
         Ok(())
+    }
+}
+
+/// `List`: one line per `tree.rows()` entry, indented by depth.
+/// Containers: `name/` + kind. Tasks: name + status + due date.
+fn print_tree(tree: &Tree) {
+    let rows = tree.rows();
+    if rows.is_empty() {
+        println!("(nothing here yet)");
+        return;
+    }
+    for row in rows {
+        let indent = "  ".repeat(row.depth);
+        match row.node {
+            Node::Container(c) => {
+                println!("{:<30}{:?}", format!("{indent}{}/", c.name), c.kind);
+            }
+            Node::Task(t) => {
+                println!(
+                    "{:<30}{:<12}{}",
+                    format!("{indent}{}", t.name),
+                    format!("{:?}", t.status), // derived Debug ignores width
+                    t.due_date.format("%Y-%m-%d %H:%M")
+                );
+            }
+        }
     }
 }
 

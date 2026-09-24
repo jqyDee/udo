@@ -24,6 +24,11 @@ class Tree {
   + save(path)
   + delete(path)
   + insert(parent, node) : NodePath    <<in-memory only>>
+  .. view (nav.rs) ..
+  + rows() : Vec<Row>          <<depth-first, skips collapsed>>
+  + move_up/down/in/out()
+  + collapse() / expand() / toggle_collapse()
+  + collapse_all() / expand_all()
 }
 
 note top of Tree
@@ -50,6 +55,7 @@ class Container {
   + settings : ContainerSettings
   + children : Vec<Node>
   + unloaded : Vec<PathBuf>
+  + collapsed : bool   <<view state, not saved>>
   --
   + update(ContainerPatch)
 }
@@ -115,6 +121,20 @@ class ContainerData <<serde / TOML>> {
   + save(dir)
 }
 
+class ViewState <<view.toml>> {
+  + collapsed : Vec<PathBuf>   <<container dirs>>
+  --
+  + load(root_dir) : ViewState   <<missing/broken -> empty>>
+  + save(root_dir)
+}
+
+note bottom of ViewState
+  <root dir>/view.toml, separate from the data:
+  collapsing never touches .udo.toml files.
+  Keyed by dir (stable), not index path.
+  Applied in load_from, saved when the TUI quits.
+end note
+
 ' ---------- relationships ----------
 Tree o--> Node : root
 Node ..> Container
@@ -131,6 +151,7 @@ Task ..> TaskPatch : update()
 
 Container ..> ContainerData : From<&Container>\n(.udo.toml)
 ContainerData o--> "0..*" Task : tasks
+Tree ..> ViewState : apply_view() / view_state()
 
 note bottom of Node
   Only **Container** owns `children`.

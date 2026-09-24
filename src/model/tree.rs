@@ -11,6 +11,7 @@ use crate::{
         data::ContainerData,
         node::{Node, NodePatch},
         task::Task,
+        view::ViewState,
     },
 };
 
@@ -41,10 +42,12 @@ impl Tree {
             tree.save(&[]).await?;
             return Ok(tree);
         }
-        Ok(Self {
+        let mut tree = Self {
             root: Self::build_container(root_dir.to_path_buf()).await?,
             cursor: vec![],
-        })
+        };
+        tree.apply_view(&ViewState::load(root_dir).await);
+        Ok(tree)
     }
 
     /// Recursively build one container from its dir: load DTO, map tasks ->
@@ -75,6 +78,7 @@ impl Tree {
             settings: data.settings,
             children,
             unloaded,
+            collapsed: false,
         }))
     }
 
@@ -309,6 +313,7 @@ mod tests {
             kind: ContainerKind::Workspace,
             settings: ContainerSettings::default(),
 unloaded: vec![],
+collapsed: false,
             children,
         })
     }
@@ -401,6 +406,7 @@ unloaded: vec![],
                 kind: ContainerKind::Root,
                 settings: ContainerSettings::default(),
 unloaded: vec![],
+collapsed: false,
                 children: vec![task("a"), container("inner", vec![task("b")])],
             }),
             cursor: vec![],
@@ -449,12 +455,14 @@ unloaded: vec![],
                 kind: ContainerKind::Root,
                 settings: ContainerSettings::default(),
 unloaded: vec![],
+collapsed: false,
                 children: vec![Node::Container(Container {
                     name: "ws".into(),
                     dir: ws_dir.clone(),
                     kind: ContainerKind::Workspace,
                     settings: ContainerSettings::default(),
 unloaded: vec![],
+collapsed: false,
                     children: vec![task("t")],
                 })],
             }),
@@ -573,6 +581,7 @@ unloaded: vec![],
                 kind: ContainerKind::Root,
                 settings: ContainerSettings::default(),
 unloaded: vec![],
+collapsed: false,
                 children: vec![
                     task("a"),
                     Node::Container(Container {
@@ -581,6 +590,7 @@ unloaded: vec![],
                         kind: ContainerKind::Workspace,
                         settings: ContainerSettings::default(),
 unloaded: vec![],
+collapsed: false,
                         children: vec![task("b")],
                     }),
                 ],
