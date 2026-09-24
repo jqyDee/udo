@@ -4,7 +4,7 @@ title udo — Recursive Node Tree: Example instance mapped to disk
 hide empty members
 
 object "root : Container" as root {
-  kind = Global
+  kind = Root
   dir  = ~/.config/udo
 }
 object "gtask : Task" as gtask {
@@ -37,7 +37,7 @@ projA --> nested : children[0]
 nested --> ptask : children[0]
 
 note right of root
-  ~/.config/udo/config.toml
+  ~/.config/udo/.udo.toml
     tasks    = [ "pay rent" ]
     children = [ ~/work ]
 end note

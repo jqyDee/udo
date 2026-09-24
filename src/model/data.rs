@@ -29,10 +29,13 @@ pub struct ContainerData {
 }
 
 impl ContainerData {
-    /// Read <dir>/.udo.toml.
+    /// Read <dir>/.udo.toml. Errors name the file, so a broken one is findable.
     pub async fn load(dir: &Path) -> Res<Self> {
-        let content = fs::read_to_string(dir.join(UDO_FILE_NAME)).await?;
-        Ok(toml::from_str(&content)?)
+        let path = dir.join(UDO_FILE_NAME);
+        let content = fs::read_to_string(&path)
+            .await
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        Ok(toml::from_str(&content).map_err(|e| format!("{}: {e}", path.display()))?)
     }
 
     /// Write <dir>/.udo.toml atomically.
@@ -69,5 +72,24 @@ mod tests {
             loaded.settings.archive_dir,
             Some(PathBuf::from("/tmp/arch"))
         );
+    }
+
+    #[tokio::test]
+    async fn load_error_names_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(UDO_FILE_NAME), "nope = 1").unwrap();
+
+        let err = ContainerData::load(dir.path()).await.err().unwrap().to_string();
+
+        assert!(err.contains(&dir.path().join(UDO_FILE_NAME).display().to_string()));
+    }
+
+    #[tokio::test]
+    async fn load_missing_file_names_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let err = ContainerData::load(dir.path()).await.err().unwrap().to_string();
+
+        assert!(err.contains(UDO_FILE_NAME));
     }
 }

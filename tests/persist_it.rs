@@ -17,7 +17,7 @@ fn count_entries(dir: &Path) -> usize {
 #[tokio::main(flavor = "multi_thread")]
 async fn run_write(path: &Path, data: &Sample) -> Result<(), Box<dyn std::error::Error>> {
     // does tokio::task::id() panic here (root block_on task)?
-    write_toml_atomic(&path.to_path_buf(), data).await
+    write_toml_atomic(path, data).await
 }
 
 #[test]

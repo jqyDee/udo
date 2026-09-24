@@ -98,6 +98,7 @@ mod tests {
             dir: PathBuf::from("/tmp/x"),
             kind: ContainerKind::Workspace,
             settings: ContainerSettings::default(),
+            unloaded: vec![],
             children,
         }
     }

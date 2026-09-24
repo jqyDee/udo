@@ -1,0 +1,37 @@
+@startuml
+title udo — create_container / create_task: check, disk, tree, persist
+
+actor "CLI / TUI" as UI
+participant Tree
+participant fs
+participant Persist
+
+== create_container(parent, name, dir, kind) ==
+UI -> Tree : create_container(...)
+Tree -> Tree : check_can_add(parent, name)\n(parent is container, name unique)
+Tree -> fs : dir/.udo.toml exists?
+alt exists
+  Tree --> UI : Err (never overwrite)
+end
+Tree -> fs : create_dir_all(dir)
+Tree -> Tree : insert(parent, Container)
+Tree -> Persist : save(new)     -> <dir>/.udo.toml
+Tree -> Persist : save(parent)  -> parent lists dir in `children`
+Tree --> UI : new path
+
+== create_task(parent, task) ==
+UI -> Tree : create_task(...)
+Tree -> Tree : check_can_add(parent, task.name)
+opt task.dir is Some
+  Tree -> fs : create_dir_all(task.dir)
+end
+Tree -> Tree : insert(parent, Task)
+Tree -> Persist : save(parent)  -> new task row
+Tree --> UI : new path
+
+note over Tree
+  All checks run **before** touching the disk,
+  so a failed call leaves nothing behind.
+end note
+
+@enduml

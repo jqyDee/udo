@@ -10,6 +10,9 @@ pub struct Container {
     pub kind: ContainerKind,
     pub settings: ContainerSettings,
     pub children: Vec<Node>,
+    /// Child dirs listed in the file but not loadable (e.g. drive unmounted).
+    /// Not shown in the tree, but written back on save so they stay registered.
+    pub unloaded: Vec<PathBuf>,
 }
 
 impl Container {
@@ -20,6 +23,7 @@ impl Container {
             dir,
             kind,
             settings: ContainerSettings::default(),
+            unloaded: vec![],
             children: vec![],
         }
     }
@@ -107,6 +111,7 @@ mod tests {
             dir: path.unwrap_or_else(|| PathBuf::from("/tmp/x")),
             kind: ContainerKind::Workspace,
             settings: ContainerSettings::default(),
+            unloaded: vec![],
             children,
         }
     }

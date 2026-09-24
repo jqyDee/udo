@@ -23,10 +23,10 @@ pub struct Task {
 impl Task {
     pub fn new(name: String, dir: Option<PathBuf>, due_date: DateTime<Utc>) -> Self {
         Self {
-            name: name,
-            dir: dir,
+            name,
+            dir,
             status: TaskStatus::Pending,
-            due_date: due_date,
+            due_date,
         }
     }
 

@@ -56,10 +56,12 @@ impl Tree {
         let data = ContainerData::load(&dir).await?;
 
         let mut children: Vec<Node> = data.tasks.into_iter().map(Node::Task).collect();
+        let mut unloaded = vec![];
 
         for child_path in data.children {
             if !child_path.join(UDO_FILE_NAME).exists() {
                 eprintln!("warning: could not find a container in location {child_path:?}");
+                unloaded.push(child_path); // keep it registered, see Container::unloaded
                 continue;
             }
 
@@ -72,6 +74,7 @@ impl Tree {
             kind: data.kind,
             settings: data.settings,
             children,
+            unloaded,
         }))
     }
 
@@ -98,19 +101,17 @@ impl Tree {
     }
 
     /// Path of the nearest ancestor (or self) that owns a file.
-    /// Task -> its parent container; container -> itself.
-    fn nearest_file_owner(&self, path: &[usize]) -> NodePath {
-        match self.get(path) {
-            Some(Node::Container(_)) => path.to_vec(),
-            _ => path[..path.len() - 1].to_vec(), // Task, so go one up
+    /// Task -> its parent container; container -> itself; missing -> None.
+    fn nearest_file_owner(&self, path: &[usize]) -> Option<NodePath> {
+        match self.get(path)? {
+            Node::Container(_) => Some(path.to_vec()),
+            Node::Task(_) => Some(path[..path.len() - 1].to_vec()), // go one up
         }
     }
 
     /// Insert `node` as a child of the container at `parent`, returning the new
-    /// node's path. Errors if `parent` is not a container. This is the tree
-    /// equivalent of the old create_workspace/create_project/create_task.
-    /// Caller persists afterwards via `save(new_path)` (and, for a new
-    /// container, creates its dir on disk).
+    /// node's path. Errors if `parent` is not a container. In-memory only: no
+    /// checks, no disk. Prefer `create_container` / `create_task`.
     pub fn insert(&mut self, parent: &[usize], node: Node) -> Res<NodePath> {
         let children = self
             .get_mut(parent)
@@ -154,7 +155,8 @@ impl Tree {
 
     /// Create a child container under `parent`:
     /// mkdir `dir`, insert, save the new container's file AND the parent's file.
-    /// Errors if `parent` is not a container or a sibling already has `name`.
+    /// Errors if `parent` is not a container, a sibling already has `name`, or
+    /// `dir` already holds a `.udo.toml` (never overwrite existing data).
     pub async fn create_container(
         &mut self,
         parent: &[usize],
@@ -163,6 +165,9 @@ impl Tree {
         kind: ContainerKind,
     ) -> Res<NodePath> {
         self.check_can_add(parent, &name)?;
+        if dir.join(UDO_FILE_NAME).exists() {
+            return Err(format!("{} already contains a udo container", dir.display()).into());
+        }
 
         fs::create_dir_all(&dir).await?;
         let path = self.insert(parent, Node::Container(Container::new(name, dir, kind)))?;
@@ -202,7 +207,7 @@ impl Tree {
 
     /// Re-save the nearest file-owning container for `path`.
     pub async fn save(&self, path: &[usize]) -> Res<()> {
-        let owner = self.nearest_file_owner(path);
+        let owner = self.nearest_file_owner(path).ok_or("no node at the path")?;
         match self.get(&owner) {
             Some(Node::Container(c)) => ContainerData::from(c).save(&c.dir).await,
             _ => Err("file owner is not a container".into()),
@@ -261,7 +266,12 @@ impl From<&Container> for ContainerData {
             name: c.name.clone(),
             kind: c.kind,
             tasks: c.task_children(),
-            children: c.container_children_paths(),
+            // loaded children + ones we couldn't load (must not be dropped)
+            children: c
+                .container_children_paths()
+                .into_iter()
+                .chain(c.unloaded.iter().cloned())
+                .collect(),
             settings: c.settings.clone(),
         }
     }
@@ -298,6 +308,7 @@ mod tests {
             dir: PathBuf::from("/tmp").join(name), // distinct dirs — useful later
             kind: ContainerKind::Workspace,
             settings: ContainerSettings::default(),
+unloaded: vec![],
             children,
         })
     }
@@ -371,15 +382,13 @@ mod tests {
     #[test]
     fn nearest_parent_container_from_container() {
         let t = tree();
-        let path = t.nearest_file_owner(&[1]);
-        assert_eq!(path, &[1])
+        assert_eq!(t.nearest_file_owner(&[1]), Some(vec![1]));
     }
 
     #[test]
     fn nearest_parent_container_from_task() {
         let t = tree();
-        let path = t.nearest_file_owner(&[1, 0]);
-        assert_eq!(path, &[1])
+        assert_eq!(t.nearest_file_owner(&[1, 0]), Some(vec![1]));
     }
 
     #[tokio::test]
@@ -391,6 +400,7 @@ mod tests {
                 dir: dir.path().to_path_buf(),
                 kind: ContainerKind::Root,
                 settings: ContainerSettings::default(),
+unloaded: vec![],
                 children: vec![task("a"), container("inner", vec![task("b")])],
             }),
             cursor: vec![],
@@ -438,11 +448,13 @@ mod tests {
                 dir: root_dir.clone(),
                 kind: ContainerKind::Root,
                 settings: ContainerSettings::default(),
+unloaded: vec![],
                 children: vec![Node::Container(Container {
                     name: "ws".into(),
                     dir: ws_dir.clone(),
                     kind: ContainerKind::Workspace,
                     settings: ContainerSettings::default(),
+unloaded: vec![],
                     children: vec![task("t")],
                 })],
             }),
@@ -560,6 +572,7 @@ mod tests {
                 dir: root_dir.to_path_buf(),
                 kind: ContainerKind::Root,
                 settings: ContainerSettings::default(),
+unloaded: vec![],
                 children: vec![
                     task("a"),
                     Node::Container(Container {
@@ -567,6 +580,7 @@ mod tests {
                         dir: ws_dir,
                         kind: ContainerKind::Workspace,
                         settings: ContainerSettings::default(),
+unloaded: vec![],
                         children: vec![task("b")],
                     }),
                 ],
@@ -777,5 +791,71 @@ mod tests {
         let mut t = disk_tree(tmp.path()).await;
 
         assert!(t.create_task(&[0], new_task("x", None)).await.is_err()); // [0] is task "a"
+    }
+
+    // ---------- regressions ----------
+
+    /// A child that can't be loaded (e.g. drive unmounted) must stay
+    /// registered when its parent is saved again.
+    #[tokio::test]
+    async fn save_keeps_unloaded_child_registered() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root_dir = tmp.path().to_path_buf();
+        let gone = root_dir.join("gone");
+        ContainerData {
+            name: "root".into(),
+            kind: ContainerKind::Root,
+            tasks: vec![],
+            children: vec![gone.clone()],
+            settings: ContainerSettings::default(),
+        }
+        .save(&root_dir)
+        .await
+        .unwrap();
+
+        let mut t = Tree::load_from(&root_dir).await.unwrap();
+        t.create_task(&[], new_task("x", None)).await.unwrap(); // re-saves root
+
+        let data = ContainerData::load(&root_dir).await.unwrap();
+        assert_eq!(data.children, vec![gone]);
+    }
+
+    #[tokio::test]
+    async fn create_container_refuses_existing_udo_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path()).await; // tmp/ws already has a .udo.toml
+
+        let r = t
+            .create_container(&[], "other".into(), tmp.path().join("ws"), ContainerKind::Workspace)
+            .await;
+
+        assert!(r.is_err());
+        let ws = ContainerData::load(&tmp.path().join("ws")).await.unwrap();
+        assert_eq!(ws.name, "ws"); // untouched
+    }
+
+    #[tokio::test]
+    async fn create_container_refuses_root_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = Tree::load_from(tmp.path()).await.unwrap();
+
+        let r = t
+            .create_container(&[], "ws".into(), tmp.path().to_path_buf(), ContainerKind::Workspace)
+            .await;
+
+        assert!(r.is_err());
+        assert_eq!(ContainerData::load(tmp.path()).await.unwrap().name, "root");
+    }
+
+    #[tokio::test]
+    async fn save_errors_on_missing_path() {
+        let t = tree(); // errors before writing, so /tmp is never touched
+        assert!(t.save(&[9]).await.is_err());
+        assert!(t.save(&[1, 5]).await.is_err());
+    }
+
+    #[test]
+    fn nearest_file_owner_none_for_missing() {
+        assert_eq!(tree().nearest_file_owner(&[9]), None);
     }
 }

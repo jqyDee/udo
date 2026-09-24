@@ -6,15 +6,24 @@ skinparam classAttributeIconSize 0
 
 ' ---------- in-memory tree ----------
 class Tree {
-  + root : Node   <<Container(Global)>>
+  + root : Node   <<Container(Root)>>
   + cursor : NodePath
   --
-  + load() : Tree
-  + get(path : &[usize]) : &Node
-  + get_mut(path : &[usize]) : &mut Node
+  .. load ..
+  + load() : Tree                      <<root = ~/.config/udo>>
+  + load_from(root_dir) : Tree
+  .. navigate ..
+  + get(path) : Option<&Node>
+  + get_mut(path) : Option<&mut Node>
+  + find_child(parent, name) : Option<NodePath>
+  + resolve(names) : Option<NodePath>
+  .. change + persist ..
+  + create_container(parent, name, dir, kind) : NodePath
+  + create_task(parent, task) : NodePath
   + update(path, NodePatch)
   + save(path)
   + delete(path)
+  + insert(parent, node) : NodePath    <<in-memory only>>
 }
 
 note top of Tree
@@ -27,8 +36,11 @@ class "Node  <<enum>>" as Node {
   Container(Container)
   Task(Task)
   --
+  + name() : &str
+  + dir() : Option<&Path>
   + children() : &[Node]
   + children_mut() : Option<&mut Vec<Node>>
+  + update(NodePatch)
 }
 
 class Container {
@@ -37,6 +49,9 @@ class Container {
   + kind : ContainerKind
   + settings : ContainerSettings
   + children : Vec<Node>
+  + unloaded : Vec<PathBuf>
+  --
+  + update(ContainerPatch)
 }
 
 class Task {
@@ -44,10 +59,12 @@ class Task {
   + dir : Option<PathBuf>
   + status : TaskStatus
   + due_date : DateTime<Utc>
+  --
+  + update(TaskPatch)
 }
 
 enum ContainerKind {
-  Global
+  Root
   Workspace
   Project
 }
@@ -62,16 +79,11 @@ enum TaskStatus {
 class ContainerSettings {
   + archive_dir : Option<PathBuf>
   + default_script : Option<PathBuf>
-  + theme : Option<String>                          <<Global only>>
-  + default_workspace : Option<(String, PathBuf)>   <<Global only>>
+  + theme : Option<String>                          <<Root only>>
+  + default_workspace : Option<(String, PathBuf)>   <<Root only>>
 }
 
 ' ---------- update / patch ----------
-interface "Updateable  <<trait>>" as Updateable {
-  type Patch
-  + update(&mut self, patch : Patch)
-}
-
 class "NodePatch  <<enum>>" as NodePatch {
   Container(ContainerPatch)
   Task(TaskPatch)
@@ -91,20 +103,16 @@ class TaskPatch {
   + due_date : Option<DateTime<Utc>>
 }
 
-' ---------- persistence DTOs ----------
+' ---------- persistence DTO ----------
 class ContainerData <<serde / TOML>> {
   + name : String
   + kind : ContainerKind
   + tasks : Vec<Task>
   + children : Vec<PathBuf>   <<child dirs>>
-  + settings : ContainerSettings
-}
-
-class AppConfig <<config.toml>> {
-  + workspaces : HashMap<String, PathBuf>
-  + default_workspace : Option<(String, PathBuf)>
-  + theme : String
-  + tasks : Vec<Task>
+  + settings : ContainerSettings   <<flattened>>
+  --
+  + load(dir) : ContainerData
+  + save(dir)
 }
 
 ' ---------- relationships ----------
@@ -116,16 +124,13 @@ Container --> ContainerKind
 Container --> ContainerSettings
 Task --> TaskStatus
 
-Updateable <|.. Container
-Updateable <|.. Task
 NodePatch ..> ContainerPatch
 NodePatch ..> TaskPatch
-Container ..> ContainerPatch : Patch =
-Task ..> TaskPatch : Patch =
+Container ..> ContainerPatch : update()
+Task ..> TaskPatch : update()
 
-Container ..> ContainerData : to_data() / persists  (.udo.toml)
+Container ..> ContainerData : From<&Container>\n(.udo.toml)
 ContainerData o--> "0..*" Task : tasks
-Container ..> AppConfig : root persists  (config.toml)
 
 note bottom of Node
   Only **Container** owns `children`.
@@ -134,12 +139,21 @@ note bottom of Node
   (no runtime guard needed).
 end note
 
+note right of Container
+  `unloaded`: child dirs listed in the file
+  but not loadable (e.g. drive unmounted).
+  Runtime only, not shown in the tree —
+  written back into `children` on save
+  so they stay registered.
+end note
+
 note bottom of ContainerData
   **One file per container:**
-  - normal      → <dir>/.udo.toml
-  - root/Global → ~/.config/udo/config.toml
+  every container (root too) → <dir>/.udo.toml
+  root dir = ~/.config/udo
   `children` stores child **dir paths**, not nested data.
   Tasks are rows in the parent's file (no own file).
+  Load errors name the file.
 end note
 
 @enduml

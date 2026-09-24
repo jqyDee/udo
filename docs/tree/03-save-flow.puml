@@ -4,17 +4,12 @@ title udo — save(path): re-save the nearest file-owning container
 actor TUI
 participant Tree
 participant Node
-participant "persist\n(write_toml_atomic / AppConfig::save)" as Persist
+participant "persist\n(write_toml_atomic)" as Persist
 
 TUI -> Tree : save(path)
-Tree -> Tree : owner = nearest Container ancestor(path)
-alt owner.kind == Global (root)
-  Tree -> Node : to_app_config()\n(tasks = Task children,\n workspaces = Container child dirs)
-  Tree -> Persist : AppConfig::save() -> config.toml
-else Workspace / Project / nested
-  Tree -> Node : to_container_data()\n(tasks = Task children,\n children = Container child dirs)
-  Tree -> Persist : write <dir>/.udo.toml
-end
+Tree -> Tree : owner = nearest Container ancestor(path)\n(missing path -> Err)
+Tree -> Node : ContainerData::from(container)\n(tasks = Task children,\n children = Container child dirs + unloaded)
+Tree -> Persist : write <dir>/.udo.toml\n(root too: ~/.config/udo/.udo.toml)
 Persist --> Tree : Ok
 Tree --> TUI : Ok
 

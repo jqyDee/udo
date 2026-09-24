@@ -1,24 +1,28 @@
 @startuml
-title udo — delete(path): remove node, then re-save its parent
+title udo — delete(path): unregister node, re-save its parent
 
 actor TUI
 participant Tree
-participant fs
+participant Persist
 
 TUI -> Tree : delete(path)
-Tree -> Tree : node   = get(path)\nparent = get(path[..last])
-alt node is Container
-  Tree -> fs : remove_dir_all(node.dir)
-end
-Tree -> Tree : parent.children.remove(last index)
-Tree -> Tree : save(parent path)\n(rewrites parent file -> drops child dir / task row)
+Tree -> Tree : (idx, parent) = path.split_last()\n(empty path = root -> Err)
+Tree -> Tree : parent.children.remove(idx)\n(parent missing / task / idx out of range -> Err)
+Tree -> Tree : fix_cursor_after_remove(parent, idx)
+Tree -> Persist : save(parent)\n(parent file drops the child dir / task row)
+Persist --> Tree : Ok
 Tree --> TUI : Ok
 
 note right of Tree
-  - Task: no fs remove — drop row + re-save parent.
-  - Root (Global): not deletable.
-  - Index-path cursor shifts after a remove →
-    TUI refreshes `cursor` afterwards.
+  **Nothing is deleted on disk.**
+  A container's dir and its .udo.toml stay;
+  the node is only unregistered from its parent.
+
+  Cursor fix-up (siblings shift left):
+  - cursor on later sibling (or inside) → index - 1
+  - cursor on removed node (or inside) →
+    sibling now at idx, else previous, else parent
+  - earlier sibling / other branch → unchanged
 end note
 
 @enduml
