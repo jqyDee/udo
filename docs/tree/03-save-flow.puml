@@ -1,0 +1,26 @@
+@startuml
+title udo — save(path): re-save the nearest file-owning container
+
+actor TUI
+participant Tree
+participant Node
+participant "persist\n(write_toml_atomic / AppConfig::save)" as Persist
+
+TUI -> Tree : save(path)
+Tree -> Tree : owner = nearest Container ancestor(path)
+alt owner.kind == Global (root)
+  Tree -> Node : to_app_config()\n(tasks = Task children,\n workspaces = Container child dirs)
+  Tree -> Persist : AppConfig::save() -> config.toml
+else Workspace / Project / nested
+  Tree -> Node : to_container_data()\n(tasks = Task children,\n children = Container child dirs)
+  Tree -> Persist : write <dir>/.udo.toml
+end
+Persist --> Tree : Ok
+Tree --> TUI : Ok
+
+note over Tree
+  Editing a Task never writes its own file —
+  it re-saves the parent container that owns it.
+end note
+
+@enduml

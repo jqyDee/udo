@@ -1,0 +1,21 @@
+@startuml
+
+interface Container {
+}
+
+interface Leaf {
+}
+
+
+class Workspace {
+}
+
+class Project {
+}
+
+class Task {
+}
+
+Container *..* Workspace
+
+@enduml

@@ -1,10 +1,20 @@
-use std::path::PathBuf;
+use std::{
+    io,
+    path::{PathBuf, absolute},
+};
 
+use chrono::NaiveDateTime;
 use clap::{Parser, Subcommand};
+use crossterm::event;
 
 use crate::{
-    config::AppConfig,
-    task::{add_project, add_task, add_workspace},
+    Res,
+    model::{
+        container::{ContainerKind, ContainerPatch, ContainerSettings},
+        node::NodePatch,
+        task::Task,
+        tree::{NodePath, Tree},
+    },
 };
 
 #[derive(Parser)]
@@ -17,7 +27,7 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     List,
-    AddWorkspace {
+    CreateWorkspace {
         #[arg(short, long, value_parser = collapse_whitespaces)]
         name: String,
         #[arg(short, long)]
@@ -54,30 +64,62 @@ pub enum Commands {
 }
 
 impl Cli {
-    pub async fn execute(&self, app_config: &mut AppConfig) {
+    pub async fn execute(&self, tree: &mut Tree) -> Res<()> {
         match &self.command {
             None => {
-                todo!("TUI is not done yet!")
+                let mut should_exit = false;
+                ratatui::run(|terminal| {
+                    loop {
+                        terminal.draw(|frame| frame.render_widget("Hello World!", frame.area()))?;
+                        if event::read()?.is_key_press() {
+                            should_exit = true;
+                            break;
+                        }
+                    }
+                    Ok::<(), io::Error>(())
+                })?;
+                if should_exit {
+                    return Ok(());
+                }
             }
             Some(cmd) => match cmd {
                 Commands::List => {
                     todo!("List is not yet done!");
                 }
-                Commands::AddWorkspace {
+                Commands::CreateWorkspace {
                     name,
                     dir,
                     archive_dir,
                 } => {
-                    if let Err(e) = add_workspace(app_config, name, dir, archive_dir).await {
-                        eprintln!("Error adding workspace: {}", e);
-                        std::process::exit(1);
+                    // absolute: the parent file stores this path, cwd must not matter
+                    let dir = absolute(dir)?;
+                    let ws = tree
+                        .create_container(&[], name.clone(), dir.clone(), ContainerKind::Workspace)
+                        .await?;
+
+                    if let Some(archive_dir) = archive_dir {
+                        tree.update(
+                            &ws,
+                            NodePatch::Container(ContainerPatch {
+                                settings: Some(ContainerSettings {
+                                    archive_dir: Some(absolute(archive_dir)?),
+                                    ..Default::default()
+                                }),
+                                ..Default::default()
+                            }),
+                        )?;
+                        tree.save(&ws).await?;
                     }
+                    println!("Created workspace {name:?} at {dir:?}");
                 }
                 Commands::AddProject { workspace, project } => {
-                    if let Err(e) = add_project(app_config, workspace, project).await {
-                        eprintln!("Error adding project: {}", e);
-                        std::process::exit(1);
-                    }
+                    let ws = tree
+                        .resolve(&[workspace.as_str()])
+                        .ok_or("workspace not found")?;
+                    let dir = node_dir(tree, &ws)?.join(project);
+                    tree.create_container(&ws, project.clone(), dir.clone(), ContainerKind::Project)
+                        .await?;
+                    println!("Created project {project:?} at {dir:?}");
                 }
                 Commands::AddTask {
                     project,
@@ -87,27 +129,50 @@ impl Cli {
                     custom_dir,
                     no_auto_create_folder,
                 } => {
-                    if let Err(e) = add_task(
-                        app_config,
-                        workspace,
-                        project,
-                        task,
-                        custom_dir,
-                        due,
-                        no_auto_create_folder,
-                    )
-                    .await
-                    {
-                        eprintln!("Error adding task: {}", e);
-                        std::process::exit(1);
+                    let date = NaiveDateTime::parse_from_str(due, "%Y-%m-%d %H:%M")?.and_utc();
+
+                    let parent: NodePath = match (workspace, project) {
+                        (None, None) => vec![], // root
+                        (Some(w), None) => tree
+                            .resolve(&[w.as_str()])
+                            .ok_or("workspace not found")?,
+                        (Some(w), Some(p)) => tree
+                            .resolve(&[w.as_str(), p.as_str()])
+                            .ok_or("project not found")?,
+                        (None, Some(_)) => {
+                            return Err("cannot specify a project without a workspace".into());
+                        }
                     };
+
+                    // same as before: auto task folder only inside projects
+                    let dir = match custom_dir {
+                        Some(d) => Some(absolute(d)?),
+                        None if project.is_some() && !no_auto_create_folder => {
+                            Some(node_dir(tree, &parent)?.join(task))
+                        }
+                        None => None,
+                    };
+
+                    tree.create_task(&parent, Task::new(task.clone(), dir, date))
+                        .await?;
+                    println!("Added task {task:?}");
                 }
                 Commands::Run { project, task } => {
                     todo!("Run is not yet done; project: {}, task: {}!", project, task);
                 }
             },
         }
+        Ok(())
     }
+}
+
+/// Owned dir of the node at `path` (errors if missing or a task without dir).
+fn node_dir(tree: &Tree, path: &[usize]) -> Res<PathBuf> {
+    let dir = tree
+        .get(path)
+        .and_then(|n| n.dir())
+        .ok_or("node has no dir")?;
+    Ok(dir.to_path_buf())
 }
 
 fn collapse_whitespaces(input: &str) -> Result<String, String> {

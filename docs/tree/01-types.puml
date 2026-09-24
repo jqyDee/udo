@@ -1,0 +1,145 @@
+@startuml
+title udo — Recursive Node Tree: Types
+
+hide empty members
+skinparam classAttributeIconSize 0
+
+' ---------- in-memory tree ----------
+class Tree {
+  + root : Node   <<Container(Global)>>
+  + cursor : NodePath
+  --
+  + load() : Tree
+  + get(path : &[usize]) : &Node
+  + get_mut(path : &[usize]) : &mut Node
+  + update(path, NodePatch)
+  + save(path)
+  + delete(path)
+}
+
+note top of Tree
+  NodePath = Vec<usize>
+  child-index path from root;
+  also the TUI cursor.
+end note
+
+class "Node  <<enum>>" as Node {
+  Container(Container)
+  Task(Task)
+  --
+  + children() : &[Node]
+  + children_mut() : Option<&mut Vec<Node>>
+}
+
+class Container {
+  + name : String
+  + dir : PathBuf
+  + kind : ContainerKind
+  + settings : ContainerSettings
+  + children : Vec<Node>
+}
+
+class Task {
+  + name : String
+  + dir : Option<PathBuf>
+  + status : TaskStatus
+  + due_date : DateTime<Utc>
+}
+
+enum ContainerKind {
+  Global
+  Workspace
+  Project
+}
+
+enum TaskStatus {
+  Pending
+  Stale
+  InProgress
+  Finished
+}
+
+class ContainerSettings {
+  + archive_dir : Option<PathBuf>
+  + default_script : Option<PathBuf>
+  + theme : Option<String>                          <<Global only>>
+  + default_workspace : Option<(String, PathBuf)>   <<Global only>>
+}
+
+' ---------- update / patch ----------
+interface "Updateable  <<trait>>" as Updateable {
+  type Patch
+  + update(&mut self, patch : Patch)
+}
+
+class "NodePatch  <<enum>>" as NodePatch {
+  Container(ContainerPatch)
+  Task(TaskPatch)
+}
+
+class ContainerPatch {
+  + name : Option<String>
+  + dir : Option<PathBuf>
+  + kind : Option<ContainerKind>
+  + settings : Option<ContainerSettings>
+}
+
+class TaskPatch {
+  + name : Option<String>
+  + dir : Option<PathBuf>
+  + status : Option<TaskStatus>
+  + due_date : Option<DateTime<Utc>>
+}
+
+' ---------- persistence DTOs ----------
+class ContainerData <<serde / TOML>> {
+  + name : String
+  + kind : ContainerKind
+  + tasks : Vec<Task>
+  + children : Vec<PathBuf>   <<child dirs>>
+  + settings : ContainerSettings
+}
+
+class AppConfig <<config.toml>> {
+  + workspaces : HashMap<String, PathBuf>
+  + default_workspace : Option<(String, PathBuf)>
+  + theme : String
+  + tasks : Vec<Task>
+}
+
+' ---------- relationships ----------
+Tree o--> Node : root
+Node ..> Container
+Node ..> Task
+Container o--> "0..*" Node : children
+Container --> ContainerKind
+Container --> ContainerSettings
+Task --> TaskStatus
+
+Updateable <|.. Container
+Updateable <|.. Task
+NodePatch ..> ContainerPatch
+NodePatch ..> TaskPatch
+Container ..> ContainerPatch : Patch =
+Task ..> TaskPatch : Patch =
+
+Container ..> ContainerData : to_data() / persists  (.udo.toml)
+ContainerData o--> "0..*" Task : tasks
+Container ..> AppConfig : root persists  (config.toml)
+
+note bottom of Node
+  Only **Container** owns `children`.
+  A **Task** has no children field →
+  leaf-ness is guaranteed at **compile time**
+  (no runtime guard needed).
+end note
+
+note bottom of ContainerData
+  **One file per container:**
+  - normal      → <dir>/.udo.toml
+  - root/Global → ~/.config/udo/config.toml
+  `children` stores child **dir paths**, not nested data.
+  Tasks are rows in the parent's file (no own file).
+end note
+
+@enduml

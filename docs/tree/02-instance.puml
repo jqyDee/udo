@@ -1,0 +1,60 @@
+@startuml
+title udo — Recursive Node Tree: Example instance mapped to disk
+
+hide empty members
+
+object "root : Container" as root {
+  kind = Global
+  dir  = ~/.config/udo
+}
+object "gtask : Task" as gtask {
+  name = "pay rent"
+}
+object "work : Container" as work {
+  kind = Workspace
+  dir  = ~/work
+}
+object "wtask : Task" as wtask {
+  name = "standup"
+}
+object "projA : Container" as projA {
+  kind = Project
+  dir  = ~/work/proj-a
+}
+object "nested : Container" as nested {
+  kind = Project
+  dir  = ~/work/proj-a/nested
+}
+object "ptask : Task" as ptask {
+  name = "write spec"
+}
+
+root  --> gtask : children[0]
+root  --> work  : children[1]
+work  --> wtask : children[0]
+work  --> projA : children[1]
+projA --> nested : children[0]
+nested --> ptask : children[0]
+
+note right of root
+  ~/.config/udo/config.toml
+    tasks    = [ "pay rent" ]
+    children = [ ~/work ]
+end note
+note right of work
+  ~/work/.udo.toml
+    tasks    = [ "standup" ]
+    children = [ ~/work/proj-a ]
+end note
+note right of projA
+  ~/work/proj-a/.udo.toml
+    tasks    = [ ]
+    children = [ ~/work/proj-a/nested ]
+end note
+note right of nested
+  ~/work/proj-a/nested/.udo.toml
+    tasks    = [ "write spec" ]
+    children = [ ]
+end note
+
+@enduml

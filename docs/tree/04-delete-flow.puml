@@ -1,0 +1,24 @@
+@startuml
+title udo — delete(path): remove node, then re-save its parent
+
+actor TUI
+participant Tree
+participant fs
+
+TUI -> Tree : delete(path)
+Tree -> Tree : node   = get(path)\nparent = get(path[..last])
+alt node is Container
+  Tree -> fs : remove_dir_all(node.dir)
+end
+Tree -> Tree : parent.children.remove(last index)
+Tree -> Tree : save(parent path)\n(rewrites parent file -> drops child dir / task row)
+Tree --> TUI : Ok
+
+note right of Tree
+  - Task: no fs remove — drop row + re-save parent.
+  - Root (Global): not deletable.
+  - Index-path cursor shifts after a remove →
+    TUI refreshes `cursor` afterwards.
+end note
+
+@enduml

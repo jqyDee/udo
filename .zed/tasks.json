@@ -1,0 +1,16 @@
+[
+  {
+    "label": "Rust: Run Coverage (Terminal Summary)",
+    "command": "cargo",
+    "args": ["llvm-cov"],
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false
+  },
+  {
+    "label": "Rust: Run Coverage (Open HTML Report)",
+    "command": "cargo",
+    "args": ["llvm-cov", "--open"],
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false
+  }
+]

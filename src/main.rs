@@ -1,11 +1,18 @@
 use clap::Parser;
-use udo::{cli::Cli, config::AppConfig};
+use udo::{cli::Cli, model::tree::Tree};
 
 #[tokio::main]
 async fn main() {
-    let mut app_config = AppConfig::load_or_create()
-        .await
-        .expect("Error loading App Config");
     let cli = Cli::parse();
-    cli.execute(&mut app_config).await;
+
+    let result = async {
+        let mut tree = Tree::load().await?;
+        cli.execute(&mut tree).await
+    }
+    .await;
+
+    if let Err(e) = result {
+        eprintln!("error: {e}");
+        std::process::exit(1);
+    }
 }
