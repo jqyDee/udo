@@ -96,36 +96,19 @@ mod tests {
     use super::*;
     use crate::{
         UDO_FILE_NAME,
-        model::{
-            container::{Container, ContainerKind},
-            task::Task,
-        },
+        model::{container::ContainerKind, task::Task},
+        test_util::{container, task, tree_with},
     };
 
-    fn task(name: &str) -> Node {
-        Node::Task(Task::new(name.into(), None, Utc::now()))
-    }
-    fn container(name: &str, children: Vec<Node>) -> Node {
-        let mut c = Container::new(
-            name.into(),
-            PathBuf::from("/tmp").join(name),
-            ContainerKind::Workspace,
-        );
-        c.children = children;
-        Node::Container(c)
-    }
     /// root: [a, inner: [b, deep: [c]]]  (in memory, nothing written)
     fn tree() -> Tree {
-        Tree {
-            root: container(
-                "root",
-                vec![
-                    task("a"),
-                    container("inner", vec![task("b"), container("deep", vec![task("c")])]),
-                ],
-            ),
-            cursor: vec![],
-        }
+        tree_with(
+            vec![
+                task("a"),
+                container("inner", vec![task("b"), container("deep", vec![task("c")])]),
+            ],
+            &[],
+        )
     }
     fn names(t: &Tree) -> Vec<&str> {
         t.rows().iter().map(|r| r.node.name()).collect()

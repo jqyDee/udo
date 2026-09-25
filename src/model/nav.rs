@@ -163,34 +163,8 @@ fn set_collapsed_all(node: &mut Node, collapsed: bool) {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
-    use chrono::Utc;
-
     use super::*;
-    use crate::model::{
-        container::{Container, ContainerKind},
-        task::Task,
-    };
-
-    fn task(name: &str) -> Node {
-        Node::Task(Task::new(name.into(), None, Utc::now()))
-    }
-    fn container(name: &str, children: Vec<Node>) -> Node {
-        let mut c = Container::new(
-            name.into(),
-            PathBuf::from("/tmp").join(name),
-            ContainerKind::Workspace,
-        );
-        c.children = children;
-        Node::Container(c)
-    }
-    fn tree_with(children: Vec<Node>, cursor: &[usize]) -> Tree {
-        Tree {
-            root: container("root", children),
-            cursor: cursor.to_vec(),
-        }
-    }
+    use crate::test_util::{container, task, tree_with};
 
     /// root
     /// ├─ a                [0]

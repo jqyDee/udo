@@ -6,3 +6,6 @@ pub mod cli;
 pub mod persist;
 pub mod tui;
 pub mod model;
+
+#[cfg(test)]
+mod test_util;
