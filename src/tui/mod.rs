@@ -51,8 +51,10 @@ async fn event_loop(terminal: &mut DefaultTerminal, tree: &mut Tree) -> Res<()> 
         if action == Action::Quit {
             return Ok(());
         }
-        if let Err(e) = action.apply(tree).await {
-            state.error(e.to_string());
+        match action.apply(tree).await {
+            Ok(Some(msg)) => state.info(msg),
+            Err(e) => state.error(e.to_string()),
+            Ok(None) => {}
         }
     }
 }

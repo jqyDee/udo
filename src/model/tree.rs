@@ -13,7 +13,7 @@ use crate::{
         container::{Container, ContainerKind},
         data::ContainerData,
         node::{Node, NodePatch},
-        task::Task,
+        task::{Task, TaskPatch, TaskStatus},
         view::ViewState,
     },
 };
@@ -84,7 +84,9 @@ impl Tree {
             collapsed: false,
         }))
     }
+}
 
+impl Tree {
     /// Get the node at a given path:
     ///
     /// Path is structured as the children ids from the root node.
@@ -116,27 +118,6 @@ impl Tree {
         }
     }
 
-    /// Insert `node` as a child of the container at `parent`, returning the new
-    /// node's path. Errors if `parent` is not a container. In-memory only: no
-    /// checks, no disk. Prefer `create_container` / `create_task`.
-    pub fn insert(&mut self, parent: &[usize], node: Node) -> Res<NodePath> {
-        let children = self
-            .get_mut(parent)
-            .and_then(|n| n.children_mut())
-            .ok_or("parent missing or not a container")?;
-        let idx = children.len();
-        children.push(node);
-        let mut path = parent.to_vec();
-        path.push(idx);
-        Ok(path)
-    }
-
-    pub fn update(&mut self, path: &[usize], patch: NodePatch) -> Res<()> {
-        self.get_mut(path)
-            .ok_or("no node at the path")?
-            .update(patch)
-    }
-
     /// Path of the direct child of `parent` called `name` (task or container).
     /// None if `parent` is missing, is a task, or has no such child.
     pub fn find_child(&self, parent: &[usize], name: &str) -> Option<NodePath> {
@@ -158,6 +139,29 @@ impl Tree {
             path = self.find_child(&path, name)?;
         }
         Some(path)
+    }
+}
+
+impl Tree {
+    /// Insert `node` as a child of the container at `parent`, returning the new
+    /// node's path. Errors if `parent` is not a container. In-memory only: no
+    /// checks, no disk. Prefer `create_container` / `create_task`.
+    pub fn insert(&mut self, parent: &[usize], node: Node) -> Res<NodePath> {
+        let children = self
+            .get_mut(parent)
+            .and_then(|n| n.children_mut())
+            .ok_or("parent missing or not a container")?;
+        let idx = children.len();
+        children.push(node);
+        let mut path = parent.to_vec();
+        path.push(idx);
+        Ok(path)
+    }
+
+    pub fn update(&mut self, path: &[usize], patch: NodePatch) -> Res<()> {
+        self.get_mut(path)
+            .ok_or("no node at the path")?
+            .update(patch)
     }
 
     /// Create a child container under `parent`:
@@ -200,18 +204,6 @@ impl Tree {
         Ok(path)
     }
 
-    /// Checks before adding a child: `parent` must be a container and must not
-    /// already have a child called `name`. Run before touching the disk.
-    fn check_can_add(&self, parent: &[usize], name: &str) -> Res<()> {
-        if !matches!(self.get(parent), Some(Node::Container(_))) {
-            return Err("parent missing or not a container".into());
-        }
-        if self.find_child(parent, name).is_some() {
-            return Err(format!("{name:?} already exists here").into());
-        }
-        Ok(())
-    }
-
     /// Re-save the nearest file-owning container for `path`.
     pub async fn save(&self, path: &[usize]) -> Res<()> {
         let owner = self.nearest_file_owner(path).ok_or("no node at the path")?;
@@ -241,6 +233,22 @@ impl Tree {
         self.save(parent_path).await
     }
 
+    pub async fn set_task_status(&mut self, path: &[usize], status: TaskStatus) -> Res<()> {
+        if !matches!(self.get(path), Some(Node::Task(_))) {
+            return Err("only tasks have a status".into());
+        }
+        self.update(
+            path,
+            NodePatch::Task(TaskPatch {
+                status: Some(status),
+                ..Default::default()
+            }),
+        )?;
+        self.save(path).await
+    }
+}
+
+impl Tree {
     /// Keep `self.cursor` valid after the child at `parent_path + [idx]` was removed.
     fn fix_cursor_after_remove(&mut self, parent_path: &[usize], idx: usize) {
         let depth = parent_path.len();
@@ -263,6 +271,18 @@ impl Tree {
             }
         }
         // c < idx: earlier sibling, unaffected
+    }
+
+    /// Checks before adding a child: `parent` must be a container and must not
+    /// already have a child called `name`. Run before touching the disk.
+    fn check_can_add(&self, parent: &[usize], name: &str) -> Res<()> {
+        if !matches!(self.get(parent), Some(Node::Container(_))) {
+            return Err("parent missing or not a container".into());
+        }
+        if self.find_child(parent, name).is_some() {
+            return Err(format!("{name:?} already exists here").into());
+        }
+        Ok(())
     }
 }
 
@@ -327,8 +347,8 @@ mod tests {
             dir: PathBuf::from("/tmp").join(name), // distinct dirs — useful later
             kind: ContainerKind::Workspace,
             settings: ContainerSettings::default(),
-unloaded: vec![],
-collapsed: false,
+            unloaded: vec![],
+            collapsed: false,
             children,
         })
     }
@@ -420,8 +440,8 @@ collapsed: false,
                 dir: dir.path().to_path_buf(),
                 kind: ContainerKind::Root,
                 settings: ContainerSettings::default(),
-unloaded: vec![],
-collapsed: false,
+                unloaded: vec![],
+                collapsed: false,
                 children: vec![task("a"), container("inner", vec![task("b")])],
             }),
             cursor: vec![],
@@ -469,15 +489,15 @@ collapsed: false,
                 dir: root_dir.clone(),
                 kind: ContainerKind::Root,
                 settings: ContainerSettings::default(),
-unloaded: vec![],
-collapsed: false,
+                unloaded: vec![],
+                collapsed: false,
                 children: vec![Node::Container(Container {
                     name: "ws".into(),
                     dir: ws_dir.clone(),
                     kind: ContainerKind::Workspace,
                     settings: ContainerSettings::default(),
-unloaded: vec![],
-collapsed: false,
+                    unloaded: vec![],
+                    collapsed: false,
                     children: vec![task("t")],
                 })],
             }),
@@ -595,8 +615,8 @@ collapsed: false,
                 dir: root_dir.to_path_buf(),
                 kind: ContainerKind::Root,
                 settings: ContainerSettings::default(),
-unloaded: vec![],
-collapsed: false,
+                unloaded: vec![],
+                collapsed: false,
                 children: vec![
                     task("a"),
                     Node::Container(Container {
@@ -604,8 +624,8 @@ collapsed: false,
                         dir: ws_dir,
                         kind: ContainerKind::Workspace,
                         settings: ContainerSettings::default(),
-unloaded: vec![],
-collapsed: false,
+                        unloaded: vec![],
+                        collapsed: false,
                         children: vec![task("b")],
                     }),
                 ],
@@ -851,7 +871,12 @@ collapsed: false,
         let mut t = disk_tree(tmp.path()).await; // tmp/ws already has a .udo.toml
 
         let r = t
-            .create_container(&[], "other".into(), tmp.path().join("ws"), ContainerKind::Workspace)
+            .create_container(
+                &[],
+                "other".into(),
+                tmp.path().join("ws"),
+                ContainerKind::Workspace,
+            )
             .await;
 
         assert!(r.is_err());
@@ -865,7 +890,12 @@ collapsed: false,
         let mut t = Tree::load_from(tmp.path()).await.unwrap();
 
         let r = t
-            .create_container(&[], "ws".into(), tmp.path().to_path_buf(), ContainerKind::Workspace)
+            .create_container(
+                &[],
+                "ws".into(),
+                tmp.path().to_path_buf(),
+                ContainerKind::Workspace,
+            )
             .await;
 
         assert!(r.is_err());
@@ -905,5 +935,40 @@ collapsed: false,
             let dir = root_dir_from(env).unwrap();
             assert!(dir.ends_with(".config/udo"));
         }
+    }
+
+    #[tokio::test]
+    async fn set_task_status_updates_tree_and_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path()).await; // root: [a, ws: [b]]
+
+        t.set_task_status(&[1, 0], TaskStatus::Finished)
+            .await
+            .unwrap();
+
+        let Some(Node::Task(b)) = t.get(&[1, 0]) else {
+            panic!("expected a task at [1, 0]");
+        };
+        assert_eq!(b.status, TaskStatus::Finished);
+        assert_eq!(b.name, "b"); // nothing else changed
+
+        let ws = ContainerData::load(&tmp.path().join("ws")).await.unwrap();
+        assert_eq!(ws.tasks[0].status, TaskStatus::Finished);
+    }
+
+    #[tokio::test]
+    async fn set_task_status_rejects_container() {
+        let mut t = tree(); // in memory: root: [a, inner: [b]]
+        let err = t
+            .set_task_status(&[1], TaskStatus::Finished)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("only tasks"));
+    }
+
+    #[tokio::test]
+    async fn set_task_status_rejects_missing_path() {
+        let mut t = tree();
+        assert!(t.set_task_status(&[9], TaskStatus::Finished).await.is_err());
     }
 }

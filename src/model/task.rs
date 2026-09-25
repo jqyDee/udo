@@ -3,11 +3,11 @@ use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub enum TaskStatus {
     Pending,
-    Stale,
     /// When not Pending and not in progress
+    Stale,
     InProgress,
     Finished,
 }
