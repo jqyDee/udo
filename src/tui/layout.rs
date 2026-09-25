@@ -1,23 +1,26 @@
-//! Drawing: tree list (left), details (right), help line (bottom).
+//! Drawing: tree list (left), details (right), status or help line (bottom).
 
 use ratatui::{
     Frame,
     layout::{Constraint, Layout},
     style::{Style, Stylize},
     text::{Line, Span},
-    widgets::{Block, List, ListItem, ListState, Paragraph},
+    widgets::{Block, List, ListItem, Paragraph},
 };
 
-use crate::model::{
-    nav::Row,
-    node::Node,
-    task::{Task, TaskStatus},
-    tree::Tree,
+use crate::{
+    model::{
+        nav::Row,
+        node::Node,
+        task::{Task, TaskStatus},
+        tree::Tree,
+    },
+    tui::state::{Status, UiState},
 };
 
 const HELP: &str = " j/k move · l/h in/out · space fold · z/Z fold/unfold all · q quit";
 
-pub fn draw(frame: &mut Frame, tree: &Tree, list_state: &mut ListState) {
+pub fn draw(frame: &mut Frame, tree: &Tree, state: &mut UiState) {
     let [main, help] =
         Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(frame.area());
     let [left, right] =
@@ -25,7 +28,10 @@ pub fn draw(frame: &mut Frame, tree: &Tree, list_state: &mut ListState) {
 
     // tree
     let rows = tree.rows();
-    list_state.select(rows.iter().position(|r| r.path == tree.cursor));
+    state
+        .list
+        .select(rows.iter().position(|r| r.path == tree.cursor));
+
     let block = Block::bordered().title(" udo ");
     if rows.is_empty() {
         let hint = Paragraph::new("Nothing here yet. Add some with `udo create-workspace`.")
@@ -36,7 +42,7 @@ pub fn draw(frame: &mut Frame, tree: &Tree, list_state: &mut ListState) {
         let list = List::new(rows.iter().map(row_line).map(ListItem::new))
             .block(block)
             .highlight_style(Style::new().reversed());
-        frame.render_stateful_widget(list, left, list_state);
+        frame.render_stateful_widget(list, left, &mut state.list);
     }
 
     // details
@@ -49,7 +55,12 @@ pub fn draw(frame: &mut Frame, tree: &Tree, list_state: &mut ListState) {
         right,
     );
 
-    frame.render_widget(Line::from(HELP).dim(), help);
+    let bottom = match &state.status {
+        Some(Status::Error(msg)) => Line::from(format!(" {msg}")).red(),
+        Some(Status::Info(msg)) => Line::from(format!(" {msg}")),
+        None => Line::from(HELP).dim(),
+    };
+    frame.render_widget(bottom, help);
 }
 
 fn row_line<'a>(row: &Row<'a>) -> Line<'a> {
@@ -96,11 +107,18 @@ fn status_icon(s: &TaskStatus) -> &'static str {
 
 fn detail_lines(node: &Node) -> Vec<Line<'_>> {
     fn field<'a>(key: &'a str, value: String) -> Line<'a> {
-        Line::from(vec![Span::raw(format!("{key:<10}")).dim(), Span::raw(value)])
+        Line::from(vec![
+            Span::raw(format!("{key:<10}")).dim(),
+            Span::raw(value),
+        ])
     }
     match node {
         Node::Container(c) => {
-            let tasks = c.children.iter().filter(|n| matches!(n, Node::Task(_))).count();
+            let tasks = c
+                .children
+                .iter()
+                .filter(|n| matches!(n, Node::Task(_)))
+                .count();
             let mut lines = vec![
                 Line::from(c.name.as_str()).bold(),
                 Line::default(),
@@ -152,13 +170,16 @@ mod tests {
         Node::Container(c)
     }
 
-    /// Render one frame into a fake 80x12 terminal and return it as text.
-    fn render(tree: &Tree) -> String {
+    fn render_with(tree: &Tree, state: &mut UiState) -> String {
         let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
-        let mut state = ListState::default();
-        terminal.draw(|f| draw(f, tree, &mut state)).unwrap();
+        terminal.draw(|f| draw(f, tree, state)).unwrap();
         let buf = terminal.backend().buffer().clone();
         buf.content().iter().map(|c| c.symbol()).collect()
+    }
+
+    /// Render one frame into a fake 80x12 terminal and return it as text.
+    fn render(tree: &Tree) -> String {
+        render_with(tree, &mut UiState::default())
     }
 
     #[test]
@@ -187,5 +208,35 @@ mod tests {
             cursor: vec![],
         };
         assert!(render(&tree).contains("Nothing here yet"));
+    }
+
+    #[test]
+    fn error_renders() {
+        let tree = Tree {
+            root: container("root", vec![]),
+            cursor: vec![],
+        };
+
+        let mut state = UiState::default();
+        state.error("boom");
+        let screen = render_with(&tree, &mut state);
+
+        assert!(screen.contains("boom"));
+        assert!(!screen.contains("q quit"));
+    }
+
+    #[test]
+    fn info_renders() {
+        let tree = Tree {
+            root: container("root", vec![]),
+            cursor: vec![],
+        };
+
+        let mut state = UiState::default();
+        state.info("saved");
+        let screen = render_with(&tree, &mut state);
+
+        assert!(screen.contains("saved"));
+        assert!(!screen.contains("q quit"));
     }
 }

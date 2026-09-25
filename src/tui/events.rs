@@ -2,7 +2,7 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 
-use crate::model::tree::Tree;
+use crate::{Res, model::tree::Tree};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
@@ -36,7 +36,7 @@ pub fn action_for(key: KeyEvent) -> Option<Action> {
 
 impl Action {
     /// Run the action on the tree. `Quit` is handled by the event loop.
-    pub fn apply(self, tree: &mut Tree) {
+    pub async fn apply(self, tree: &mut Tree) -> Res<()> {
         match self {
             Action::Quit => {}
             Action::Up => tree.move_up(),
@@ -47,6 +47,7 @@ impl Action {
             Action::CollapseAll => tree.collapse_all(),
             Action::ExpandAll => tree.expand_all(),
         }
+        Ok(())
     }
 }
 
