@@ -24,7 +24,10 @@ async fn run_write(path: &Path, data: &Sample) -> Result<(), Box<dyn std::error:
 fn works_in_block_on_root() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join(".udo.toml");
-    let data = Sample { name: "algorithms".into(), count: 3 };
+    let data = Sample {
+        name: "algorithms".into(),
+        count: 3,
+    };
 
     run_write(&path, &data).unwrap();
 
@@ -38,11 +41,33 @@ async fn overwrites_and_no_temp_leak() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join(".udo.toml");
 
-    write_toml_atomic(&path, &Sample { name: "a".into(), count: 1 }).await.unwrap();
-    write_toml_atomic(&path, &Sample { name: "b".into(), count: 2 }).await.unwrap();
+    write_toml_atomic(
+        &path,
+        &Sample {
+            name: "a".into(),
+            count: 1,
+        },
+    )
+    .await
+    .unwrap();
+    write_toml_atomic(
+        &path,
+        &Sample {
+            name: "b".into(),
+            count: 2,
+        },
+    )
+    .await
+    .unwrap();
 
     let read: Sample = toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-    assert_eq!(read, Sample { name: "b".into(), count: 2 });
+    assert_eq!(
+        read,
+        Sample {
+            name: "b".into(),
+            count: 2
+        }
+    );
     assert_eq!(count_entries(dir.path()), 1, "leaked temp file(s)");
 }
 
@@ -55,7 +80,15 @@ async fn concurrent_writers_never_corrupt() {
     for i in 0..16u32 {
         let p = path.clone();
         handles.push(tokio::spawn(async move {
-            write_toml_atomic(&p, &Sample { name: format!("w{i}"), count: i }).await.unwrap();
+            write_toml_atomic(
+                &p,
+                &Sample {
+                    name: format!("w{i}"),
+                    count: i,
+                },
+            )
+            .await
+            .unwrap();
         }));
     }
     for h in handles {

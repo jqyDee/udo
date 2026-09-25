@@ -8,10 +8,10 @@
 //! This file only does terminal I/O: draw, wait, hand keys to `App`.
 
 pub mod app;
+pub mod form;
 pub mod keys;
 pub mod toast;
 pub mod view;
-pub mod form;
 
 use std::{io, time::Instant};
 

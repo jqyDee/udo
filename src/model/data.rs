@@ -79,7 +79,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(UDO_FILE_NAME), "nope = 1").unwrap();
 
-        let err = ContainerData::load(dir.path()).await.err().unwrap().to_string();
+        let err = ContainerData::load(dir.path())
+            .await
+            .err()
+            .unwrap()
+            .to_string();
 
         assert!(err.contains(&dir.path().join(UDO_FILE_NAME).display().to_string()));
     }
@@ -88,7 +92,11 @@ mod tests {
     async fn load_missing_file_names_the_file() {
         let dir = tempfile::tempdir().unwrap();
 
-        let err = ContainerData::load(dir.path()).await.err().unwrap().to_string();
+        let err = ContainerData::load(dir.path())
+            .await
+            .err()
+            .unwrap()
+            .to_string();
 
         assert!(err.contains(UDO_FILE_NAME));
     }
