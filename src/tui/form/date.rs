@@ -2,7 +2,10 @@
 
 use std::ops::Range;
 
-use chrono::{Local, Months, NaiveDateTime, TimeDelta};
+use chrono::{DateTime, Local, Months, NaiveDateTime, TimeDelta, TimeZone, Utc};
+use crossterm::event::{KeyCode, KeyEvent};
+
+use crate::tui::keys::is_text_input;
 
 /// Display format of a date field. Fixed width and ASCII only, so byte
 /// ranges == char ranges (see `Segment::range`).
@@ -114,14 +117,46 @@ impl DateInput {
     pub fn display(&self) -> String {
         self.value.format(DATE_FMT).to_string()
     }
+
+    /// ←/→ or h/l pick segment, ↑/↓ or k/j change it, `t` today. Other keys
+    /// are ignored. Letter keys only without Ctrl/Alt (Ctrl+J / Ctrl+H arrive
+    /// as `Char` with CONTROL on some terminals).
+    pub fn handle_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Left => self.prev_segment(),
+            KeyCode::Right => self.next_segment(),
+            KeyCode::Up => self.step(true),
+            KeyCode::Down => self.step(false),
+            KeyCode::Char(c) if is_text_input(key) => match c {
+                'h' => self.prev_segment(),
+                'l' => self.next_segment(),
+                'k' => self.step(true),
+                'j' => self.step(false),
+                't' => self.set_today(),
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+}
+
+/// Local wall-clock time (what the form holds) -> UTC (what tasks store).
+/// An ambiguous time (DST end, 02:30 happens twice) takes the earlier one;
+/// None if the time doesn't exist (DST start, e.g. 02:30 on spring-forward
+/// night).
+pub fn local_to_utc(local: NaiveDateTime) -> Option<DateTime<Utc>> {
+    Local
+        .from_local_datetime(&local)
+        .earliest()
+        .map(|t| t.with_timezone(&Utc))
 }
 
 #[cfg(test)]
 mod tests {
     use chrono::NaiveDate;
+    use crossterm::event::KeyModifiers;
 
     use super::*;
-
     // --------------- Segment Tests ---------------
 
     const SEGMENTS: [Segment; 5] = [
@@ -341,5 +376,44 @@ mod tests {
         assert!(d.value.date() == before || d.value.date() == after);
         assert_eq!(d.value.time(), dt(2000, 1, 1, 9, 45).time());
         assert_eq!(d.segment, Segment::Hour);
+    }
+
+    // --------------- Key Tests ---------------
+
+    use crate::test_util::press;
+
+    #[test]
+    fn handle_key_arrows_and_vim_keys() {
+        let mut d = DateInput::new(dt(2026, 6, 15, 12, 30)); // on Day
+        d.handle_key(press(KeyCode::Up));
+        d.handle_key(press(KeyCode::Char('k')));
+        assert_eq!(d.value, dt(2026, 6, 17, 12, 30));
+
+        d.handle_key(press(KeyCode::Right));
+        d.handle_key(press(KeyCode::Char('j'))); // Hour down
+        assert_eq!(d.segment, Segment::Hour);
+        assert_eq!(d.value, dt(2026, 6, 17, 11, 30));
+
+        d.handle_key(press(KeyCode::Char('h')));
+        d.handle_key(press(KeyCode::Left));
+        assert_eq!(d.segment, Segment::Month);
+    }
+
+    #[test]
+    fn handle_key_ignores_ctrl_letters() {
+        let mut d = DateInput::new(dt(2026, 6, 15, 12, 30));
+        let before = d.clone();
+        for c in ['h', 'j', 'k', 'l', 't'] {
+            d.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL));
+        }
+        assert_eq!(d, before);
+    }
+
+    #[test]
+    fn local_to_utc_roundtrips_normal_time() {
+        // mid-June noon: no DST switch anywhere on that day
+        let local = dt(2026, 6, 15, 12, 0);
+        let utc = local_to_utc(local).unwrap();
+        assert_eq!(utc.with_timezone(&Local).naive_local(), local);
     }
 }

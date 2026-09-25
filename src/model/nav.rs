@@ -104,6 +104,15 @@ impl Tree {
         set_collapsed_all(&mut self.root, false);
     }
 
+    /// Put the cursor on `path` and unfold every container above it, so the
+    /// row is visible (e.g. right after creating a node).
+    pub fn reveal(&mut self, path: NodePath) {
+        for depth in 0..path.len() {
+            self.set_collapsed(&path[..depth], false);
+        }
+        self.cursor = path;
+    }
+
     fn set_collapsed(&mut self, path: &[usize], collapsed: bool) {
         if let Some(Node::Container(c)) = self.get_mut(path) {
             c.collapsed = collapsed;
@@ -435,5 +444,30 @@ mod tests {
         t.expand_all();
         assert!(t.cursor.is_empty());
         assert!(t.rows().is_empty());
+    }
+
+    // ---------- reveal ----------
+
+    #[test]
+    fn reveal_unfolds_every_ancestor_and_selects() {
+        let mut t = tree(&[0]);
+        t.collapse_all(); // inner and deep folded
+        assert_eq!(names(&t), vec!["a", "inner", "z", "empty"]);
+
+        t.reveal(vec![1, 1, 0]);
+
+        assert_eq!(t.cursor, vec![1, 1, 0]);
+        assert_eq!(names(&t), ALL); // "c" visible: grandparent unfolded too
+    }
+
+    #[test]
+    fn reveal_leaves_unrelated_containers_folded() {
+        let mut t = tree(&[0]);
+        t.collapse_all();
+
+        t.reveal(vec![3]); // "empty", top level: nothing above to unfold
+
+        assert_eq!(t.cursor, vec![3]);
+        assert_eq!(names(&t), vec!["a", "inner", "z", "empty"]);
     }
 }

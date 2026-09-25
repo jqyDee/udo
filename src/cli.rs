@@ -132,9 +132,7 @@ impl Cli {
                     // same as before: auto task folder only inside projects
                     let dir = match custom_dir {
                         Some(d) => Some(absolute(d)?),
-                        None if project.is_some() && !no_auto_create_folder => {
-                            Some(node_dir(tree, &parent)?.join(task))
-                        }
+                        None if !no_auto_create_folder => tree.auto_task_dir(&parent, task),
                         None => None,
                     };
 

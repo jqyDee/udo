@@ -140,6 +140,24 @@ impl Tree {
         }
         Some(path)
     }
+
+    /// Default dir for a new child container: `<parent dir>/<name>`.
+    /// None if `parent` is missing or a task.
+    pub fn default_child_dir(&self, parent: &[usize], name: &str) -> Option<PathBuf> {
+        match self.get(parent)? {
+            Node::Container(c) => Some(c.dir.join(name)),
+            Node::Task(_) => None,
+        }
+    }
+
+    /// Automatic dir for a new task: `<project dir>/<name>` if `parent` is a
+    /// Project, None elsewhere (tasks in workspaces / root get no folder).
+    pub fn auto_task_dir(&self, parent: &[usize], name: &str) -> Option<PathBuf> {
+        match self.get(parent)? {
+            Node::Container(c) if c.kind == ContainerKind::Project => Some(c.dir.join(name)),
+            _ => None,
+        }
+    }
 }
 
 impl Tree {
@@ -276,6 +294,13 @@ impl Tree {
     /// Checks before adding a child: `parent` must be a container and must not
     /// already have a child called `name`. Run before touching the disk.
     fn check_can_add(&self, parent: &[usize], name: &str) -> Res<()> {
+        if name.is_empty() {
+            return Err("name cannot be empty".into());
+        }
+        // names become path components (task dir, default container dir)
+        if name == "." || name == ".." || name.contains(['/', '\\']) {
+            return Err("name cannot be . or .. or contain / or \\".into());
+        }
         if !matches!(self.get(parent), Some(Node::Container(_))) {
             return Err("parent missing or not a container".into());
         }
@@ -970,5 +995,60 @@ mod tests {
     async fn set_task_status_rejects_missing_path() {
         let mut t = tree();
         assert!(t.set_task_status(&[9], TaskStatus::Finished).await.is_err());
+    }
+
+    // ---------- name rules / default dirs ----------
+
+    #[tokio::test]
+    async fn create_rejects_names_that_are_not_one_path_component() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path()).await; // root: [a, ws: [b]]
+
+        for bad in ["", ".", "..", "a/b", "../x", "a\\b"] {
+            assert!(
+                t.create_task(&[1], new_task(bad, None)).await.is_err(),
+                "task {bad:?} accepted"
+            );
+            let dir = tmp.path().join("ws").join("dir");
+            assert!(
+                t.create_container(&[1], bad.into(), dir, ContainerKind::Project)
+                    .await
+                    .is_err(),
+                "container {bad:?} accepted"
+            );
+        }
+        assert_eq!(t.get(&[1]).unwrap().children().len(), 1); // still only "b"
+        assert!(!tmp.path().join("ws").join("dir").exists()); // check before mkdir
+    }
+
+    #[test]
+    fn default_child_dir_is_parent_dir_plus_name() {
+        let t = tree(); // root (/tmp/root): [a, inner (/tmp/inner): [b]]
+        assert_eq!(
+            t.default_child_dir(&[1], "new"),
+            Some(PathBuf::from("/tmp/inner/new"))
+        );
+        assert_eq!(
+            t.default_child_dir(&[], "new"),
+            Some(PathBuf::from("/tmp/root/new"))
+        );
+        assert_eq!(t.default_child_dir(&[0], "new"), None); // task parent
+        assert_eq!(t.default_child_dir(&[9], "new"), None); // missing
+    }
+
+    #[test]
+    fn auto_task_dir_only_inside_projects() {
+        let mut t = tree(); // "inner" is a Workspace
+        assert_eq!(t.auto_task_dir(&[1], "c"), None);
+        assert_eq!(t.auto_task_dir(&[], "c"), None); // root
+
+        if let Some(Node::Container(c)) = t.get_mut(&[1]) {
+            c.kind = ContainerKind::Project;
+        }
+        assert_eq!(
+            t.auto_task_dir(&[1], "c"),
+            Some(PathBuf::from("/tmp/inner/c"))
+        );
+        assert_eq!(t.auto_task_dir(&[0], "c"), None); // task parent
     }
 }

@@ -10,8 +10,9 @@ mod text;
 use std::path::PathBuf;
 
 use chrono::{Local, NaiveDateTime, NaiveTime, TimeDelta};
+use crossterm::event::{KeyCode, KeyEvent};
 
-pub use date::{DATE_FMT, DateInput, Segment};
+pub use date::{DATE_FMT, DateInput, Segment, local_to_utc};
 pub use text::TextInput;
 
 use crate::model::{container::ContainerKind, tree::NodePath};
@@ -49,6 +50,17 @@ pub struct Form {
     pub fields: Vec<FormField>,
     pub active_field: usize,
     pub action: FormAction,
+}
+
+/// What the app should do after a key went into the form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormOutcome {
+    /// Keep editing.
+    Continue,
+    /// Enter: validate and create (`App::submit_form`).
+    Submit,
+    /// Esc: close without creating.
+    Cancel,
 }
 
 impl FormField {
@@ -132,6 +144,27 @@ impl Form {
         &mut self.fields[self.active_field]
     }
 
+    /// Tab / Shift+Tab switch fields, Enter / Esc end the form, every other
+    /// key edits the active field (by its kind).
+    pub fn handle_key(&mut self, key: KeyEvent) -> FormOutcome {
+        match key.code {
+            KeyCode::Esc => return FormOutcome::Cancel,
+            KeyCode::Enter => return FormOutcome::Submit,
+            KeyCode::Tab => {
+                self.next_field();
+            }
+            KeyCode::BackTab => {
+                self.prev_field();
+            }
+            _ => match self.active_field_mut().map(|f| &mut f.input) {
+                Some(FieldInput::Text(t)) => t.handle_key(key),
+                Some(FieldInput::Date(d)) => d.handle_key(key),
+                None => {}
+            },
+        }
+        FormOutcome::Continue
+    }
+
     /// Value of the text field `label`. None if missing or not a text field.
     pub fn text_value(&self, label: &str) -> Option<&str> {
         match &self.fields.iter().find(|f| f.label == label)?.input {
@@ -156,7 +189,6 @@ mod tests {
     use chrono::NaiveDate;
 
     use super::*;
-
     fn dt(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> NaiveDateTime {
         NaiveDate::from_ymd_opt(y, mo, d)
             .unwrap()
@@ -305,5 +337,41 @@ mod tests {
         assert_eq!(form.date_value("name"), None); // name is text
         assert_eq!(form.date_value("missing"), None);
         assert_eq!(form.text_value("missing"), None);
+    }
+
+    // --------------- Key Tests ---------------
+
+    use crate::test_util::press;
+
+    #[test]
+    fn handle_key_outcomes() {
+        let mut form = test_form();
+        assert_eq!(form.handle_key(press(KeyCode::Enter)), FormOutcome::Submit);
+        assert_eq!(form.handle_key(press(KeyCode::Esc)), FormOutcome::Cancel);
+        assert_eq!(
+            form.handle_key(press(KeyCode::Char('x'))),
+            FormOutcome::Continue
+        );
+    }
+
+    #[test]
+    fn handle_key_tab_switches_and_other_keys_edit_active_field() {
+        let mut form = test_form();
+        form.handle_key(press(KeyCode::Tab));
+        assert_eq!(form.active_field, 1);
+        form.handle_key(press(KeyCode::Char('!')));
+        assert_eq!(form.text_value("Field2"), Some("val2!"));
+        assert_eq!(form.text_value("Field1"), Some("val1")); // untouched
+
+        form.handle_key(press(KeyCode::BackTab));
+        assert_eq!(form.active_field, 0);
+    }
+
+    #[test]
+    fn handle_key_reaches_date_fields() {
+        let mut form = Form::new_task_with_due(vec![], "root", dt(2026, 6, 15, 12, 0));
+        form.handle_key(press(KeyCode::Tab)); // -> due, on Day
+        form.handle_key(press(KeyCode::Up));
+        assert_eq!(form.date_value("due"), Some(dt(2026, 6, 16, 12, 0)));
     }
 }

@@ -1,5 +1,9 @@
 //! Free-text form input: value + cursor, editing and cursor movement.
 
+use crossterm::event::{KeyCode, KeyEvent};
+
+use crate::tui::keys::is_text_input;
+
 /// Free text with a cursor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextInput {
@@ -77,6 +81,22 @@ impl TextInput {
         self.cursor = self.value.chars().count();
     }
 
+    // --------------- Keys ---------------
+
+    /// Typing and cursor keys. Other keys are ignored.
+    pub fn handle_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char(c) if is_text_input(key) => self.insert_char(c),
+            KeyCode::Backspace => self.backspace(),
+            KeyCode::Delete => self.delete(),
+            KeyCode::Left => self.move_left(),
+            KeyCode::Right => self.move_right(),
+            KeyCode::Home => self.move_home(),
+            KeyCode::End => self.move_end(),
+            _ => {}
+        }
+    }
+
     // --------------- Helpers ---------------
 
     fn byte_offset_for_char(&self, char_idx: usize) -> usize {
@@ -89,7 +109,10 @@ impl TextInput {
 
 #[cfg(test)]
 mod tests {
+    use crossterm::event::KeyModifiers;
+
     use super::*;
+    use crate::test_util::press;
 
     fn form_field_special() -> TextInput {
         TextInput {
@@ -256,5 +279,30 @@ mod tests {
         let mut field = TextInput::new("");
         field.move_end();
         assert_eq!(field.cursor, 0);
+    }
+
+    // --------------- Key Tests ---------------
+
+    fn ctrl(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
+
+    #[test]
+    fn handle_key_types_and_edits() {
+        let mut t = TextInput::new("");
+        for c in "abc".chars() {
+            t.handle_key(press(KeyCode::Char(c)));
+        }
+        t.handle_key(press(KeyCode::Left));
+        t.handle_key(press(KeyCode::Backspace));
+        assert_eq!(t.value, "ac");
+        assert_eq!(t.cursor, 1);
+    }
+
+    #[test]
+    fn handle_key_ignores_ctrl_letters() {
+        let mut t = TextInput::new("x");
+        t.handle_key(ctrl('c'));
+        assert_eq!(t.value, "x");
     }
 }

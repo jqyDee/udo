@@ -5,7 +5,7 @@
 //! New key = one line in the right section, plus handling the new `Action`
 //! in `App::run`.
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::model::task::TaskStatus::{self, Finished, InProgress, Pending, Stale};
 
@@ -86,6 +86,15 @@ pub fn action_for(key: KeyEvent) -> Option<Action> {
     bindings()
         .find(|b| b.keys.contains(&key.code))
         .map(|b| b.action)
+}
+
+/// Should this key be typed into a form field? Ctrl+x / Alt+x are shortcuts,
+/// not text. Ctrl+Alt together is AltGr on some terminals (e.g. `@` on a
+/// German layout), so that still counts as text.
+pub fn is_text_input(key: KeyEvent) -> bool {
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
+    ctrl == alt
 }
 
 /// Human-readable key name for the help overlay.
