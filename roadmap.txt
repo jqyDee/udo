@@ -8,37 +8,109 @@ students to manage coursework, automate local file/folder generation, track time
 spent per assignment using adaptive strategies (Tmux & File Watchers), and 
 provide deep productivity insights.
 
+STATUS LEGEND:  [x] done   [~] partly done / done differently   [ ] open
+"Status:" lines describe the actual code (last checked 2026-09-25).
+
+DONE OUTSIDE THE ORIGINAL PLAN:
+    [x] Recursive node tree (`src/model/`): Root -> Workspace -> Project ->
+        Task, one `.udo.toml` per container, atomic + fsynced writes.
+    [x] Tree operations: load, save, create, update, delete (unregister only,
+        never deletes folders), name lookup (`resolve`).
+    [x] Safety: unloadable child folders stay registered, never overwrite an
+        existing `.udo.toml`, load errors name the broken file.
+    [x] `udo list`, tree navigation, collapse/expand with saved view state
+        (`view.toml`, kept separate from the data files).
+    [x] `UDO_ROOT` override + `scripts/seed-testdata.sh` for throwaway data.
+    [x] Architecture docs: `docs/tree/*.puml`.
+
 --------------------------------------------------------------------------------
 PHASE 1: FOUNDATION & CONFIGURATION
 --------------------------------------------------------------------------------
 Goal: Establish cross-platform configuration storage and asynchronous file system bindings.
 
-[ ] 1.1 Global Configuration Engine
-    * Integrate the `directories` crate to handle OS-agnostic config paths 
+[~] 1.1 Global Configuration Engine
+    * Integrate the `directories` crate to handle OS-agnostic config paths
       (~/.config/udo/ on Linux/Mac, AppData on Windows).
     * Implement `AppConfig` struct with `serde` for TOML serialization.
     * Implement "First Run" bootstrapper (`load_or_create`) using `tokio::fs`.
+    Status: done differently. `AppConfig` was replaced by the root container
+    (`~/.config/udo/.udo.toml`, settings in `ContainerSettings`); first run
+    creates it in `Tree::load_from`. OPEN: Windows/AppData — `root_dir()`
+    always uses `<home>/.config/udo`.
 
-[ ] 1.2 Workspace Architecture
+[~] 1.2 Workspace Architecture
     * Define root workspace directory pointing to `~/udo/` (or user preference).
     * Create core data structures (`CourseData`, `Task`, `TaskStatus`) in `models.rs`.
     * Establish fallback hierarchy (Global Config -> Course Config -> Task Override).
+    Status: data structures done in `src/model/` (`Tree`, `Node`, `Container`
+    + `ContainerKind`, `Task`, `TaskStatus`). No fixed `~/udo/`: each
+    workspace gets its own dir (`create-workspace -d`). OPEN: fallback
+    hierarchy — every container has `ContainerSettings`, but nothing resolves
+    a setting upwards (task -> project -> workspace -> root) yet.
 
 --------------------------------------------------------------------------------
 PHASE 2: CORE FILE SYSTEM & TASK MANAGEMENT
 --------------------------------------------------------------------------------
 Goal: Build robust CLI commands to manipulate local folders and TOML metadata.
 
-[ ] 2.1 The `Add` Command
+[x] 2.1 The `Add` Command
     * Implement `add_task` in `fs_manager.rs` with `tokio::fs`.
     * Automatic "Load or Create" pattern for course folders and `course.toml`.
     * Duplicate task protection using iterator `.any()` checks.
     * Automatic scaffolding of physical assignment directories.
+    Status: done as `Tree::create_task` / `create_container` + CLI
+    `create-workspace`, `add-project`, `add-task`; duplicates rejected by
+    `check_can_add`; task folders created inside projects. Differs: parents
+    are created explicitly (no auto-create of a missing course on add-task).
+    Leftover: task names get spaces turned into `_` (CLI cleanup).
 
 [ ] 2.2 Template & Boilerplate Generation
     * Setup a local template directory (`~/.config/udo/templates/`).
-    * Auto-copy standard file structures (e.g., `main.typ`, configuration files) 
+    * Auto-copy standard file structures (e.g., `main.typ`, configuration files)
       upon assignment creation.
+
+[ ] 2.3 Pluggable Storage Backends  (added 2026-09-25)
+    Goal: Swap where task data is stored (per-folder `.udo.toml` files, one
+    combined file, or a database) without touching CLI/TUI code.
+    Note: only *storage* is swappable. Real workspace/project/task folders stay
+    on disk with every backend (work happens there, scripts run there).
+    Rule until then: nothing outside `Tree` touches storage.
+
+    [ ] 2.3.1 `Store` abstraction + `FileStore` (pure refactor, ~half a day)
+        * Define `Store`: `load() -> Node`, `save_container(&Container)`,
+          `load_view()`, `save_view(&ViewState)`.
+        * `Tree` holds a `Backend` enum (`Files(FileStore) | Sqlite(..) | ..`)
+          that forwards calls. Enum over `dyn`: async fns in traits are not
+          dyn-compatible without boxing, and the backends are known.
+        * Move current code into `FileStore`: `ContainerData` load/save,
+          `build_container`, `unloaded` handling, "dir already has .udo.toml"
+          check, view.toml.
+        * Add a `Tree` constructor; tests stop building `Tree { .. }` directly.
+        * Done when all existing tests pass unchanged in behaviour.
+
+    [ ] 2.3.2 Stable IDs
+        * Give `Task` a `uuid`: tasks are currently keyed by name among
+          siblings, so a rename breaks any DB key.
+        * Containers keep `dir` as ID (unique thanks to the overwrite check).
+        * Bonus: view.toml can then remember the selected node.
+
+    [ ] 2.3.3 `SingleFileStore` (~1-2 hours)
+        * Whole tree in one TOML/JSON file. Cheapest proof that the
+          abstraction holds, and already gives "one combined file".
+
+    [ ] 2.3.4 `SqliteStore` (~1 day)
+        * One `udo.db`; `rusqlite` inside `spawn_blocking`, or `sqlx`.
+        * Tables: `containers(dir PK, parent, name, kind, settings)`,
+          `tasks(id PK, container, name, dir, status, due)`.
+        * `save_container` = one transaction (upsert container, replace tasks).
+        * Gains: transactions (CLI + TUI no longer overwrite each other),
+          cross-workspace queries (e.g. "due this week").
+        * Loses: human-readable, git-friendly `.udo.toml` per folder.
+
+    [ ] 2.3.5 Backend selection & migration (~few hours)
+        * Choose backend via env var (`UDO_STORE`), a small config in the root
+          dir, or by detecting `udo.db`.
+        * `udo export` / `udo import`: load with one store, save all with another.
 
 --------------------------------------------------------------------------------
 PHASE 3: THE TIME-TRACKING ARCHITECTURE (STRATEGY PATTERN)
@@ -83,17 +155,25 @@ Goal: Transform raw tracking data into actionable insights and utility features.
     * Build an aggregation engine to print course-by-course time distribution reports.
 
 [ ] 5.3 Archive Management
-    * Implement an `udo archive` command to bundle completed courses, move them 
+    * Implement an `udo archive` command to bundle completed courses, move them
       to an archive directory, and prune them from active tracking lists.
+    Status: groundwork only. `archive_dir` is stored per container
+    (`create-workspace -a`) and shown in the TUI; `Tree::delete` can already
+    unregister a node. The move + command itself are open.
 
 --------------------------------------------------------------------------------
 PHASE 6: THE RATATUI INTERFACE & SYSTEM INTEGRATION
 --------------------------------------------------------------------------------
 Goal: Wrap the entire engine in a blazing-fast, immersive Terminal UI.
 
-[ ] 6.1 TUI Layout & State Management
+[~] 6.1 TUI Layout & State Management
     * Implement a multi-pane layout using `ratatui` (Courses, Tasks, Details/Stats).
     * Wire asynchronous event loops using `crossterm`.
+    Status: prototype in `src/tui/`: tree pane (courses + tasks in one tree,
+    collapsible) + details pane + help line; key -> action mapping tested.
+    OPEN: event loop is still sync (blocking `event::read`) — must become
+    async before actions write to disk; read-only so far (no status change,
+    delete, add); no status line for errors; stats pane.
 
 [ ] 6.2 Terminal Suspension & Interoperability
     * Implement "Suspend and Restore" logic for launching external interactive terminal 
