@@ -22,6 +22,8 @@ pub enum Action {
     ExpandAll,
     SetStatus(TaskStatus),
     Delete,
+    NewContainer { global: bool },
+    NewTask { global: bool },
 }
 
 /// One row of the keymap: all keys that trigger `action`, and its help text.
@@ -40,25 +42,31 @@ pub struct Section {
 /// All key bindings, grouped. Order here = order in the help overlay.
 #[rustfmt::skip] // keep one binding per line, like a table
 pub const KEYMAP: &[Section] = &[
-    Section { title: "Move", bindings: &[
+    Section { title: "move", bindings: &[
         Binding { keys: &[KeyCode::Char('j'), KeyCode::Down], action: Action::Down, help: "move down" },
         Binding { keys: &[KeyCode::Char('k'), KeyCode::Up], action: Action::Up, help: "move up" },
         Binding { keys: &[KeyCode::Char('l'), KeyCode::Right], action: Action::In, help: "open / go in" },
         Binding { keys: &[KeyCode::Char('h'), KeyCode::Left], action: Action::Out, help: "go to parent" },
     ]},
-    Section { title: "Fold", bindings: &[
+    Section { title: "fold", bindings: &[
         Binding { keys: &[KeyCode::Char(' '), KeyCode::Enter], action: Action::Toggle, help: "fold / unfold" },
         Binding { keys: &[KeyCode::Char('z')], action: Action::CollapseAll, help: "fold all" },
         Binding { keys: &[KeyCode::Char('Z')], action: Action::ExpandAll, help: "unfold all" },
     ]},
-    Section { title: "Task", bindings: &[
+    Section { title: "task", bindings: &[
         Binding { keys: &[KeyCode::Char('x')], action: Action::SetStatus(Finished), help: "mark done" },
         Binding { keys: &[KeyCode::Char('p')], action: Action::SetStatus(InProgress), help: "mark in progress" },
         Binding { keys: &[KeyCode::Char('s')], action: Action::SetStatus(Stale), help: "mark stale" },
         Binding { keys: &[KeyCode::Char('u')], action: Action::SetStatus(Pending), help: "mark to do" },
         Binding { keys: &[KeyCode::Char('d')], action: Action::Delete, help: "remove from udo" },
     ]},
-    Section { title: "App", bindings: &[
+    Section {title: "create", bindings: &[
+        Binding { keys: &[KeyCode::Char('c')], action: Action::NewContainer {global: false}, help: "new container here" },
+        Binding { keys: &[KeyCode::Char('C')], action: Action::NewContainer {global: true}, help: "new container global" },
+        Binding { keys: &[KeyCode::Char('t')], action: Action::NewTask {global: false}, help: "new task here" },
+        Binding { keys: &[KeyCode::Char('T')], action: Action::NewTask {global: true}, help: "new task global" },
+    ]},
+    Section { title: "app", bindings: &[
         Binding { keys: &[KeyCode::Char('?')], action: Action::Help, help: "toggle this help" },
         Binding { keys: &[KeyCode::Char('q')], action: Action::Quit, help: "quit" },
     ]},
@@ -159,6 +167,26 @@ mod tests {
                 "key {key:?}"
             );
         }
+    }
+
+    #[test]
+    fn create_keys() {
+        assert_eq!(
+            action_for(press(KeyCode::Char('c'))),
+            Some(Action::NewContainer { global: false })
+        );
+        assert_eq!(
+            action_for(press(KeyCode::Char('C'))),
+            Some(Action::NewContainer { global: true })
+        );
+        assert_eq!(
+            action_for(press(KeyCode::Char('t'))),
+            Some(Action::NewTask { global: false })
+        );
+        assert_eq!(
+            action_for(press(KeyCode::Char('T'))),
+            Some(Action::NewTask { global: true })
+        );
     }
 
     #[test]

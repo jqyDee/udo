@@ -4,6 +4,7 @@
 //! - `popup`:   overlays: toast (top right), key help + confirm (center)
 
 mod details;
+mod form;
 mod popup;
 mod tree;
 
@@ -26,7 +27,17 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)]).areas(main);
 
     tree::draw(frame, left, app.tree, &mut app.list);
-    details::draw(frame, right, app.tree);
+
+    // Split right pane when form is active
+    if let Mode::Form(form) = &app.mode {
+        let [top_details, bottom_form] =
+            Layout::vertical([Constraint::Percentage(40), Constraint::Percentage(60)]).areas(right);
+        details::draw(frame, top_details, app.tree);
+        form::draw(frame, bottom_form, form);
+    } else {
+        details::draw(frame, right, app.tree);
+    }
+
     frame.render_widget(Line::from(HINT).dim(), bottom);
 
     // overlays last, so they lie on top; help above the toast

@@ -11,6 +11,7 @@ pub mod app;
 pub mod keys;
 pub mod toast;
 pub mod view;
+pub mod form;
 
 use std::{io, time::Instant};
 

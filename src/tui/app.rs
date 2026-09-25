@@ -3,15 +3,18 @@
 
 use std::time::Instant;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::widgets::ListState;
 
 use crate::{
     model::{
+        container::ContainerKind,
+        node::Node,
         task::TaskStatus,
         tree::{NodePath, Tree},
     },
     tui::{
+        form::{Form, FormAction},
         keys::{Action, action_for},
         toast::Toast,
     },
@@ -27,6 +30,7 @@ pub enum Mode {
     Help,
     /// "Remove?" prompt open; only y / n / esc do anything.
     Confirm(Confirm),
+    Form(Box<Form>),
 }
 
 /// What the event loop should do after a key.
@@ -81,6 +85,7 @@ impl<'a> App<'a> {
                 None => Flow::Continue,
             },
             Mode::Confirm(_) => self.answer_confirm(key).await,
+            Mode::Form(_) => self.handle_form_key(key).await,
         }
     }
 
@@ -99,8 +104,195 @@ impl<'a> App<'a> {
             Action::ExpandAll => self.tree.expand_all(),
             Action::SetStatus(status) => self.set_status(status).await,
             Action::Delete => self.ask_delete(),
+            Action::NewContainer { global } => self.handle_new_container(global),
+            Action::NewTask { global } => self.handle_new_task(global),
         }
         Flow::Continue
+    }
+
+    fn handle_new_container(&mut self, global: bool) {
+        let parent = if global {
+            vec![]
+        } else {
+            self.tree
+                .nearest_file_owner(&self.tree.cursor)
+                .unwrap_or_default()
+        };
+
+        let parent_node = self.tree.get(&parent);
+        let parent_name = parent_node.map_or("root", |n| n.name());
+        let parent_dir = parent_node.and_then(|n| n.dir().map(|d| d.to_path_buf()));
+
+        let kind = if parent.is_empty() {
+            ContainerKind::Workspace
+        } else {
+            ContainerKind::Project
+        };
+
+        self.mode = Mode::Form(Box::new(Form::new_container(
+            parent,
+            parent_name,
+            parent_dir,
+            kind,
+        )));
+    }
+
+    fn handle_new_task(&mut self, global: bool) {
+        let parent = if global {
+            vec![]
+        } else {
+            self.tree
+                .nearest_file_owner(&self.tree.cursor)
+                .unwrap_or_default()
+        };
+        let parent_name = self.tree.get(&parent).map_or("root", |n| n.name());
+        self.mode = Mode::Form(Box::new(Form::new_task(parent, parent_name)))
+    }
+
+    async fn handle_form_key(&mut self, key: KeyEvent) -> Flow {
+        let Mode::Form(form) = &mut self.mode else {
+            return Flow::Continue;
+        };
+
+        match key.code {
+            KeyCode::Esc => {
+                self.mode = Mode::Normal;
+            }
+            KeyCode::Tab => {
+                form.next_field();
+            }
+            KeyCode::BackTab => {
+                form.prev_field();
+            }
+            KeyCode::Enter => {
+                self.submit_form().await;
+            }
+            KeyCode::Char(c) if is_text_input(key) => {
+                if let Some(field) = form.active_field_mut() {
+                    field.insert_char(c);
+                }
+            }
+            KeyCode::Backspace => {
+                if let Some(field) = form.active_field_mut() {
+                    field.backspace();
+                }
+            }
+            KeyCode::Delete => {
+                if let Some(field) = form.active_field_mut() {
+                    field.delete();
+                }
+            }
+            KeyCode::Left => {
+                if let Some(field) = form.active_field_mut() {
+                    field.move_left();
+                }
+            }
+            KeyCode::Right => {
+                if let Some(field) = form.active_field_mut() {
+                    field.move_right();
+                }
+            }
+            KeyCode::Home => {
+                if let Some(field) = form.active_field_mut() {
+                    field.move_home();
+                }
+            }
+            KeyCode::End => {
+                if let Some(field) = form.active_field_mut() {
+                    field.move_end();
+                }
+            }
+            _ => {}
+        }
+
+        Flow::Continue
+    }
+
+    async fn submit_form(&mut self) {
+        let Mode::Form(form) = &self.mode.clone() else {
+            return;
+        };
+
+        let name = form.field_value("name").unwrap_or("").trim().to_string();
+        if name.is_empty() {
+            self.toast = Some(Toast::error("name cannot be empty"));
+            return;
+        }
+        // name becomes a path component (task dir, default container dir)
+        if name == "." || name == ".." || name.contains(['/', '\\']) {
+            self.toast = Some(Toast::error("name cannot be . or .. or contain / or \\"));
+            return;
+        }
+
+        match &form.action {
+            FormAction::CreateTask { parent } => {
+                let due_str = form.field_value("due").unwrap_or("");
+                let date = match chrono::NaiveDateTime::parse_from_str(due_str, "%Y-%m-%d %H:%M") {
+                    Ok(dt) => dt.and_utc(),
+                    Err(_) => {
+                        self.toast = Some(Toast::error("invalid date, use YYYY-MM-DD HH:MM"));
+                        return;
+                    }
+                };
+
+                // Auto task directory if parent is a project
+                let dir = match self.tree.get(parent) {
+                    Some(Node::Container(c))
+                        if c.kind == crate::model::container::ContainerKind::Project =>
+                    {
+                        Some(c.dir.join(&name))
+                    }
+                    _ => None,
+                };
+
+                let task = crate::model::task::Task::new(name.clone(), dir, date);
+                match self.tree.create_task(parent, task).await {
+                    Ok(path) => {
+                        if let Some(Node::Container(c)) = self.tree.get_mut(parent) {
+                            c.collapsed = false; // ensure parent is unfolded
+                        }
+                        self.tree.cursor = path;
+                        self.mode = Mode::Normal;
+                        self.toast = Some(Toast::info(format!("added task {name}")));
+                    }
+                    Err(e) => self.toast = Some(Toast::error(e.to_string())),
+                }
+            }
+            FormAction::CreateContainer { parent, kind } => {
+                let dir_str = form.field_value("dir").unwrap_or("").trim();
+                let dir = if dir_str.is_empty() {
+                    match self.tree.get(parent).and_then(|n| n.dir()) {
+                        Some(p) => p.join(&name),
+                        None => {
+                            self.toast = Some(Toast::error("directory cannot be empty"));
+                            return;
+                        }
+                    }
+                } else {
+                    std::path::PathBuf::from(dir_str)
+                };
+
+                match self
+                    .tree
+                    .create_container(parent, name.clone(), dir, *kind)
+                    .await
+                {
+                    Ok(path) => {
+                        if let Some(Node::Container(c)) = self.tree.get_mut(parent) {
+                            c.collapsed = false;
+                        }
+                        self.tree.cursor = path;
+                        self.mode = Mode::Normal;
+                        self.toast = Some(Toast::info(format!("created {:?} {name}", kind)));
+                    }
+                    Err(e) => self.toast = Some(Toast::error(e.to_string())),
+                }
+            }
+            FormAction::EditNode { .. } => {
+                // Future edit support; say so instead of swallowing Enter
+                self.toast = Some(Toast::error("editing is not supported yet"));
+            }
+        }
     }
 
     /// Open the confirm prompt for the selected node. Nothing selected (the
@@ -161,6 +353,15 @@ impl<'a> App<'a> {
             self.toast = None;
         }
     }
+}
+
+/// Should this key be typed into a form field? Ctrl+x / Alt+x are shortcuts,
+/// not text. Ctrl+Alt together is AltGr on some terminals (e.g. `@` on a
+/// German layout), so that still counts as text.
+fn is_text_input(key: KeyEvent) -> bool {
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
+    ctrl == alt
 }
 
 #[cfg(test)]

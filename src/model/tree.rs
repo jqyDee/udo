@@ -111,7 +111,7 @@ impl Tree {
 
     /// Path of the nearest ancestor (or self) that owns a file.
     /// Task -> its parent container; container -> itself; missing -> None.
-    fn nearest_file_owner(&self, path: &[usize]) -> Option<NodePath> {
+    pub fn nearest_file_owner(&self, path: &[usize]) -> Option<NodePath> {
         match self.get(path)? {
             Node::Container(_) => Some(path.to_vec()),
             Node::Task(_) => Some(path[..path.len() - 1].to_vec()), // go one up

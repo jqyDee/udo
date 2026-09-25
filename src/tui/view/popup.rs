@@ -72,7 +72,8 @@ pub fn draw_toast(frame: &mut Frame, toast: &Toast) {
 }
 
 /// Centered key list built from `KEYMAP`: one heading per section, its
-/// bindings indented below, a blank line between sections.
+/// bindings indented below. No blank line between sections: the overlay has
+/// to fit a 24-row terminal, and the colored headings separate well enough.
 pub fn draw_help(frame: &mut Frame) {
     const TITLE: &str = " keys · any key closes ";
 
@@ -83,10 +84,7 @@ pub fn draw_help(frame: &mut Frame) {
         .unwrap_or(0);
 
     let mut lines: Vec<Line> = vec![];
-    for (i, section) in KEYMAP.iter().enumerate() {
-        if i > 0 {
-            lines.push(Line::default());
-        }
+    for section in KEYMAP {
         lines.push(Line::from(section.title).bold().yellow());
         for b in section.bindings {
             lines.push(Line::from(vec![
