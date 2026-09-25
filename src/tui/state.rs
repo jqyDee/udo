@@ -10,6 +10,8 @@ pub enum Status {
 pub struct UiState {
     pub list: ListState,
     pub status: Option<Status>,
+    /// Key help overlay open (`?`). Any key closes it.
+    pub show_help: bool,
 }
 
 impl UiState {

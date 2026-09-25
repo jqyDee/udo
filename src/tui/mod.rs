@@ -4,7 +4,7 @@ pub mod events;
 pub mod layout;
 pub mod state;
 
-use crossterm::event::{Event, EventStream};
+use crossterm::event::{Event, EventStream, KeyEventKind};
 use futures_util::StreamExt;
 use ratatui::DefaultTerminal;
 
@@ -43,13 +43,25 @@ async fn event_loop(terminal: &mut DefaultTerminal, tree: &mut Tree) -> Res<()> 
         let Event::Key(key) = event? else {
             continue;
         };
+        if key.kind != KeyEventKind::Press {
+            continue;
+        }
+        if state.show_help {
+            state.show_help = false; // any key closes the help
+            continue;
+        }
         let Some(action) = action_for(key) else {
             continue;
         };
 
         state.status = None; // key clears the message
-        if action == Action::Quit {
-            return Ok(());
+        match action {
+            Action::Quit => return Ok(()),
+            Action::Help => {
+                state.show_help = true;
+                continue;
+            }
+            _ => {}
         }
         match action.apply(tree).await {
             Ok(Some(msg)) => state.info(msg),

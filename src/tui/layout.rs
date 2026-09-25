@@ -2,10 +2,10 @@
 
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout},
+    layout::{Constraint, Flex, Layout, Rect},
     style::{Style, Stylize},
     text::{Line, Span},
-    widgets::{Block, List, ListItem, Paragraph},
+    widgets::{Block, Clear, List, ListItem, Paragraph},
 };
 
 use crate::{
@@ -15,10 +15,14 @@ use crate::{
         task::{Task, TaskStatus},
         tree::Tree,
     },
-    tui::state::{Status, UiState},
+    tui::{
+        events::{KEYMAP, key_label},
+        state::{Status, UiState},
+    },
 };
 
-const HELP: &str = " j/k move · l/h in/out · space fold · z/Z fold/unfold all · q quit";
+/// Fixed hint; the full key list is the `?` overlay, generated from `KEYMAP`.
+const HELP: &str = " ? help · q quit";
 
 pub fn draw(frame: &mut Frame, tree: &Tree, state: &mut UiState) {
     let [main, help] =
@@ -61,6 +65,62 @@ pub fn draw(frame: &mut Frame, tree: &Tree, state: &mut UiState) {
         None => Line::from(HELP).dim(),
     };
     frame.render_widget(bottom, help);
+
+    // last, so it lies on top of everything
+    if state.show_help {
+        draw_help(frame);
+    }
+}
+
+/// Centered key list built from `KEYMAP`.
+fn draw_help(frame: &mut Frame) {
+    let rows: Vec<(String, &str)> = KEYMAP
+        .iter()
+        .map(|b| {
+            let keys = b.keys.iter().map(key_label).collect::<Vec<_>>().join("/");
+            (keys, b.help)
+        })
+        .collect();
+    let key_w = rows
+        .iter()
+        .map(|(k, _)| k.chars().count())
+        .max()
+        .unwrap_or(0);
+    let help_w = rows
+        .iter()
+        .map(|(_, h)| h.chars().count())
+        .max()
+        .unwrap_or(0);
+
+    let lines: Vec<Line> = rows
+        .iter()
+        .map(|(keys, help)| {
+            Line::from(vec![
+                Span::raw(format!(" {keys:<key_w$}  ")).bold(),
+                Span::raw(*help),
+            ])
+        })
+        .collect();
+
+    // content + 1 leading space + 2 gap + 1 trailing space + 2 borders
+    let width = (key_w + help_w + 6) as u16;
+    let area = centered(frame.area(), width, lines.len() as u16 + 2);
+    frame.render_widget(Clear, area); // wipe what's underneath
+    frame.render_widget(
+        Paragraph::new(lines).block(Block::bordered().title(" keys · any key closes ")),
+        area,
+    );
+}
+
+/// `width` x `height` rectangle in the middle of `area` (clamped to it).
+fn centered(area: Rect, width: u16, height: u16) -> Rect {
+    let [area] = Layout::horizontal([Constraint::Length(width)])
+        .flex(Flex::Center)
+        .areas(area);
+    let [area] = Layout::vertical([Constraint::Length(height)])
+        .flex(Flex::Center)
+        .areas(area);
+    area
 }
 
 fn row_line<'a>(row: &Row<'a>) -> Line<'a> {
@@ -171,7 +231,8 @@ mod tests {
     }
 
     fn render_with(tree: &Tree, state: &mut UiState) -> String {
-        let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        // 24 rows: the help overlay (one line per binding) must fit
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
         terminal.draw(|f| draw(f, tree, state)).unwrap();
         let buf = terminal.backend().buffer().clone();
         buf.content().iter().map(|c| c.symbol()).collect()
@@ -238,5 +299,41 @@ mod tests {
 
         assert!(screen.contains("saved"));
         assert!(!screen.contains("q quit"));
+    }
+
+    #[test]
+    fn help_hint_in_bottom_line() {
+        let tree = Tree {
+            root: container("root", vec![]),
+            cursor: vec![],
+        };
+        assert!(render(&tree).contains("? help"));
+    }
+
+    #[test]
+    fn help_overlay_lists_every_binding() {
+        let tree = Tree {
+            root: container("root", vec![]),
+            cursor: vec![],
+        };
+        let mut state = UiState {
+            show_help: true,
+            ..Default::default()
+        };
+
+        let screen = render_with(&tree, &mut state);
+
+        for b in KEYMAP {
+            assert!(screen.contains(b.help), "help for {:?} missing", b.action);
+        }
+    }
+
+    #[test]
+    fn help_overlay_hidden_by_default() {
+        let tree = Tree {
+            root: container("root", vec![]),
+            cursor: vec![],
+        };
+        assert!(!render(&tree).contains("toggle this help"));
     }
 }
