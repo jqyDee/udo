@@ -4,6 +4,8 @@ pub mod events;
 pub mod layout;
 pub mod state;
 
+use std::time::Instant;
+
 use crossterm::event::{Event, EventStream, KeyEventKind};
 use futures_util::StreamExt;
 use ratatui::DefaultTerminal;
@@ -29,15 +31,30 @@ pub async fn run(tree: &mut Tree) -> Res<()> {
     tree.save_view().await
 }
 
-/// Draw, wait for the next event, handle it. Action errors go to the status
-/// line; only terminal errors end the loop.
+/// Draw, wait for the next event, handle it. Action results/errors become a
+/// toast that expires on its own; only terminal errors end the loop.
 async fn event_loop(terminal: &mut DefaultTerminal, tree: &mut Tree) -> Res<()> {
-    let mut state = UiState::default(); // kept across frames: scroll offset + status
+    let mut state = UiState::default(); // kept across frames: scroll offset, toast, help
     let mut events = EventStream::new();
     loop {
         terminal.draw(|f| layout::draw(f, tree, &mut state))?;
 
-        let Some(event) = events.next().await else {
+        // Toast showing: wait at most until it expires, then redraw without
+        // it. No toast: wait for the next event, no timer at all.
+        let next = match state.status_until {
+            Some(until) => {
+                let left = until.saturating_duration_since(Instant::now());
+                match tokio::time::timeout(left, events.next()).await {
+                    Ok(next) => next,
+                    Err(_elapsed) => {
+                        state.expire(Instant::now());
+                        continue;
+                    }
+                }
+            }
+            None => events.next().await,
+        };
+        let Some(event) = next else {
             return Ok(());
         };
         let Event::Key(key) = event? else {
@@ -54,7 +71,6 @@ async fn event_loop(terminal: &mut DefaultTerminal, tree: &mut Tree) -> Res<()> 
             continue;
         };
 
-        state.status = None; // key clears the message
         match action {
             Action::Quit => return Ok(()),
             Action::Help => {

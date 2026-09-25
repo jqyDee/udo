@@ -239,9 +239,8 @@ mod tests {
     }
 
     #[test]
-    fn quit_keys() {
+    fn quit_key() {
         assert_eq!(action_for(press(KeyCode::Char('q'))), Some(Action::Quit));
-        assert_eq!(action_for(press(KeyCode::Esc)), Some(Action::Quit));
     }
 
     #[test]
