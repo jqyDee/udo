@@ -1,5 +1,6 @@
 //! Left pane: the tree as an indented, scrollable list.
 
+use chrono::Local;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -52,7 +53,12 @@ fn row_line<'a>(row: &Row<'a>) -> Line<'a> {
             indent,
             Span::raw(format!("{} ", status_icon(&t.status))),
             task_name(t),
-            Span::raw(format!("  {}", t.due_date.format("%Y-%m-%d %H:%M"))).dim(),
+            // stored as UTC, shown local (same as entered in the form)
+            Span::raw(format!(
+                "  {}",
+                t.due_date.with_timezone(&Local).format("%Y-%m-%d %H:%M")
+            ))
+            .dim(),
         ]),
     }
 }

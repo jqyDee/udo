@@ -3,6 +3,7 @@
 
 use std::time::Instant;
 
+use chrono::{Local, TimeZone, Utc};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::widgets::ListState;
 
@@ -14,7 +15,7 @@ use crate::{
         tree::{NodePath, Tree},
     },
     tui::{
-        form::{Form, FormAction},
+        form::{DateInput, FieldInput, Form, FormAction, TextInput},
         keys::{Action, action_for},
         toast::Toast,
     },
@@ -164,45 +165,20 @@ impl<'a> App<'a> {
             KeyCode::BackTab => {
                 form.prev_field();
             }
+            // own arm: `form` borrows `self.mode`, which must end before
+            // `submit_form` takes `&mut self`
             KeyCode::Enter => {
                 self.submit_form().await;
             }
-            KeyCode::Char(c) if is_text_input(key) => {
+            // everything else edits the active field, by its kind
+            _ => {
                 if let Some(field) = form.active_field_mut() {
-                    field.insert_char(c);
+                    match &mut field.input {
+                        FieldInput::Text(t) => edit_text(t, key),
+                        FieldInput::Date(d) => edit_date(d, key),
+                    }
                 }
             }
-            KeyCode::Backspace => {
-                if let Some(field) = form.active_field_mut() {
-                    field.backspace();
-                }
-            }
-            KeyCode::Delete => {
-                if let Some(field) = form.active_field_mut() {
-                    field.delete();
-                }
-            }
-            KeyCode::Left => {
-                if let Some(field) = form.active_field_mut() {
-                    field.move_left();
-                }
-            }
-            KeyCode::Right => {
-                if let Some(field) = form.active_field_mut() {
-                    field.move_right();
-                }
-            }
-            KeyCode::Home => {
-                if let Some(field) = form.active_field_mut() {
-                    field.move_home();
-                }
-            }
-            KeyCode::End => {
-                if let Some(field) = form.active_field_mut() {
-                    field.move_end();
-                }
-            }
-            _ => {}
         }
 
         Flow::Continue
@@ -213,7 +189,7 @@ impl<'a> App<'a> {
             return;
         };
 
-        let name = form.field_value("name").unwrap_or("").trim().to_string();
+        let name = form.text_value("name").unwrap_or("").trim().to_string();
         if name.is_empty() {
             self.toast = Some(Toast::error("name cannot be empty"));
             return;
@@ -226,14 +202,18 @@ impl<'a> App<'a> {
 
         match &form.action {
             FormAction::CreateTask { parent } => {
-                let due_str = form.field_value("due").unwrap_or("");
-                let date = match chrono::NaiveDateTime::parse_from_str(due_str, "%Y-%m-%d %H:%M") {
-                    Ok(dt) => dt.and_utc(),
-                    Err(_) => {
-                        self.toast = Some(Toast::error("invalid date, use YYYY-MM-DD HH:MM"));
-                        return;
-                    }
+                // task forms always have a `due` date field
+                let Some(local) = form.date_value("due") else {
+                    return;
                 };
+                // form value is local wall-clock time. `earliest()`: an
+                // ambiguous time (DST end) takes the first one; None = time
+                // doesn't exist (DST start, e.g. 02:30 on spring-forward night)
+                let Some(due) = Local.from_local_datetime(&local).earliest() else {
+                    self.toast = Some(Toast::error("that time doesn't exist (DST switch)"));
+                    return;
+                };
+                let date = due.with_timezone(&Utc);
 
                 // Auto task directory if parent is a project
                 let dir = match self.tree.get(parent) {
@@ -259,7 +239,7 @@ impl<'a> App<'a> {
                 }
             }
             FormAction::CreateContainer { parent, kind } => {
-                let dir_str = form.field_value("dir").unwrap_or("").trim();
+                let dir_str = form.text_value("dir").unwrap_or("").trim();
                 let dir = if dir_str.is_empty() {
                     match self.tree.get(parent).and_then(|n| n.dir()) {
                         Some(p) => p.join(&name),
@@ -362,6 +342,41 @@ fn is_text_input(key: KeyEvent) -> bool {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
     ctrl == alt
+}
+
+/// Typing and cursor keys for a text field. Other keys are ignored.
+fn edit_text(t: &mut TextInput, key: KeyEvent) {
+    match key.code {
+        KeyCode::Char(c) if is_text_input(key) => t.insert_char(c),
+        KeyCode::Backspace => t.backspace(),
+        KeyCode::Delete => t.delete(),
+        KeyCode::Left => t.move_left(),
+        KeyCode::Right => t.move_right(),
+        KeyCode::Home => t.move_home(),
+        KeyCode::End => t.move_end(),
+        _ => {}
+    }
+}
+
+/// ←/→ or h/l pick segment, ↑/↓ or k/j change it, `t` today. Other keys are
+/// ignored. Letter keys only without Ctrl/Alt (Ctrl+J / Ctrl+H arrive as
+/// `Char` with CONTROL on some terminals).
+fn edit_date(d: &mut DateInput, key: KeyEvent) {
+    match key.code {
+        KeyCode::Left => d.prev_segment(),
+        KeyCode::Right => d.next_segment(),
+        KeyCode::Up => d.step(true),
+        KeyCode::Down => d.step(false),
+        KeyCode::Char(c) if is_text_input(key) => match c {
+            'h' => d.prev_segment(),
+            'l' => d.next_segment(),
+            'k' => d.step(true),
+            'j' => d.step(false),
+            't' => d.set_today(),
+            _ => {}
+        },
+        _ => {}
+    }
 }
 
 #[cfg(test)]

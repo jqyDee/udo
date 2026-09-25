@@ -1,5 +1,6 @@
 //! Right pane: fields of the selected node.
 
+use chrono::Local;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -49,7 +50,14 @@ fn detail_lines(node: &Node) -> Vec<Line<'_>> {
             Line::from(t.name.as_str()).bold(),
             Line::default(),
             field("status", format!("{:?}", t.status)),
-            field("due", t.due_date.format("%Y-%m-%d %H:%M").to_string()),
+            // stored as UTC, shown local (same as entered in the form)
+            field(
+                "due",
+                t.due_date
+                    .with_timezone(&Local)
+                    .format("%Y-%m-%d %H:%M")
+                    .to_string(),
+            ),
             field(
                 "dir",
                 t.dir
