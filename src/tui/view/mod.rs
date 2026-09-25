@@ -49,7 +49,11 @@ mod tests {
     use crate::{
         model::tree::Tree,
         test_util::{container, task, tree_with},
-        tui::{app::Confirm, keys::KEYMAP, toast::Toast},
+        tui::{
+            app::Confirm,
+            keys::{KEYMAP, bindings},
+            toast::Toast,
+        },
     };
 
     /// Render one frame of `app` into a fake 80x24 terminal (24 rows: the
@@ -149,8 +153,39 @@ mod tests {
 
         let screen = render(&mut app);
 
-        for b in KEYMAP {
+        for b in bindings() {
             assert!(screen.contains(b.help), "help for {:?} missing", b.action);
+        }
+    }
+
+    #[test]
+    fn help_overlay_shows_section_headings_in_order() {
+        let mut t = empty_tree();
+        let mut app = App::new(&mut t);
+        app.mode = Mode::Help;
+
+        let rows = render_rows(&mut app);
+
+        let heading_rows: Vec<usize> = KEYMAP
+            .iter()
+            .map(|s| {
+                find(&rows, s.title)
+                    .unwrap_or_else(|| panic!("heading {:?} missing", s.title))
+                    .0
+            })
+            .collect();
+        assert!(
+            heading_rows.is_sorted(),
+            "headings out of order: {heading_rows:?}"
+        );
+        // each section's first binding sits right below its heading
+        for (s, row) in KEYMAP.iter().zip(&heading_rows) {
+            assert!(
+                rows[row + 1].contains(s.bindings[0].help),
+                "{:?} not under {:?}",
+                s.bindings[0].help,
+                s.title
+            );
         }
     }
 

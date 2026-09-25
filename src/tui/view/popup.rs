@@ -11,7 +11,7 @@ use ratatui::{
 
 use crate::tui::{
     app::Confirm,
-    keys::{KEYMAP, key_label},
+    keys::{Binding, KEYMAP, bindings, key_label},
     toast::{Toast, ToastKind},
 };
 
@@ -71,44 +71,50 @@ pub fn draw_toast(frame: &mut Frame, toast: &Toast) {
     );
 }
 
-/// Centered key list built from `KEYMAP`.
+/// Centered key list built from `KEYMAP`: one heading per section, its
+/// bindings indented below, a blank line between sections.
 pub fn draw_help(frame: &mut Frame) {
-    let rows: Vec<(String, &str)> = KEYMAP
-        .iter()
-        .map(|b| {
-            let keys = b.keys.iter().map(key_label).collect::<Vec<_>>().join("/");
-            (keys, b.help)
-        })
-        .collect();
-    let key_w = rows
-        .iter()
-        .map(|(k, _)| k.chars().count())
-        .max()
-        .unwrap_or(0);
-    let help_w = rows
-        .iter()
-        .map(|(_, h)| h.chars().count())
+    const TITLE: &str = " keys · any key closes ";
+
+    // one key column for all sections, so the help texts line up everywhere
+    let key_w = bindings()
+        .map(|b| keys_text(b).chars().count())
         .max()
         .unwrap_or(0);
 
-    let lines: Vec<Line> = rows
-        .iter()
-        .map(|(keys, help)| {
-            Line::from(vec![
-                Span::raw(format!(" {keys:<key_w$}  ")).bold(),
-                Span::raw(*help),
-            ])
-        })
-        .collect();
+    let mut lines: Vec<Line> = vec![];
+    for (i, section) in KEYMAP.iter().enumerate() {
+        if i > 0 {
+            lines.push(Line::default());
+        }
+        lines.push(Line::from(section.title).bold().yellow());
+        for b in section.bindings {
+            lines.push(Line::from(vec![
+                Span::raw(format!("  {:<key_w$}  ", keys_text(b))).bold(),
+                Span::raw(b.help),
+            ]));
+        }
+    }
 
-    // content + 1 leading space + 2 gap + 1 trailing space + 2 borders
-    let width = (key_w + help_w + 6) as u16;
+    // widest line (display width) + 2 border + 2 padding; never narrower
+    // than the title
+    let text_w = lines.iter().map(Line::width).max().unwrap_or(0);
+    let width = (text_w + 4).max(TITLE.chars().count() + 2) as u16;
     let rect = centered(frame.area(), width, lines.len() as u16 + 2);
     frame.render_widget(Clear, rect); // wipe what's underneath
     frame.render_widget(
-        Paragraph::new(lines).block(Block::bordered().title(" keys · any key closes ")),
+        Paragraph::new(lines).block(
+            Block::bordered()
+                .title(TITLE)
+                .padding(Padding::horizontal(1)),
+        ),
         rect,
     );
+}
+
+/// All keys of a binding for display, e.g. `j/↓`.
+fn keys_text(b: &Binding) -> String {
+    b.keys.iter().map(key_label).collect::<Vec<_>>().join("/")
 }
 
 /// `width` x `height` rectangle in the middle of `area` (clamped to it).

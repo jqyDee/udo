@@ -1,8 +1,9 @@
 //! Key -> action mapping. Pure data + lookup, no tree, no terminal.
 //!
 //! `KEYMAP` is the single source of truth: `action_for` looks keys up in it
-//! and the help overlay is generated from it. New key = one line there,
-//! plus handling the new `Action` in `App::run`.
+//! and the help overlay is generated from it (one heading per `Section`).
+//! New key = one line in the right section, plus handling the new `Action`
+//! in `App::run`.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 
@@ -30,24 +31,43 @@ pub struct Binding {
     pub help: &'static str,
 }
 
-/// All key bindings. Order here = order in the help overlay.
+/// A titled group of bindings: one heading in the help overlay.
+pub struct Section {
+    pub title: &'static str,
+    pub bindings: &'static [Binding],
+}
+
+/// All key bindings, grouped. Order here = order in the help overlay.
 #[rustfmt::skip] // keep one binding per line, like a table
-pub const KEYMAP: &[Binding] = &[
-    Binding { keys: &[KeyCode::Char('j'), KeyCode::Down], action: Action::Down, help: "move down" },
-    Binding { keys: &[KeyCode::Char('k'), KeyCode::Up], action: Action::Up, help: "move up" },
-    Binding { keys: &[KeyCode::Char('l'), KeyCode::Right], action: Action::In, help: "open / go in" },
-    Binding { keys: &[KeyCode::Char('h'), KeyCode::Left], action: Action::Out, help: "go to parent" },
-    Binding { keys: &[KeyCode::Char(' '), KeyCode::Enter], action: Action::Toggle, help: "fold / unfold" },
-    Binding { keys: &[KeyCode::Char('z')], action: Action::CollapseAll, help: "fold all" },
-    Binding { keys: &[KeyCode::Char('Z')], action: Action::ExpandAll, help: "unfold all" },
-    Binding { keys: &[KeyCode::Char('x')], action: Action::SetStatus(Finished), help: "mark done" },
-    Binding { keys: &[KeyCode::Char('p')], action: Action::SetStatus(InProgress), help: "mark in progress" },
-    Binding { keys: &[KeyCode::Char('s')], action: Action::SetStatus(Stale), help: "mark stale" },
-    Binding { keys: &[KeyCode::Char('u')], action: Action::SetStatus(Pending), help: "mark to do" },
-    Binding { keys: &[KeyCode::Char('d')], action: Action::Delete, help: "remove from udo" },
-    Binding { keys: &[KeyCode::Char('?')], action: Action::Help, help: "toggle this help" },
-    Binding { keys: &[KeyCode::Char('q')], action: Action::Quit, help: "quit" },
+pub const KEYMAP: &[Section] = &[
+    Section { title: "Move", bindings: &[
+        Binding { keys: &[KeyCode::Char('j'), KeyCode::Down], action: Action::Down, help: "move down" },
+        Binding { keys: &[KeyCode::Char('k'), KeyCode::Up], action: Action::Up, help: "move up" },
+        Binding { keys: &[KeyCode::Char('l'), KeyCode::Right], action: Action::In, help: "open / go in" },
+        Binding { keys: &[KeyCode::Char('h'), KeyCode::Left], action: Action::Out, help: "go to parent" },
+    ]},
+    Section { title: "Fold", bindings: &[
+        Binding { keys: &[KeyCode::Char(' '), KeyCode::Enter], action: Action::Toggle, help: "fold / unfold" },
+        Binding { keys: &[KeyCode::Char('z')], action: Action::CollapseAll, help: "fold all" },
+        Binding { keys: &[KeyCode::Char('Z')], action: Action::ExpandAll, help: "unfold all" },
+    ]},
+    Section { title: "Task", bindings: &[
+        Binding { keys: &[KeyCode::Char('x')], action: Action::SetStatus(Finished), help: "mark done" },
+        Binding { keys: &[KeyCode::Char('p')], action: Action::SetStatus(InProgress), help: "mark in progress" },
+        Binding { keys: &[KeyCode::Char('s')], action: Action::SetStatus(Stale), help: "mark stale" },
+        Binding { keys: &[KeyCode::Char('u')], action: Action::SetStatus(Pending), help: "mark to do" },
+        Binding { keys: &[KeyCode::Char('d')], action: Action::Delete, help: "remove from udo" },
+    ]},
+    Section { title: "App", bindings: &[
+        Binding { keys: &[KeyCode::Char('?')], action: Action::Help, help: "toggle this help" },
+        Binding { keys: &[KeyCode::Char('q')], action: Action::Quit, help: "quit" },
+    ]},
 ];
+
+/// All bindings of all sections, in `KEYMAP` order.
+pub fn bindings() -> impl Iterator<Item = &'static Binding> {
+    KEYMAP.iter().flat_map(|s| s.bindings)
+}
 
 /// Map a key press to an action via `KEYMAP`. Releases/repeats and unknown
 /// keys -> None.
@@ -55,8 +75,7 @@ pub fn action_for(key: KeyEvent) -> Option<Action> {
     if key.kind != KeyEventKind::Press {
         return None;
     }
-    KEYMAP
-        .iter()
+    bindings()
         .find(|b| b.keys.contains(&key.code))
         .map(|b| b.action)
 }
@@ -85,8 +104,9 @@ mod tests {
 
     #[test]
     fn no_key_is_bound_twice() {
+        // across sections too: `find` would silently take the first one
         let mut seen = std::collections::HashSet::new();
-        for b in KEYMAP {
+        for b in bindings() {
             for k in b.keys {
                 assert!(seen.insert(*k), "{k:?} is bound twice");
             }
@@ -94,8 +114,24 @@ mod tests {
     }
 
     #[test]
+    fn every_section_has_title_and_bindings() {
+        for s in KEYMAP {
+            assert!(!s.title.is_empty(), "section without title");
+            assert!(!s.bindings.is_empty(), "section {:?} is empty", s.title);
+        }
+    }
+
+    #[test]
+    fn bindings_flattens_all_sections_in_order() {
+        let total: usize = KEYMAP.iter().map(|s| s.bindings.len()).sum();
+        assert_eq!(bindings().count(), total);
+        let first = &KEYMAP[0].bindings[0];
+        assert_eq!(bindings().next().unwrap().action, first.action);
+    }
+
+    #[test]
     fn every_binding_has_help_text() {
-        for b in KEYMAP {
+        for b in bindings() {
             assert!(!b.help.is_empty(), "{:?} has no help text", b.action);
         }
     }
