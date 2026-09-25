@@ -112,7 +112,7 @@ impl<'a> App<'a> {
         match self.tree.set_task_status(&path, status).await {
             Ok(()) => {
                 let name = self.tree.get(&path).map_or("", |n| n.name());
-                self.info(format!("{name} -> {status:?}"));
+                self.info(format!("{name} -> {status}"));
             }
             Err(e) => self.error(e.to_string()),
         }
@@ -261,7 +261,7 @@ mod tests {
 
         let toast = app.toast.as_ref().expect("no toast");
         assert_eq!(toast.kind, ToastKind::Info);
-        assert_eq!(toast.msg, "sheet -> Finished");
+        assert_eq!(toast.msg, "sheet -> done");
         let Some(Node::Task(sheet)) = app.tree.get(&path) else {
             panic!("expected a task at {path:?}");
         };

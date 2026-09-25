@@ -2,14 +2,10 @@
 
 use std::ops::Range;
 
-use chrono::{DateTime, Local, Months, NaiveDateTime, TimeDelta, TimeZone, Utc};
+use chrono::{Local, Months, NaiveDateTime, TimeDelta};
 use crossterm::event::{KeyCode, KeyEvent};
 
-use crate::tui::keys::is_text_input;
-
-/// Display format of a date field. Fixed width and ASCII only, so byte
-/// ranges == char ranges (see `Segment::range`).
-pub const DATE_FMT: &str = "%Y-%m-%d %H:%M";
+use crate::{model::task::DATE_FMT, tui::keys::is_text_input};
 
 /// Local date + time, edited one segment at a time (←/→ pick, ↑/↓ change).
 /// Local, not UTC: converted only on submit (`App::submit_form`).
@@ -138,17 +134,6 @@ impl DateInput {
             _ => {}
         }
     }
-}
-
-/// Local wall-clock time (what the form holds) -> UTC (what tasks store).
-/// An ambiguous time (DST end, 02:30 happens twice) takes the earlier one;
-/// None if the time doesn't exist (DST start, e.g. 02:30 on spring-forward
-/// night).
-pub fn local_to_utc(local: NaiveDateTime) -> Option<DateTime<Utc>> {
-    Local
-        .from_local_datetime(&local)
-        .earliest()
-        .map(|t| t.with_timezone(&Utc))
 }
 
 #[cfg(test)]
@@ -407,13 +392,5 @@ mod tests {
             d.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL));
         }
         assert_eq!(d, before);
-    }
-
-    #[test]
-    fn local_to_utc_roundtrips_normal_time() {
-        // mid-June noon: no DST switch anywhere on that day
-        let local = dt(2026, 6, 15, 12, 0);
-        let utc = local_to_utc(local).unwrap();
-        assert_eq!(utc.with_timezone(&Local).naive_local(), local);
     }
 }

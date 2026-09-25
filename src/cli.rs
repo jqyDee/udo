@@ -1,17 +1,17 @@
 use std::path::{PathBuf, absolute};
 
-use chrono::NaiveDateTime;
+use chrono::{Local, NaiveDateTime};
 use clap::{Parser, Subcommand};
 
 use crate::{
     Res,
-    tui,
     model::{
         container::{ContainerKind, ContainerPatch, ContainerSettings},
         node::{Node, NodePatch},
-        task::Task,
+        task::{DATE_FMT, Task, local_to_utc},
         tree::{NodePath, Tree},
     },
+    tui,
 };
 
 #[derive(Parser)]
@@ -102,8 +102,13 @@ impl Cli {
                         .resolve(&[workspace.as_str()])
                         .ok_or("workspace not found")?;
                     let dir = node_dir(tree, &ws)?.join(project);
-                    tree.create_container(&ws, project.clone(), dir.clone(), ContainerKind::Project)
-                        .await?;
+                    tree.create_container(
+                        &ws,
+                        project.clone(),
+                        dir.clone(),
+                        ContainerKind::Project,
+                    )
+                    .await?;
                     println!("Created project {project:?} at {dir:?}");
                 }
                 Commands::AddTask {
@@ -114,13 +119,16 @@ impl Cli {
                     custom_dir,
                     no_auto_create_folder,
                 } => {
-                    let date = NaiveDateTime::parse_from_str(due, "%Y-%m-%d %H:%M")?.and_utc();
+                    // typed as local time (like in the TUI), stored as UTC
+                    let local = NaiveDateTime::parse_from_str(due, DATE_FMT)
+                        .map_err(|_| format!("invalid --due {due:?}, use YYYY-MM-DD HH:MM"))?;
+                    let date = local_to_utc(local).ok_or("that time doesn't exist (DST switch)")?;
 
                     let parent: NodePath = match (workspace, project) {
                         (None, None) => vec![], // root
-                        (Some(w), None) => tree
-                            .resolve(&[w.as_str()])
-                            .ok_or("workspace not found")?,
+                        (Some(w), None) => {
+                            tree.resolve(&[w.as_str()]).ok_or("workspace not found")?
+                        }
                         (Some(w), Some(p)) => tree
                             .resolve(&[w.as_str(), p.as_str()])
                             .ok_or("project not found")?,
@@ -161,14 +169,14 @@ fn print_tree(tree: &Tree) {
         let indent = "  ".repeat(row.depth);
         match row.node {
             Node::Container(c) => {
-                println!("{:<30}{:?}", format!("{indent}{}/", c.name), c.kind);
+                println!("{:<30}{}", format!("{indent}{}/", c.name), c.kind);
             }
             Node::Task(t) => {
                 println!(
                     "{:<30}{:<12}{}",
                     format!("{indent}{}", t.name),
-                    format!("{:?}", t.status), // derived Debug ignores width
-                    t.due_date.format("%Y-%m-%d %H:%M")
+                    t.status,
+                    t.due_date.with_timezone(&Local).format(DATE_FMT)
                 );
             }
         }

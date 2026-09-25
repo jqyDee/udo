@@ -11,7 +11,7 @@ use ratatui::{
 
 use crate::tui::{
     app::Confirm,
-    keys::{Binding, KEYMAP, bindings, key_label},
+    keys::{Binding, KEYMAP, Section, bindings, key_label},
     toast::{Toast, ToastKind},
 };
 
@@ -72,42 +72,90 @@ pub fn draw_toast(frame: &mut Frame, toast: &Toast) {
 }
 
 /// Centered key list built from `KEYMAP`: one heading per section, its
-/// bindings indented below. No blank line between sections: the overlay has
-/// to fit a 24-row terminal, and the colored headings separate well enough.
+/// bindings indented below. Layout = first of these that fits the screen
+/// height: one column with a blank line between sections, one column
+/// without, two columns (sections split so both are about equally tall).
 pub fn draw_help(frame: &mut Frame) {
     const TITLE: &str = " keys · any key closes ";
+    const COLUMN_GAP: u16 = 3;
 
     // one key column for all sections, so the help texts line up everywhere
     let key_w = bindings()
         .map(|b| keys_text(b).chars().count())
         .max()
         .unwrap_or(0);
+    let sections: Vec<Vec<Line>> = KEYMAP.iter().map(|s| section_lines(s, key_w)).collect();
 
-    let mut lines: Vec<Line> = vec![];
-    for section in KEYMAP {
-        lines.push(Line::from(section.title).bold().yellow());
-        for b in section.bindings {
-            lines.push(Line::from(vec![
-                Span::raw(format!("  {:<key_w$}  ", keys_text(b))).bold(),
-                Span::raw(b.help),
-            ]));
-        }
-    }
+    let area = frame.area();
+    let fits = |rows: usize| rows + 2 <= area.height as usize; // + 2 border
+    let columns: Vec<Vec<Line>> = if fits(stacked(&sections, true).len()) {
+        vec![stacked(&sections, true)]
+    } else if fits(stacked(&sections, false).len()) {
+        vec![stacked(&sections, false)]
+    } else {
+        let (left, right) = sections.split_at(balanced_split(&sections));
+        vec![stacked(left, true), stacked(right, true)]
+    };
 
-    // widest line (display width) + 2 border + 2 padding; never narrower
-    // than the title
-    let text_w = lines.iter().map(Line::width).max().unwrap_or(0);
-    let width = (text_w + 4).max(TITLE.chars().count() + 2) as u16;
-    let rect = centered(frame.area(), width, lines.len() as u16 + 2);
+    // column widths = widest line (display width); box = columns + gaps
+    // + 2 border + 2 padding, never narrower than the title
+    let widths: Vec<u16> = columns
+        .iter()
+        .map(|c| c.iter().map(Line::width).max().unwrap_or(0) as u16)
+        .collect();
+    let gaps = COLUMN_GAP * (columns.len() as u16 - 1);
+    let width = (widths.iter().sum::<u16>() + gaps + 4).max(TITLE.chars().count() as u16 + 2);
+    let height = columns.iter().map(Vec::len).max().unwrap_or(0) as u16 + 2;
+
+    let rect = centered(area, width, height);
+    let block = Block::bordered()
+        .title(TITLE)
+        .padding(Padding::horizontal(1));
+    let inner = block.inner(rect);
     frame.render_widget(Clear, rect); // wipe what's underneath
-    frame.render_widget(
-        Paragraph::new(lines).block(
-            Block::bordered()
-                .title(TITLE)
-                .padding(Padding::horizontal(1)),
-        ),
-        rect,
-    );
+    frame.render_widget(block, rect);
+
+    let cells = Layout::horizontal(widths.iter().map(|&w| Constraint::Length(w)))
+        .spacing(COLUMN_GAP)
+        .split(inner);
+    for (lines, cell) in columns.into_iter().zip(cells.iter()) {
+        frame.render_widget(Paragraph::new(lines), *cell);
+    }
+}
+
+/// Heading + one line per binding, keys padded to `key_w`.
+fn section_lines(section: &Section, key_w: usize) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::from(section.title).bold().yellow()];
+    for b in section.bindings {
+        lines.push(Line::from(vec![
+            Span::raw(format!("  {:<key_w$}  ", keys_text(b))).bold(),
+            Span::raw(b.help),
+        ]));
+    }
+    lines
+}
+
+/// Sections one below the other, optionally with a blank line between.
+fn stacked<'a>(sections: &[Vec<Line<'a>>], gaps: bool) -> Vec<Line<'a>> {
+    let mut out = vec![];
+    for (i, s) in sections.iter().enumerate() {
+        if gaps && i > 0 {
+            out.push(Line::default());
+        }
+        out.extend(s.iter().cloned());
+    }
+    out
+}
+
+/// Where to cut `sections` into two columns so the taller one is as short as
+/// possible. The left column is never empty (unless there are no sections).
+fn balanced_split(sections: &[Vec<Line>]) -> usize {
+    (1..=sections.len())
+        .min_by_key(|&k| {
+            let (l, r) = sections.split_at(k);
+            stacked(l, true).len().max(stacked(r, true).len())
+        })
+        .unwrap_or(0)
 }
 
 /// All keys of a binding for display, e.g. `j/↓`.

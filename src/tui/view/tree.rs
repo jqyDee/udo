@@ -12,7 +12,7 @@ use ratatui::{
 use crate::model::{
     nav::Row,
     node::Node,
-    task::{Task, TaskStatus},
+    task::{DATE_FMT, Task, TaskStatus},
     tree::Tree,
 };
 
@@ -56,7 +56,7 @@ fn row_line<'a>(row: &Row<'a>) -> Line<'a> {
             // stored as UTC, shown local (same as entered in the form)
             Span::raw(format!(
                 "  {}",
-                t.due_date.with_timezone(&Local).format("%Y-%m-%d %H:%M")
+                t.due_date.with_timezone(&Local).format(DATE_FMT)
             ))
             .dim(),
         ]),

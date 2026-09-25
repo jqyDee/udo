@@ -71,7 +71,12 @@ mod tests {
     /// help overlay must fit). One String per screen row, built from cells,
     /// so column indexes are real screen columns.
     fn render_rows(app: &mut App) -> Vec<String> {
-        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        render_rows_sized(app, 80, 24)
+    }
+
+    /// Like `render_rows`, on a `width` x `height` terminal.
+    fn render_rows_sized(app: &mut App, width: u16, height: u16) -> Vec<String> {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         terminal.draw(|f| draw(f, app)).unwrap();
         let buf = terminal.backend().buffer();
         (0..buf.area.height)
@@ -102,7 +107,7 @@ mod tests {
         let screen = render(&mut App::new(&mut t));
         assert!(screen.contains("▾ uni/"));
         assert!(screen.contains("○ exam"));
-        assert!(screen.contains("Pending")); // details pane of the selected task
+        assert!(screen.contains("to do")); // details pane of the selected task
         assert!(screen.contains("? help"));
     }
 
@@ -177,20 +182,26 @@ mod tests {
 
         let rows = render_rows(&mut app);
 
-        let heading_rows: Vec<usize> = KEYMAP
+        // (row, col) of each heading; reading order = left column top to
+        // bottom, then the right column (the overlay may use two columns)
+        // search below the overlay's top border only: the empty-tree hint
+        // behind it mentions `udo create-workspace`
+        let (top, _) = find(&rows, "keys · any key closes").unwrap();
+        let headings: Vec<(usize, usize)> = KEYMAP
             .iter()
             .map(|s| {
-                find(&rows, s.title)
-                    .unwrap_or_else(|| panic!("heading {:?} missing", s.title))
-                    .0
+                let (r, c) = find(&rows[top..], s.title)
+                    .unwrap_or_else(|| panic!("heading {:?} missing", s.title));
+                (top + r, c)
             })
             .collect();
+        let reading_order: Vec<(usize, usize)> = headings.iter().map(|&(r, c)| (c, r)).collect();
         assert!(
-            heading_rows.is_sorted(),
-            "headings out of order: {heading_rows:?}"
+            reading_order.is_sorted(),
+            "headings out of order: {headings:?}"
         );
         // each section's first binding sits right below its heading
-        for (s, row) in KEYMAP.iter().zip(&heading_rows) {
+        for (s, (row, _)) in KEYMAP.iter().zip(&headings) {
             assert!(
                 rows[row + 1].contains(s.bindings[0].help),
                 "{:?} not under {:?}",
@@ -238,5 +249,51 @@ mod tests {
 
         assert!(screen.contains(name), "name cut off");
         assert!(screen.contains("from udo?"), "question cut off");
+    }
+
+    #[test]
+    fn help_overlay_uses_blank_lines_when_tall_enough() {
+        let mut t = empty_tree();
+        let mut app = App::new(&mut t);
+        app.mode = Mode::Help;
+
+        let rows = render_rows_sized(&mut app, 80, 40);
+
+        // blank line between the last binding of a section and the next heading
+        let (row, _) = find(&rows, KEYMAP[1].title).unwrap();
+        assert!(
+            rows[row - 1]
+                .trim_matches(|c| c == '│' || c == ' ')
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn help_overlay_switches_to_two_columns_when_short() {
+        let mut t = empty_tree();
+        let mut app = App::new(&mut t);
+        app.mode = Mode::Help;
+
+        let rows = render_rows_sized(&mut app, 80, 20);
+        let screen = rows.concat();
+
+        for b in bindings() {
+            assert!(screen.contains(b.help), "help for {:?} missing", b.action);
+        }
+        // some heading sits right of another one -> two columns. Search
+        // inside the overlay only (the hint behind it says "create")
+        let (top, _) = find(&rows, "keys · any key closes").unwrap();
+        let cols: Vec<usize> = KEYMAP
+            .iter()
+            .map(|s| {
+                find(&rows[top..], s.title)
+                    .unwrap_or_else(|| panic!("heading {:?} missing", s.title))
+                    .1
+            })
+            .collect();
+        assert!(
+            cols.iter().any(|&c| c != cols[0]),
+            "still one column: {cols:?}"
+        );
     }
 }

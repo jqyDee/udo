@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{fmt, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -75,6 +75,18 @@ pub enum ContainerKind {
     Root,
     Workspace,
     Project,
+}
+
+/// Lowercase name for the UI, e.g. "new workspace", "created project x".
+/// `pad`, so width/alignment like `{:<12}` work.
+impl fmt::Display for ContainerKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.pad(match self {
+            Self::Root => "root",
+            Self::Workspace => "workspace",
+            Self::Project => "project",
+        })
+    }
 }
 
 #[derive(Default, Clone, Serialize, Deserialize)]

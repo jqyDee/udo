@@ -8,8 +8,12 @@ use crossterm::event::KeyEvent;
 
 use super::{App, Flow, Mode};
 use crate::{
-    model::{container::ContainerKind, task::Task, tree::NodePath},
-    tui::form::{Form, FormAction, FormOutcome, local_to_utc},
+    model::{
+        container::ContainerKind,
+        task::{Task, local_to_utc},
+        tree::NodePath,
+    },
+    tui::form::{FieldId, Form, FormAction, FormOutcome},
 };
 
 impl App<'_> {
@@ -69,12 +73,16 @@ impl App<'_> {
             return;
         };
         // name rules (empty, `/`, `..`, duplicates) are checked by the tree
-        let name = form.text_value("name").unwrap_or("").trim().to_string();
+        let name = form
+            .text_value(FieldId::Name)
+            .unwrap_or("")
+            .trim()
+            .to_string();
 
         let created = match &form.action {
             FormAction::CreateTask { parent } => {
                 // task forms always have a `due` date field
-                let Some(local) = form.date_value("due") else {
+                let Some(local) = form.date_value(FieldId::Due) else {
                     return;
                 };
                 let Some(due) = local_to_utc(local) else {
@@ -89,7 +97,7 @@ impl App<'_> {
                     .map(|path| (path, format!("added task {name}")))
             }
             FormAction::CreateContainer { parent, kind } => {
-                let dir_str = form.text_value("dir").unwrap_or("").trim();
+                let dir_str = form.text_value(FieldId::Dir).unwrap_or("").trim();
                 let dir = if dir_str.is_empty() {
                     self.tree.default_child_dir(parent, &name)
                 } else {
@@ -102,7 +110,7 @@ impl App<'_> {
                 self.tree
                     .create_container(parent, name.clone(), dir, *kind)
                     .await
-                    .map(|path| (path, format!("created {kind:?} {name}")))
+                    .map(|path| (path, format!("created {kind} {name}")))
             }
             FormAction::EditNode { .. } => {
                 // Future edit support; say so instead of swallowing Enter

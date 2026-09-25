@@ -12,15 +12,35 @@ use std::path::PathBuf;
 use chrono::{Local, NaiveDateTime, NaiveTime, TimeDelta};
 use crossterm::event::{KeyCode, KeyEvent};
 
-pub use date::{DATE_FMT, DateInput, Segment, local_to_utc};
+pub use date::{DateInput, Segment};
 pub use text::TextInput;
 
 use crate::model::{container::ContainerKind, tree::NodePath};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormField {
-    pub label: &'static str,
+    pub id: FieldId,
     pub input: FieldInput,
+}
+
+/// Which value a field holds. Lookups go by id, not by label string, so a
+/// typo is a compile error instead of a silent `None`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldId {
+    Name,
+    Due,
+    Dir,
+}
+
+impl FieldId {
+    /// Shown in front of the value.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Name => "name",
+            Self::Due => "due",
+            Self::Dir => "dir",
+        }
+    }
 }
 
 /// What kind of value a field holds, and so which keys edit it.
@@ -65,17 +85,17 @@ pub enum FormOutcome {
 
 impl FormField {
     /// Text field, cursor at the end of `value`.
-    pub fn text(label: &'static str, value: impl Into<String>) -> Self {
+    pub fn text(id: FieldId, value: impl Into<String>) -> Self {
         Self {
-            label,
+            id,
             input: FieldInput::Text(TextInput::new(value)),
         }
     }
 
     /// Date field, starting on `Segment::Day` (the part changed most).
-    pub fn date(label: &'static str, value: NaiveDateTime) -> Self {
+    pub fn date(id: FieldId, value: NaiveDateTime) -> Self {
         Self {
-            label,
+            id,
             input: FieldInput::Date(DateInput::new(value)),
         }
     }
@@ -93,7 +113,10 @@ impl Form {
     pub fn new_task_with_due(parent: NodePath, parent_name: &str, due: NaiveDateTime) -> Self {
         Self {
             title: format!("new task · in {parent_name}"),
-            fields: vec![FormField::text("name", ""), FormField::date("due", due)],
+            fields: vec![
+                FormField::text(FieldId::Name, ""),
+                FormField::date(FieldId::Due, due),
+            ],
             active_field: 0,
             action: FormAction::CreateTask { parent },
         }
@@ -113,11 +136,11 @@ impl Form {
             None => dir,
         };
         Self {
-            title: format!("new {:?} · in {parent_name}", kind),
+            title: format!("new {kind} · in {parent_name}"),
             fields: vec![
-                FormField::text("name", ""),
+                FormField::text(FieldId::Name, ""),
                 FormField {
-                    label: "dir",
+                    id: FieldId::Dir,
                     input: FieldInput::Text(dir),
                 },
             ],
@@ -165,17 +188,17 @@ impl Form {
         FormOutcome::Continue
     }
 
-    /// Value of the text field `label`. None if missing or not a text field.
-    pub fn text_value(&self, label: &str) -> Option<&str> {
-        match &self.fields.iter().find(|f| f.label == label)?.input {
+    /// Value of the text field `id`. None if missing or not a text field.
+    pub fn text_value(&self, id: FieldId) -> Option<&str> {
+        match &self.fields.iter().find(|f| f.id == id)?.input {
             FieldInput::Text(t) => Some(t.value.as_str()),
             FieldInput::Date(_) => None,
         }
     }
 
-    /// Value of the date field `label`. None if missing or not a date field.
-    pub fn date_value(&self, label: &str) -> Option<NaiveDateTime> {
-        match &self.fields.iter().find(|f| f.label == label)?.input {
+    /// Value of the date field `id`. None if missing or not a date field.
+    pub fn date_value(&self, id: FieldId) -> Option<NaiveDateTime> {
+        match &self.fields.iter().find(|f| f.id == id)?.input {
             FieldInput::Date(d) => Some(d.value),
             FieldInput::Text(_) => None,
         }
@@ -200,9 +223,9 @@ mod tests {
         Form {
             title: "Test Form".into(),
             fields: vec![
-                FormField::text("Field1", "val1"),
-                FormField::text("Field2", "val2"),
-                FormField::text("Field3", "val3"),
+                FormField::text(FieldId::Name, "val1"),
+                FormField::text(FieldId::Dir, "val2"),
+                FormField::text(FieldId::Due, "val3"),
             ],
             active_field: 0,
             action: FormAction::CreateTask { parent: vec![] },
@@ -217,16 +240,16 @@ mod tests {
         assert_eq!(form.active_field, 0);
 
         let f = form.next_field();
-        assert_eq!(f.label, "Field2");
+        assert_eq!(f.id, FieldId::Dir);
         assert_eq!(form.active_field, 1);
 
         let f = form.next_field();
-        assert_eq!(f.label, "Field3");
+        assert_eq!(f.id, FieldId::Due);
         assert_eq!(form.active_field, 2);
 
         // wraps back to 0
         let f = form.next_field();
-        assert_eq!(f.label, "Field1");
+        assert_eq!(f.id, FieldId::Name);
         assert_eq!(form.active_field, 0);
     }
 
@@ -237,24 +260,24 @@ mod tests {
 
         // prev from 0 wraps to last field without underflowing
         let f = form.prev_field();
-        assert_eq!(f.label, "Field3");
+        assert_eq!(f.id, FieldId::Due);
         assert_eq!(form.active_field, 2);
 
         let f = form.prev_field();
-        assert_eq!(f.label, "Field2");
+        assert_eq!(f.id, FieldId::Dir);
         assert_eq!(form.active_field, 1);
 
         let f = form.prev_field();
-        assert_eq!(f.label, "Field1");
+        assert_eq!(f.id, FieldId::Name);
         assert_eq!(form.active_field, 0);
     }
 
     #[test]
     fn form_active_field_mut() {
         let mut form = test_form();
-        assert_eq!(form.active_field_mut().unwrap().label, "Field1");
+        assert_eq!(form.active_field_mut().unwrap().id, FieldId::Name);
         form.next_field();
-        assert_eq!(form.active_field_mut().unwrap().label, "Field2");
+        assert_eq!(form.active_field_mut().unwrap().id, FieldId::Dir);
     }
 
     #[test]
@@ -268,15 +291,15 @@ mod tests {
         assert_eq!(form.title, "new task · in CS101");
         assert_eq!(form.active_field, 0);
         assert_eq!(form.action, FormAction::CreateTask { parent: vec![0] });
-        assert_eq!(form.text_value("name"), Some(""));
-        assert_eq!(form.date_value("due"), Some(fixed_date));
+        assert_eq!(form.text_value(FieldId::Name), Some(""));
+        assert_eq!(form.date_value(FieldId::Due), Some(fixed_date));
     }
 
     #[test]
     fn new_container_workspace() {
         let form = Form::new_container(vec![], "root", None, ContainerKind::Workspace);
 
-        assert_eq!(form.title, "new Workspace · in root");
+        assert_eq!(form.title, "new workspace · in root");
         assert_eq!(form.active_field, 0);
         assert_eq!(
             form.action,
@@ -285,8 +308,8 @@ mod tests {
                 kind: ContainerKind::Workspace
             }
         );
-        assert_eq!(form.text_value("name"), Some(""));
-        assert_eq!(form.text_value("dir"), Some(""));
+        assert_eq!(form.text_value(FieldId::Name), Some(""));
+        assert_eq!(form.text_value(FieldId::Dir), Some(""));
     }
 
     #[test]
@@ -299,7 +322,7 @@ mod tests {
             ContainerKind::Project,
         );
 
-        assert_eq!(form.title, "new Project · in uni");
+        assert_eq!(form.title, "new project · in uni");
         assert_eq!(
             form.action,
             FormAction::CreateContainer {
@@ -307,8 +330,8 @@ mod tests {
                 kind: ContainerKind::Project
             }
         );
-        assert_eq!(form.text_value("name"), Some(""));
-        assert_eq!(form.text_value("dir"), Some(""));
+        assert_eq!(form.text_value(FieldId::Name), Some(""));
+        assert_eq!(form.text_value(FieldId::Dir), Some(""));
         let FieldInput::Text(dir) = &form.fields[1].input else {
             panic!("dir is not a text field");
         };
@@ -322,8 +345,8 @@ mod tests {
 
     #[test]
     fn form_field_date_wraps_date_input() {
-        let f = FormField::date("due", dt(2026, 10, 15, 14, 30));
-        assert_eq!(f.label, "due");
+        let f = FormField::date(FieldId::Due, dt(2026, 10, 15, 14, 30));
+        assert_eq!(f.id, FieldId::Due);
         assert_eq!(
             f.input,
             FieldInput::Date(DateInput::new(dt(2026, 10, 15, 14, 30)))
@@ -333,10 +356,10 @@ mod tests {
     #[test]
     fn value_getters_only_match_their_own_kind() {
         let form = Form::new_task_with_due(vec![0], "CS101", dt(2026, 10, 15, 14, 30));
-        assert_eq!(form.text_value("due"), None); // due is a date
-        assert_eq!(form.date_value("name"), None); // name is text
-        assert_eq!(form.date_value("missing"), None);
-        assert_eq!(form.text_value("missing"), None);
+        assert_eq!(form.text_value(FieldId::Due), None); // due is a date
+        assert_eq!(form.date_value(FieldId::Name), None); // name is text
+        assert_eq!(form.date_value(FieldId::Dir), None); // task form has no dir
+        assert_eq!(form.text_value(FieldId::Dir), None);
     }
 
     // --------------- Key Tests ---------------
@@ -360,8 +383,8 @@ mod tests {
         form.handle_key(press(KeyCode::Tab));
         assert_eq!(form.active_field, 1);
         form.handle_key(press(KeyCode::Char('!')));
-        assert_eq!(form.text_value("Field2"), Some("val2!"));
-        assert_eq!(form.text_value("Field1"), Some("val1")); // untouched
+        assert_eq!(form.text_value(FieldId::Dir), Some("val2!"));
+        assert_eq!(form.text_value(FieldId::Name), Some("val1")); // untouched
 
         form.handle_key(press(KeyCode::BackTab));
         assert_eq!(form.active_field, 0);
@@ -372,6 +395,6 @@ mod tests {
         let mut form = Form::new_task_with_due(vec![], "root", dt(2026, 6, 15, 12, 0));
         form.handle_key(press(KeyCode::Tab)); // -> due, on Day
         form.handle_key(press(KeyCode::Up));
-        assert_eq!(form.date_value("due"), Some(dt(2026, 6, 16, 12, 0)));
+        assert_eq!(form.date_value(FieldId::Due), Some(dt(2026, 6, 16, 12, 0)));
     }
 }

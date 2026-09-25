@@ -9,7 +9,7 @@ use ratatui::{
     widgets::{Block, Paragraph},
 };
 
-use crate::model::{node::Node, tree::Tree};
+use crate::model::{node::Node, task::DATE_FMT, tree::Tree};
 
 pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree) {
     let lines = match tree.get(&tree.cursor) {
@@ -33,7 +33,7 @@ fn detail_lines(node: &Node) -> Vec<Line<'_>> {
             let mut lines = vec![
                 Line::from(c.name.as_str()).bold(),
                 Line::default(),
-                field("kind", format!("{:?}", c.kind)),
+                field("kind", c.kind.to_string()),
                 field("dir", c.dir.display().to_string()),
                 field("tasks", tasks.to_string()),
                 field("children", (c.children.len() - tasks).to_string()),
@@ -49,13 +49,13 @@ fn detail_lines(node: &Node) -> Vec<Line<'_>> {
         Node::Task(t) => vec![
             Line::from(t.name.as_str()).bold(),
             Line::default(),
-            field("status", format!("{:?}", t.status)),
+            field("status", t.status.to_string()),
             // stored as UTC, shown local (same as entered in the form)
             field(
                 "due",
                 t.due_date
                     .with_timezone(&Local)
-                    .format("%Y-%m-%d %H:%M")
+                    .format(DATE_FMT)
                     .to_string(),
             ),
             field(
