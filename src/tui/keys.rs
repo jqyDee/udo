@@ -20,6 +20,7 @@ pub enum Action {
     CollapseAll,
     ExpandAll,
     SetStatus(TaskStatus),
+    Delete,
 }
 
 /// One row of the keymap: all keys that trigger `action`, and its help text.
@@ -43,6 +44,7 @@ pub const KEYMAP: &[Binding] = &[
     Binding { keys: &[KeyCode::Char('p')], action: Action::SetStatus(InProgress), help: "mark in progress" },
     Binding { keys: &[KeyCode::Char('s')], action: Action::SetStatus(Stale), help: "mark stale" },
     Binding { keys: &[KeyCode::Char('u')], action: Action::SetStatus(Pending), help: "mark to do" },
+    Binding { keys: &[KeyCode::Char('d')], action: Action::Delete, help: "remove from udo" },
     Binding { keys: &[KeyCode::Char('?')], action: Action::Help, help: "toggle this help" },
     Binding { keys: &[KeyCode::Char('q')], action: Action::Quit, help: "quit" },
 ];

@@ -1,5 +1,5 @@
-//! Overlays drawn on top of the panes: toast (top right) and key help
-//! (center), plus the geometry/text helpers they share.
+//! Overlays drawn on top of the panes: toast (top right), key help and
+//! confirm prompt (center), plus the geometry/text helpers they share.
 
 use ratatui::{
     Frame,
@@ -10,9 +10,41 @@ use ratatui::{
 };
 
 use crate::tui::{
+    app::Confirm,
     keys::{KEYMAP, key_label},
     toast::{Toast, ToastKind},
 };
+
+/// Centered "remove?" prompt for `c`. Only y / n / esc do anything (see
+/// `App::answer_confirm`), so the title must not promise "any key".
+pub fn draw_confirm(frame: &mut Frame, c: &Confirm) {
+    let area = frame.area();
+    // keep 1 cell of screen margin: - 2 margin - 2 border - 2 padding
+    let max_text_w = (area.width as usize).saturating_sub(6).max(10);
+
+    // the question contains the (possibly long) name: wrap instead of cutting
+    let mut lines: Vec<Line> = wrap_text(&format!("Remove \"{}\" from udo?", c.name), max_text_w)
+        .into_iter()
+        .map(|l| Line::from(l).bold())
+        .collect();
+    lines.push(Line::from("Files and folders stay on disk.").dim());
+    lines.push(Line::default());
+    lines.push(Line::from("y yes · n/esc no"));
+
+    // display width (not bytes: `·`, umlauts), + 2 border + 2 padding
+    let text_w = lines.iter().map(Line::width).max().unwrap_or(0);
+    let rect = centered(area, text_w as u16 + 4, lines.len() as u16 + 2);
+    frame.render_widget(Clear, rect); // wipe what's underneath
+    frame.render_widget(
+        Paragraph::new(lines).block(
+            Block::bordered()
+                .title(" remove? ")
+                .border_style(Style::new().fg(Color::Red))
+                .padding(Padding::horizontal(1)),
+        ),
+        rect,
+    );
+}
 
 /// Small bordered message box in the top right (green info / red error).
 pub fn draw_toast(frame: &mut Frame, toast: &Toast) {

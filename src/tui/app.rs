@@ -3,11 +3,14 @@
 
 use std::time::Instant;
 
-use crossterm::event::{KeyEvent, KeyEventKind};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::widgets::ListState;
 
 use crate::{
-    model::{task::TaskStatus, tree::Tree},
+    model::{
+        task::TaskStatus,
+        tree::{NodePath, Tree},
+    },
     tui::{
         keys::{Action, action_for},
         toast::Toast,
@@ -22,6 +25,8 @@ pub enum Mode {
     Normal,
     /// Key help overlay open; any key closes it.
     Help,
+    /// "Remove?" prompt open; only y / n / esc do anything.
+    Confirm(Confirm),
 }
 
 /// What the event loop should do after a key.
@@ -29,6 +34,14 @@ pub enum Mode {
 pub enum Flow {
     Continue,
     Quit,
+}
+
+/// What a pending "remove?" prompt is about. Stored when `d` is pressed, so
+/// the answer always applies to the node that was selected at that moment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Confirm {
+    pub path: NodePath,
+    pub name: String,
 }
 
 pub struct App<'a> {
@@ -67,6 +80,7 @@ impl<'a> App<'a> {
                 Some(action) => self.run(action).await,
                 None => Flow::Continue,
             },
+            Mode::Confirm(_) => self.answer_confirm(key).await,
         }
     }
 
@@ -84,7 +98,44 @@ impl<'a> App<'a> {
             Action::CollapseAll => self.tree.collapse_all(),
             Action::ExpandAll => self.tree.expand_all(),
             Action::SetStatus(status) => self.set_status(status).await,
+            Action::Delete => self.ask_delete(),
         }
+        Flow::Continue
+    }
+
+    /// Open the confirm prompt for the selected node. Nothing selected (the
+    /// root, e.g. empty tree) -> error toast instead.
+    fn ask_delete(&mut self) {
+        let path = self.tree.cursor.clone();
+        match self.tree.get(&path) {
+            Some(node) if !path.is_empty() => {
+                let name = node.name().to_string();
+                self.mode = Mode::Confirm(Confirm { path, name });
+            }
+            _ => self.toast = Some(Toast::error("nothing selected")),
+        }
+    }
+
+    /// Answer to the confirm prompt: `y` removes the node (unregister only,
+    /// files stay), `n`/esc cancel, anything else is ignored and the prompt
+    /// stays open.
+    async fn answer_confirm(&mut self, key: KeyEvent) -> Flow {
+        let yes = match key.code {
+            KeyCode::Char('y') => true,
+            KeyCode::Char('n') | KeyCode::Esc => false,
+            _ => return Flow::Continue,
+        };
+
+        let Mode::Confirm(confirm) = std::mem::replace(&mut self.mode, Mode::Normal) else {
+            return Flow::Continue;
+        };
+        if yes {
+            self.toast = Some(match self.tree.delete(&confirm.path).await {
+                Ok(()) => Toast::info(format!("removed {} (files kept)", confirm.name)),
+                Err(e) => Toast::error(e.to_string()),
+            });
+        }
+
         Flow::Continue
     }
 
@@ -237,6 +288,93 @@ mod tests {
             panic!("expected a task at {path:?}");
         };
         assert_eq!(sheet.status, TaskStatus::Finished);
+    }
+
+    // ---------- delete + confirm ----------
+    // The in-memory `tree()` is never saved: only answers that don't delete
+    // (n, esc, ignored keys) use it. `y` saves, so it gets a real tempdir tree.
+
+    #[tokio::test]
+    async fn d_opens_confirm_for_selected_node() {
+        let mut t = tree(&[0]);
+        let mut app = App::new(&mut t);
+
+        assert_eq!(app.handle_key(key('d')).await, Flow::Continue);
+
+        assert_eq!(
+            app.mode,
+            Mode::Confirm(Confirm {
+                path: vec![0],
+                name: "a".into()
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn n_and_esc_cancel_without_deleting() {
+        for cancel in [key('n'), press(KeyCode::Esc)] {
+            let mut t = tree(&[0]);
+            let mut app = App::new(&mut t);
+            app.handle_key(key('d')).await;
+
+            app.handle_key(cancel).await;
+
+            assert_eq!(app.mode, Mode::Normal, "{cancel:?} did not close");
+            assert_eq!(app.tree.get(&[0]).unwrap().name(), "a");
+            assert!(app.toast.is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn other_keys_are_ignored_while_confirming() {
+        let mut t = tree(&[0]);
+        let mut app = App::new(&mut t);
+        app.handle_key(key('d')).await;
+
+        // neither moves the cursor behind the prompt nor quits
+        assert_eq!(app.handle_key(key('j')).await, Flow::Continue);
+        assert_eq!(app.handle_key(key('q')).await, Flow::Continue);
+
+        assert!(matches!(app.mode, Mode::Confirm(_)));
+        assert_eq!(app.tree.cursor, vec![0]);
+    }
+
+    #[tokio::test]
+    async fn d_without_selection_shows_error() {
+        let mut t = tree_with(vec![], &[]); // empty tree: cursor stays on the root
+        let mut app = App::new(&mut t);
+
+        app.handle_key(key('d')).await;
+
+        assert_eq!(app.mode, Mode::Normal);
+        let toast = app.toast.as_ref().expect("no toast");
+        assert_eq!(toast.kind, ToastKind::Error);
+    }
+
+    #[tokio::test]
+    async fn y_removes_node_from_tree_and_disk() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = Tree::load_from(tmp.path()).await.unwrap(); // real root: saving works
+        let path = t
+            .create_task(&[], Task::new("sheet".into(), None, Utc::now()))
+            .await
+            .unwrap();
+        t.cursor = path.clone();
+        let mut app = App::new(&mut t);
+
+        app.handle_key(key('d')).await;
+        app.handle_key(key('y')).await;
+
+        assert_eq!(app.mode, Mode::Normal);
+        assert!(app.tree.get(&path).is_none());
+        assert!(app.tree.cursor.is_empty()); // last node gone: nothing selected
+        let toast = app.toast.as_ref().expect("no toast");
+        assert_eq!(toast.kind, ToastKind::Info);
+        assert!(toast.msg.contains("removed sheet"), "got: {}", toast.msg);
+
+        // saved: a fresh load doesn't have it either
+        let reloaded = Tree::load_from(tmp.path()).await.unwrap();
+        assert!(reloaded.rows().is_empty());
     }
 
     // ---------- toast lifetime ----------

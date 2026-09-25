@@ -1,7 +1,7 @@
 //! Drawing. `draw` splits the screen and calls the pieces:
 //! - `tree`:    tree list (left)
 //! - `details`: selected node (right)
-//! - `popup`:   overlays: toast (top right), key help (center)
+//! - `popup`:   overlays: toast (top right), key help + confirm (center)
 
 mod details;
 mod popup;
@@ -36,6 +36,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     if app.mode == Mode::Help {
         popup::draw_help(frame);
     }
+    if let Mode::Confirm(c) = &app.mode {
+        popup::draw_confirm(frame, c);
+    }
 }
 
 #[cfg(test)]
@@ -46,7 +49,7 @@ mod tests {
     use crate::{
         model::tree::Tree,
         test_util::{container, task, tree_with},
-        tui::{keys::KEYMAP, toast::Toast},
+        tui::{app::Confirm, keys::KEYMAP, toast::Toast},
     };
 
     /// Render one frame of `app` into a fake 80x24 terminal (24 rows: the
@@ -155,5 +158,39 @@ mod tests {
     fn help_overlay_hidden_in_normal_mode() {
         let mut t = empty_tree();
         assert!(!render(&mut App::new(&mut t)).contains("toggle this help"));
+    }
+
+    #[test]
+    fn confirm_popup_names_node_and_keys() {
+        let mut t = tree_with(vec![task("sheet-3")], &[0]);
+        let mut app = App::new(&mut t);
+        app.mode = Mode::Confirm(Confirm {
+            path: vec![0],
+            name: "sheet-3".into(),
+        });
+
+        let screen = render(&mut app);
+
+        assert!(screen.contains("Remove \"sheet-3\" from udo?"));
+        assert!(screen.contains("stay on disk"));
+        assert!(screen.contains("y yes"));
+        // only y/n/esc work in the prompt: the help popup's title must not leak in
+        assert!(!screen.contains("any key closes"));
+    }
+
+    #[test]
+    fn confirm_popup_keeps_long_names_visible() {
+        let name = "a-really-long-task-name-that-would-not-fit-into-half-the-screen-width";
+        let mut t = tree_with(vec![task(name)], &[0]);
+        let mut app = App::new(&mut t);
+        app.mode = Mode::Confirm(Confirm {
+            path: vec![0],
+            name: name.into(),
+        });
+
+        let screen = render(&mut app);
+
+        assert!(screen.contains(name), "name cut off");
+        assert!(screen.contains("from udo?"), "question cut off");
     }
 }
