@@ -1,6 +1,6 @@
 //! Free-text form input: value + cursor, editing and cursor movement.
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::tui::keys::is_text_input;
 
@@ -81,11 +81,54 @@ impl TextInput {
         self.cursor = self.value.chars().count();
     }
 
+    // --------------- Bigger Deletes ---------------
+
+    /// Delete the word left of the cursor (Ctrl+W). Words end at whitespace
+    /// and `/`, like in a shell, so in a path only the last part goes:
+    /// `a/b/c|` -> `a/b/|`. Separators right before the cursor go with it.
+    pub fn delete_word_before(&mut self) {
+        let chars: Vec<char> = self.value.chars().collect();
+        let cursor = self.cursor.min(chars.len());
+        let is_sep = |c: char| c.is_whitespace() || c == '/';
+
+        let mut start = cursor;
+        while start > 0 && is_sep(chars[start - 1]) {
+            start -= 1;
+        }
+        while start > 0 && !is_sep(chars[start - 1]) {
+            start -= 1;
+        }
+        self.remove_chars(start, cursor);
+        self.cursor = start;
+    }
+
+    /// Delete everything left of the cursor (Ctrl+U).
+    pub fn delete_to_start(&mut self) {
+        self.remove_chars(0, self.cursor);
+        self.cursor = 0;
+    }
+
+    /// Delete everything from the cursor on (Ctrl+K).
+    pub fn delete_to_end(&mut self) {
+        let char_count = self.value.chars().count();
+        self.remove_chars(self.cursor.min(char_count), char_count);
+    }
+
     // --------------- Keys ---------------
 
-    /// Typing and cursor keys. Other keys are ignored.
+    /// Typing and cursor keys, plus shell-like Ctrl shortcuts: W word, U to
+    /// start, K to end (delete); A / E jump to start / end. Other keys and
+    /// other Ctrl/Alt combos are ignored.
     pub fn handle_key(&mut self, key: KeyEvent) {
         match key.code {
+            KeyCode::Char(c) if key.modifiers == KeyModifiers::CONTROL => match c {
+                'w' => self.delete_word_before(),
+                'u' => self.delete_to_start(),
+                'k' => self.delete_to_end(),
+                'a' => self.move_home(),
+                'e' => self.move_end(),
+                _ => {}
+            },
             KeyCode::Char(c) if is_text_input(key) => self.insert_char(c),
             KeyCode::Backspace => self.backspace(),
             KeyCode::Delete => self.delete(),
@@ -98,6 +141,12 @@ impl TextInput {
     }
 
     // --------------- Helpers ---------------
+
+    /// Remove chars `from..to` (char indices). Cursor is left to the caller.
+    fn remove_chars(&mut self, from: usize, to: usize) {
+        let range = self.byte_offset_for_char(from)..self.byte_offset_for_char(to);
+        self.value.replace_range(range, "");
+    }
 
     fn byte_offset_for_char(&self, char_idx: usize) -> usize {
         self.value
@@ -304,5 +353,55 @@ mod tests {
         let mut t = TextInput::new("x");
         t.handle_key(ctrl('c'));
         assert_eq!(t.value, "x");
+    }
+
+    // --------------- Bigger Delete Tests ---------------
+
+    #[test]
+    fn ctrl_w_deletes_word_and_spaces_before_cursor() {
+        let mut t = TextInput::new("read chapter  ");
+        t.handle_key(ctrl('w'));
+        assert_eq!(t.value, "read ");
+        assert_eq!(t.cursor, 5);
+        t.handle_key(ctrl('w'));
+        assert_eq!(t.value, "");
+        t.handle_key(ctrl('w')); // empty: no-op
+        assert_eq!((t.value.as_str(), t.cursor), ("", 0));
+    }
+
+    #[test]
+    fn ctrl_w_stops_at_slash_in_paths() {
+        let mut t = TextInput::new("~/uni/cs101/");
+        t.handle_key(ctrl('w'));
+        assert_eq!(t.value, "~/uni/");
+    }
+
+    #[test]
+    fn ctrl_w_in_the_middle_keeps_the_rest() {
+        let mut t = TextInput::new("öäü wörd rest");
+        t.cursor = 8; // after "wörd"
+        t.handle_key(ctrl('w'));
+        assert_eq!(t.value, "öäü  rest");
+        assert_eq!(t.cursor, 4);
+    }
+
+    #[test]
+    fn ctrl_u_and_ctrl_k_delete_to_start_and_end() {
+        let mut t = TextInput::new("hello world");
+        t.cursor = 5;
+        t.handle_key(ctrl('k'));
+        assert_eq!((t.value.as_str(), t.cursor), ("hello", 5));
+        t.cursor = 2;
+        t.handle_key(ctrl('u'));
+        assert_eq!((t.value.as_str(), t.cursor), ("llo", 0));
+    }
+
+    #[test]
+    fn ctrl_a_and_ctrl_e_jump() {
+        let mut t = TextInput::new("abc");
+        t.handle_key(ctrl('a'));
+        assert_eq!(t.cursor, 0);
+        t.handle_key(ctrl('e'));
+        assert_eq!(t.cursor, 3);
     }
 }
