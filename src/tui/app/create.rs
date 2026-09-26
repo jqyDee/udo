@@ -7,7 +7,9 @@ use crossterm::event::KeyEvent;
 
 use super::{App, Flow, Mode};
 use crate::{
-    model::{NodePath, container::ContainerKind, node::Node, task::Task}, naming::normalize_name, tui::form::{FieldId, FolderMode, Form, FormAction, FormOutcome, TaskDefaults},
+    model::{NodePath, container::ContainerKind, node::Node, task::Task},
+    naming::normalize_name,
+    tui::form::{FieldId, FolderMode, Form, FormAction, FormOutcome, TaskDefaults},
 };
 
 impl App<'_> {

@@ -4,9 +4,16 @@ use chrono::{Local, NaiveDateTime, TimeZone, Utc};
 use clap::{Parser, Subcommand};
 
 use crate::{
-    DATE_FMT, Res, model::{
-        NodePath, container::{ContainerKind, ContainerPatch, ContainerSettings}, node::{Node, NodePatch}, task::Task, tree::Tree,
-    }, naming::{folder_name, normalize_name}, tui,
+    DATE_FMT, Res,
+    model::{
+        NodePath,
+        container::{ContainerKind, ContainerPatch, ContainerSettings},
+        node::{Node, NodePatch},
+        task::Task,
+        tree::Tree,
+    },
+    naming::{folder_name, normalize_name},
+    tui,
 };
 
 #[derive(Parser)]

@@ -1,4 +1,7 @@
-use std::{ffi::OsString, path::{Path, PathBuf, absolute}};
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf, absolute},
+};
 
 use directories::BaseDirs;
 
@@ -77,6 +80,27 @@ mod tests {
     fn relative_tilde_user_and_empty_are_errors() {
         for input in ["rel/x", "x", "./x", "~foo", "~foo/x", "", "   "] {
             assert!(parse(input).is_err(), "{input:?}");
+        }
+    }
+
+    #[test]
+    fn root_dir_uses_env_override() {
+        let dir = root_dir_from(Some("/tmp/udo-test".into())).unwrap();
+        assert_eq!(dir, PathBuf::from("/tmp/udo-test"));
+    }
+
+    #[test]
+    fn root_dir_makes_relative_override_absolute() {
+        let dir = root_dir_from(Some("udo-test".into())).unwrap();
+        assert!(dir.is_absolute());
+        assert!(dir.ends_with("udo-test"));
+    }
+
+    #[test]
+    fn root_dir_defaults_to_config_when_unset_or_empty() {
+        for env in [None, Some(OsString::new())] {
+            let dir = root_dir_from(env).unwrap();
+            assert!(dir.ends_with(".config/udo"));
         }
     }
 }

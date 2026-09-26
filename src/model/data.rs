@@ -2,9 +2,12 @@ use serde::{Deserialize, Serialize};
 use tokio::fs;
 
 use crate::{
-    Res, UDO_FILE_NAME, model::{
-        container::{Container, ContainerKind, ContainerSettings}, task::Task,
-    }, persist::write_toml_atomic,
+    Res, UDO_FILE_NAME,
+    model::{
+        container::{Container, ContainerKind, ContainerSettings},
+        task::Task,
+    },
+    persist::write_toml_atomic,
 };
 use std::path::{Path, PathBuf};
 

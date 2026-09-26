@@ -1,8 +1,6 @@
 //! Flat view of the tree + cursor movement. Shared by CLI `List` and the TUI.
 
-use crate::model::{
-    NodePath, node::Node, tree::Tree,
-};
+use crate::model::{NodePath, node::Node, tree::Tree};
 
 /// One visible line of the tree view.
 pub struct Row<'a> {

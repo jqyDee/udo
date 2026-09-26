@@ -9,12 +9,15 @@ use ratatui::{
     widgets::{Block, List, ListItem, ListState, Paragraph},
 };
 
-use crate::{DATE_FMT, model::{
-    nav::Row,
-    node::Node,
-    task::{Task, TaskStatus},
-    tree::Tree,
-}};
+use crate::{
+    DATE_FMT,
+    model::{
+        nav::Row,
+        node::Node,
+        task::{Task, TaskStatus},
+        tree::Tree,
+    },
+};
 
 pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree, list: &mut ListState) {
     let rows = tree.rows();
