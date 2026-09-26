@@ -2,19 +2,19 @@
 //! the parent, the form edits itself (`Form::handle_key`), submit calls the
 //! tree (which checks names and creates dirs).
 
-use std::path::PathBuf;
-
+use chrono::{Local, NaiveTime, TimeDelta};
 use crossterm::event::KeyEvent;
 
 use super::{App, Flow, Mode};
 use crate::{
     model::{
         container::ContainerKind,
+        node::Node,
         normalize_name,
         task::{Task, local_to_utc},
         tree::NodePath,
     },
-    tui::form::{FieldId, Form, FormAction, FormOutcome},
+    tui::form::{FieldId, FolderMode, Form, FormAction, FormOutcome, TaskDefaults},
 };
 
 impl App<'_> {
@@ -51,8 +51,30 @@ impl App<'_> {
 
     pub(super) fn open_task_form(&mut self, global: bool) {
         let parent = self.creation_parent(global);
-        let parent_name = self.tree.get(&parent).map_or("root", |n| n.name());
-        self.mode = Mode::Form(Box::new(Form::new_task(parent, parent_name)));
+        let parent_node = self.tree.get(&parent);
+        let parent_name = parent_node.map_or("root", |n| n.name());
+        let parent_dir = parent_node.and_then(|n| n.dir().map(|d| d.to_path_buf()));
+
+        // folders only in projects, until the `task_folders` setting
+        let folder = match parent_node {
+            Some(Node::Container(c)) if c.kind == ContainerKind::Project => FolderMode::Auto,
+            _ => FolderMode::None,
+        };
+
+        // this has to move into the tree at some point I believe
+        let tomorrow_noon = (Local::now().date_naive() + TimeDelta::days(1))
+            .and_time(NaiveTime::from_hms_opt(12, 0, 0).unwrap());
+        let defaults = TaskDefaults {
+            due: tomorrow_noon,
+            folder,
+        };
+
+        self.mode = Mode::Form(Box::new(Form::new_task(
+            parent,
+            parent_name,
+            parent_dir,
+            defaults,
+        )));
     }
 
     pub(super) async fn handle_form_key(&mut self, key: KeyEvent) -> Flow {
@@ -86,26 +108,39 @@ impl App<'_> {
                     self.error("that time doesn't exist (DST switch)");
                     return;
                 };
-                let dir = self.tree.auto_task_dir(parent, &name);
+                // by folder mode; clashes with other nodes are checked by the tree
+                let dir = match form.chosen_dir() {
+                    Ok(dir) => dir,
+                    Err(e) => {
+                        self.error(e);
+                        return;
+                    }
+                };
                 let task = Task::new(name.clone(), dir, due);
                 self.tree
                     .create_task(parent, task)
                     .await
                     .map(|path| (path, format!("added task {name}")))
             }
-            FormAction::CreateContainer { parent, kind } => {
-                let dir_str = form.text_value(FieldId::Dir).unwrap_or("").trim();
-                let dir = if dir_str.is_empty() {
-                    self.tree.default_child_dir(parent, &name)
-                } else {
-                    Some(PathBuf::from(dir_str))
-                };
-                let Some(dir) = dir else {
-                    self.error("directory cannot be empty");
+            FormAction::CreateContainer { parent } => {
+                // container forms always have a `kind` field
+                let Some(kind) = form.container_kind() else {
                     return;
                 };
+                let dir = match form.chosen_dir() {
+                    Ok(Some(dir)) => dir,
+                    // auto without a name: say what's missing
+                    Ok(None) => {
+                        self.error("name cannot be empty");
+                        return;
+                    }
+                    Err(e) => {
+                        self.error(e);
+                        return;
+                    }
+                };
                 self.tree
-                    .create_container(parent, name.clone(), dir, *kind)
+                    .create_container(parent, name.clone(), dir, kind)
                     .await
                     .map(|path| (path, format!("created {kind} {name}")))
             }

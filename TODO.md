@@ -5,7 +5,7 @@ Priorities as of 2026-09-25, in order. Background and older plans:
 
 ## Now: creation flow
 
-- [ ] **Custom dirs when creating.** New `folder ‹ auto · custom · none ›`
+- [x] **Custom dirs when creating.** New `folder ‹ auto · custom · none ›`
       choice (←/→) above the dir row:
       - auto: `<parent dir>/<folder name>`, shown live while typing the name
       - custom: editable, pre-filled with the auto path, must be absolute
@@ -15,11 +15,11 @@ Priorities as of 2026-09-25, in order. Background and older plans:
       until the `task_folders` setting (section 1) replaces that rule.
       Custom text is kept while switching modes. CLI keeps resolving relative paths against
       the cwd; `add-project` gets `--dir`.
-- [ ] **Folder names:** one shared `folder_name()` in `model`: spaces -> `_`
+- [x] **Folder names:** one shared `folder_name()` in `model`: spaces -> `_`
       in the folder only, the node name keeps its spaces (CLI too).
-- [ ] **Kind choice** in the container form (`workspace · project`), guessed
+- [x] **Kind choice** in the container form (`workspace · project`), guessed
       default as today; allows nested workspaces.
-- [ ] **Form defaults from outside:** the app passes `TaskDefaults` into the
+- [x] **Form defaults from outside:** the app passes `TaskDefaults` into the
       form, so defaults can come from settings later.
 - [ ] **Next, separate step (task format):** stable task IDs (existing
       tasks get one on load), `created_at`, optional one-line `description`.

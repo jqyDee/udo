@@ -8,7 +8,7 @@ use ratatui::{
     widgets::{Block, Paragraph},
 };
 
-use crate::tui::form::{DateInput, FieldInput, Form, TextInput};
+use crate::tui::form::{ChoiceInput, DateInput, FieldId, FieldInput, FolderMode, Form, TextInput};
 
 /// Width of the `" ▸ "` / `"   "` column in front of each field.
 const PREFIX_W: usize = 3;
@@ -44,9 +44,14 @@ pub fn draw(frame: &mut Frame, area: Rect, form: &Form) {
         };
 
         let mut spans = vec![prefix, label];
-        match &field.input {
-            FieldInput::Text(t) => spans.extend(text_spans(t, is_active, value_w)),
-            FieldInput::Date(d) => spans.extend(date_spans(d, is_active)),
+        if let Some(preview) = dir_preview_span(form, field.id, value_w) {
+            spans.push(preview);
+        } else {
+            match &field.input {
+                FieldInput::Text(t) => spans.extend(text_spans(t, is_active, value_w)),
+                FieldInput::Date(d) => spans.extend(date_spans(d, is_active)),
+                FieldInput::Choice(c) => spans.extend(choice_spans(c, is_active)),
+            }
         }
         lines.push(Line::from(spans));
     }
@@ -60,6 +65,13 @@ pub fn draw(frame: &mut Frame, area: Rect, form: &Form) {
     );
     if date_active {
         lines.push(Line::from(" ←→ part · ↑↓ change · t today ").dim());
+    }
+    let choice_active = matches!(
+        form.fields.get(form.active_field).map(|f| &f.input),
+        Some(FieldInput::Choice(_))
+    );
+    if choice_active {
+        lines.push(Line::from(" ←→ choose ").dim());
     }
     lines.push(Line::from(" tab switch · enter confirm · esc cancel ").dim());
 
@@ -157,8 +169,53 @@ fn date_spans(d: &DateInput, is_active: bool) -> Vec<Span<'static>> {
     ]
 }
 
+/// The dir row outside `custom` mode: nothing to edit, a dim preview
+/// instead. `auto`: the path it will create (`<parent>/<name>` until a name
+/// is typed); `none` (tasks only): `(no folder)`. None for every other row,
+/// and for the dir row in `custom` mode (normal text field).
+fn dir_preview_span(form: &Form, id: FieldId, width: usize) -> Option<Span<'static>> {
+    if id != FieldId::Dir {
+        return None;
+    }
+    let text = match form.folder_mode()? {
+        FolderMode::Custom => return None,
+        FolderMode::None => "(no folder)".to_string(),
+        FolderMode::Auto => match (form.auto_dir(), &form.parent_dir) {
+            (Some(dir), _) => dir.display().to_string(),
+            (None, Some(parent)) => format!("{}/<name>", parent.display()),
+            (None, None) => "(no parent folder)".to_string(),
+        },
+    };
+    // paths: the end is the interesting part, like inactive text fields
+    Some(Span::styled(tail(&text, width.max(2)), Style::new().dim()))
+}
+
+fn choice_spans(c: &ChoiceInput, is_active: bool) -> Vec<Span<'static>> {
+    let mut spans = vec![Span::raw("‹ ")];
+    for (i, &option) in c.options.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::raw(" · ").dim());
+        }
+        let style = match (i == c.selected, is_active) {
+            (true, true) => Style::new().reversed(),
+            (true, false) => Style::new(),
+            (false, _) => Style::new().dim(),
+        };
+        spans.push(Span::styled(option, style));
+    }
+    spans.push(Span::raw(" ›").dim());
+    spans
+}
+
 #[cfg(test)]
 mod tests {
+    use ratatui::style::Modifier;
+
+    use crate::{
+        model::container::ContainerKind,
+        tui::form::{FOLDER_CHOICES, TaskDefaults},
+    };
+
     use super::*;
 
     /// What `text_spans` puts on screen, as one string.
@@ -214,5 +271,132 @@ mod tests {
         let empty = TextInput::new("").with_placeholder("/home/me/uni/<name>");
         assert_eq!(shown(&empty, false, 8), "…/<name>");
         assert_eq!(shown(&empty, true, 8), " …<name>"); // cursor block + hint
+    }
+
+    // --------------- Choice Tests ---------------
+
+    fn choice(selected: usize) -> ChoiceInput {
+        ChoiceInput {
+            options: FOLDER_CHOICES,
+            selected,
+        }
+    }
+
+    /// What `choice_spans` puts on screen, as one string.
+    fn choice_text(c: &ChoiceInput, is_active: bool) -> String {
+        choice_spans(c, is_active)
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect()
+    }
+
+    /// Style of the span showing `option`.
+    fn option_style(c: &ChoiceInput, is_active: bool, option: &str) -> Style {
+        choice_spans(c, is_active)
+            .into_iter()
+            .find(|s| s.content == option)
+            .expect("option not rendered")
+            .style
+    }
+
+    #[test]
+    fn choice_shows_all_options_in_order() {
+        let expected = "‹ none · auto · custom ›";
+        assert_eq!(choice_text(&choice(0), true), expected);
+        assert_eq!(choice_text(&choice(2), false), expected); // same layout
+    }
+
+    #[test]
+    fn active_choice_inverts_only_the_selected_option() {
+        let c = choice(1);
+        let selected = option_style(&c, true, "auto");
+        assert!(selected.add_modifier.contains(Modifier::REVERSED));
+        for other in ["custom", "none"] {
+            let style = option_style(&c, true, other);
+            assert!(!style.add_modifier.contains(Modifier::REVERSED), "{other}");
+            assert!(style.add_modifier.contains(Modifier::DIM), "{other}");
+        }
+    }
+
+    #[test]
+    fn inactive_choice_shows_selected_plain_and_others_dim() {
+        let c = choice(1);
+        assert_eq!(option_style(&c, false, "auto"), Style::new());
+        assert!(
+            option_style(&c, false, "none")
+                .add_modifier
+                .contains(Modifier::DIM)
+        );
+    }
+
+    // --------------- Dir Preview Tests ---------------
+
+    fn task_form(mode: FolderMode, name: &str) -> Form {
+        let defaults = TaskDefaults {
+            due: chrono::NaiveDate::from_ymd_opt(2026, 6, 15)
+                .unwrap()
+                .and_hms_opt(12, 0, 0)
+                .unwrap(),
+            folder: mode,
+        };
+        let mut form = Form::new_task(vec![0], "cs101", Some("/uni/cs101".into()), defaults);
+        let FieldInput::Text(t) = &mut form.fields[0].input else {
+            panic!("name is not a text field");
+        };
+        *t = TextInput::new(name);
+        form
+    }
+
+    /// Text of the dir row's preview, None if the row is a normal field.
+    fn preview(form: &Form) -> Option<String> {
+        dir_preview_span(form, FieldId::Dir, 40).map(|s| s.content.into_owned())
+    }
+
+    #[test]
+    fn auto_preview_shows_the_path_or_a_name_hint() {
+        assert_eq!(
+            preview(&task_form(FolderMode::Auto, "lab 3")).as_deref(),
+            Some("/uni/cs101/lab_3")
+        );
+        assert_eq!(
+            preview(&task_form(FolderMode::Auto, "")).as_deref(),
+            Some("/uni/cs101/<name>")
+        );
+    }
+
+    #[test]
+    fn none_preview_says_no_folder() {
+        assert_eq!(
+            preview(&task_form(FolderMode::None, "lab 3")).as_deref(),
+            Some("(no folder)")
+        );
+    }
+
+    #[test]
+    fn custom_and_other_rows_render_normally() {
+        assert_eq!(preview(&task_form(FolderMode::Custom, "lab 3")), None);
+        let auto = task_form(FolderMode::Auto, "lab 3");
+        assert!(dir_preview_span(&auto, FieldId::Name, 40).is_none());
+    }
+
+    #[test]
+    fn container_forms_preview_their_auto_dir() {
+        let container = Form::new_container(
+            vec![],
+            "root",
+            Some("/home/me/.config/udo".into()),
+            ContainerKind::Workspace,
+        );
+        assert_eq!(
+            preview(&container).as_deref(),
+            Some("/home/me/.config/udo/<name>")
+        );
+    }
+
+    #[test]
+    fn long_preview_shows_the_end() {
+        let form = task_form(FolderMode::Auto, "lab 3");
+        let span = dir_preview_span(&form, FieldId::Dir, 8).unwrap();
+        assert_eq!(span.content, "…1/lab_3"); // `/uni/cs101/lab_3` in 8 cells
     }
 }

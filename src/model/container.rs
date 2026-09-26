@@ -77,15 +77,37 @@ pub enum ContainerKind {
     Project,
 }
 
+impl ContainerKind {
+    /// Every kind. Index = `index()`.
+    pub const ALL: [Self; 3] = [Self::Root, Self::Workspace, Self::Project];
+
+    /// Kinds a user can create (the root exists once, made on first run).
+    pub const CREATABLE: [Self; 2] = [Self::Workspace, Self::Project];
+
+    /// Lowercase name for the UI; also what `Display` prints.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Root => "root",
+            Self::Workspace => "workspace",
+            Self::Project => "project",
+        }
+    }
+
+    /// Position in `ALL`.
+    pub const fn index(self) -> usize {
+        match self {
+            Self::Root => 0,
+            Self::Workspace => 1,
+            Self::Project => 2,
+        }
+    }
+}
+
 /// Lowercase name for the UI, e.g. "new workspace", "created project x".
 /// `pad`, so width/alignment like `{:<12}` work.
 impl fmt::Display for ContainerKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.pad(match self {
-            Self::Root => "root",
-            Self::Workspace => "workspace",
-            Self::Project => "project",
-        })
+        f.pad(self.label())
     }
 }
 
@@ -111,6 +133,15 @@ mod tests {
 
     use super::*;
     use chrono::Utc;
+
+    #[test]
+    fn kind_index_matches_all_and_display_is_label() {
+        for (i, kind) in ContainerKind::ALL.into_iter().enumerate() {
+            assert_eq!(kind.index(), i, "{kind:?}");
+            assert_eq!(kind.to_string(), kind.label());
+        }
+        assert!(!ContainerKind::CREATABLE.contains(&ContainerKind::Root));
+    }
 
     fn task(name: &str, dir: Option<PathBuf>) -> Task {
         Task {

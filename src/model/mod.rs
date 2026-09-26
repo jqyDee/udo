@@ -6,6 +6,10 @@ pub mod task;
 pub mod tree;
 pub mod view;
 
+use std::path::{Path, PathBuf};
+
+use directories::BaseDirs;
+
 /// How every node name is stored: trimmed, whitespace runs -> one space.
 pub fn normalize_name(name: &str) -> String {
     name.split_whitespace().collect::<Vec<_>>().join(" ")
@@ -18,9 +22,67 @@ pub fn folder_name(name: &str) -> Option<String> {
     (!folder.is_empty()).then_some(folder)
 }
 
+/// A dir typed in the TUI: `/…` as is, `~` / `~/…` below the home dir.
+/// Anything else (relative, `~user`, empty) is an error meant for a toast.
+/// Not canonicalized: the dir may not exist yet.
+pub fn parse_abs_dir(input: &str) -> Result<PathBuf, String> {
+    let dirs = BaseDirs::new().ok_or_else(|| "could not find the home dir".to_string())?;
+    parse_abs_dir_in(input, dirs.home_dir())
+}
+
+/// `parse_abs_dir` with the home dir passed in, so tests don't depend on
+/// who runs them.
+fn parse_abs_dir_in(input: &str, home: &Path) -> Result<PathBuf, String> {
+    let input = input.trim();
+    if input.is_empty() {
+        return Err("dir cannot be empty".into());
+    }
+    if input == "~" {
+        return Ok(home.to_path_buf());
+    }
+    // before the general `~` check below, which would catch this too
+    if let Some(rest) = input.strip_prefix("~/") {
+        return Ok(home.join(rest));
+    }
+    if input.starts_with('~') {
+        return Err("~user is not supported, use ~/… or /…".into());
+    }
+    let path = PathBuf::from(input);
+    if !path.is_absolute() {
+        return Err("dir must be absolute (/… or ~/…)".into());
+    }
+    Ok(path)
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::model::{folder_name, normalize_name};
+    use std::path::{Path, PathBuf};
+
+    use crate::model::{folder_name, normalize_name, parse_abs_dir_in};
+
+    fn parse(input: &str) -> Result<PathBuf, String> {
+        parse_abs_dir_in(input, Path::new("/home/test"))
+    }
+
+    #[test]
+    fn absolute_dirs_are_kept() {
+        assert_eq!(parse("/abs/dir"), Ok("/abs/dir".into()));
+        assert_eq!(parse("  /abs  "), Ok("/abs".into())); // trimmed
+    }
+
+    #[test]
+    fn tilde_expands_to_home() {
+        assert_eq!(parse("~"), Ok("/home/test".into()));
+        assert_eq!(parse("~/x/y"), Ok("/home/test/x/y".into()));
+        assert_eq!(parse("~/"), Ok("/home/test".into()));
+    }
+
+    #[test]
+    fn relative_tilde_user_and_empty_are_errors() {
+        for input in ["rel/x", "x", "./x", "~foo", "~foo/x", "", "   "] {
+            assert!(parse(input).is_err(), "{input:?}");
+        }
+    }
 
     #[test]
     fn no_whitespace_no_change() {

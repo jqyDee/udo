@@ -44,6 +44,9 @@ pub enum Commands {
         workspace: String,
         #[arg(short, long, value_parser = collapse_whitespaces)]
         project: String,
+        /// Project folder (relative to the cwd); default: `<workspace dir>/<project>`
+        #[arg(short, long)]
+        dir: Option<PathBuf>,
     },
     AddTask {
         #[arg(short, long, value_parser = collapse_whitespaces)]
@@ -99,12 +102,22 @@ impl Cli {
                     }
                     println!("Created workspace {name:?} at {dir:?}");
                 }
-                Commands::AddProject { workspace, project } => {
+                Commands::AddProject {
+                    workspace,
+                    project,
+                    dir,
+                } => {
                     let ws = tree
                         .resolve(&[workspace.as_str()])
                         .ok_or("workspace not found")?;
-                    let folder = folder_name(project).ok_or("name cannot be empty")?;
-                    let dir = node_dir(tree, &ws)?.join(folder);
+                    let dir = match dir {
+                        // absolute: the parent file stores this path, cwd must not matter
+                        Some(d) => absolute(d)?,
+                        None => {
+                            let folder = folder_name(project).ok_or("name cannot be empty")?;
+                            node_dir(tree, &ws)?.join(folder)
+                        }
+                    };
                     tree.create_container(
                         &ws,
                         project.clone(),
