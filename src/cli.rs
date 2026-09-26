@@ -7,7 +7,9 @@ use crate::{
     Res,
     model::{
         container::{ContainerKind, ContainerPatch, ContainerSettings},
+        folder_name,
         node::{Node, NodePatch},
+        normalize_name,
         task::{DATE_FMT, Task, local_to_utc},
         tree::{NodePath, Tree},
     },
@@ -101,7 +103,8 @@ impl Cli {
                     let ws = tree
                         .resolve(&[workspace.as_str()])
                         .ok_or("workspace not found")?;
-                    let dir = node_dir(tree, &ws)?.join(project);
+                    let folder = folder_name(project).ok_or("name cannot be empty")?;
+                    let dir = node_dir(tree, &ws)?.join(folder);
                     tree.create_container(
                         &ws,
                         project.clone(),
@@ -192,10 +195,12 @@ fn node_dir(tree: &Tree, path: &[usize]) -> Res<PathBuf> {
     Ok(dir.to_path_buf())
 }
 
+/// Node names are stored like the TUI stores them (`normalize_name`), so
+/// `-w "my uni"` finds a workspace made in the TUI.
 fn collapse_whitespaces(input: &str) -> Result<String, String> {
-    let slug = input.split_whitespace().collect::<Vec<_>>().join("_");
-    if slug.is_empty() {
-        return Err("Workspace name cannot be empty".into());
+    let name = normalize_name(input);
+    if name.is_empty() {
+        return Err("name cannot be empty".into());
     }
-    Ok(slug)
+    Ok(name)
 }

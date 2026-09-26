@@ -10,6 +10,7 @@ use super::{App, Flow, Mode};
 use crate::{
     model::{
         container::ContainerKind,
+        normalize_name,
         task::{Task, local_to_utc},
         tree::NodePath,
     },
@@ -73,11 +74,7 @@ impl App<'_> {
             return;
         };
         // name rules (empty, `/`, `..`, duplicates) are checked by the tree
-        let name = form
-            .text_value(FieldId::Name)
-            .unwrap_or("")
-            .trim()
-            .to_string();
+        let name = normalize_name(form.text_value(FieldId::Name).unwrap_or(""));
 
         let created = match &form.action {
             FormAction::CreateTask { parent } => {

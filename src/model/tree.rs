@@ -12,6 +12,7 @@ use crate::{
     model::{
         container::{Container, ContainerKind},
         data::ContainerData,
+        folder_name,
         node::{Node, NodePatch},
         task::{Task, TaskPatch, TaskStatus},
         view::ViewState,
@@ -145,7 +146,7 @@ impl Tree {
     /// None if `parent` is missing or a task.
     pub fn default_child_dir(&self, parent: &[usize], name: &str) -> Option<PathBuf> {
         match self.get(parent)? {
-            Node::Container(c) => Some(c.dir.join(name)),
+            Node::Container(c) => Some(c.dir.join(folder_name(name)?)),
             Node::Task(_) => None,
         }
     }
@@ -154,10 +155,63 @@ impl Tree {
     /// Project, None elsewhere (tasks in workspaces / root get no folder).
     pub fn auto_task_dir(&self, parent: &[usize], name: &str) -> Option<PathBuf> {
         match self.get(parent)? {
-            Node::Container(c) if c.kind == ContainerKind::Project => Some(c.dir.join(name)),
+            Node::Container(c) if c.kind == ContainerKind::Project => {
+                Some(c.dir.join(folder_name(name)?))
+            }
             _ => None,
         }
     }
+
+    /// Who already uses `dir`, anywhere in the tree. Containers, tasks with a
+    /// folder, and `unloaded` child dirs (still registered) count.
+    pub fn dir_owner(&self, dir: &Path) -> Option<DirOwner> {
+        fn walk(node: &Node, path: &mut NodePath, dir: &Path) -> Option<DirOwner> {
+            if node.dir() == Some(dir) {
+                return Some(DirOwner::Node(path.clone()));
+            }
+            let Node::Container(c) = node else {
+                return None;
+            };
+            if c.unloaded.iter().any(|u| u == dir) {
+                return Some(DirOwner::Unloaded(path.clone()));
+            }
+            for (i, child) in c.children.iter().enumerate() {
+                path.push(i);
+                let found = walk(child, path, dir);
+                path.pop();
+                if found.is_some() {
+                    return found;
+                }
+            }
+            None
+        }
+        walk(&self.root, &mut vec![], dir)
+    }
+
+    /// Error if `dir` is already used by another node (see `dir_owner`).
+    fn check_dir_free(&self, dir: &Path) -> Res<()> {
+        let owner = match self.dir_owner(dir) {
+            None => return Ok(()),
+            Some(DirOwner::Node(path)) => {
+                let name = self.get(&path).map_or("?", |n| n.name());
+                format!("{name:?}")
+            }
+            Some(DirOwner::Unloaded(parent)) => {
+                let name = self.get(&parent).map_or("?", |n| n.name());
+                format!("an unloaded container in {name:?}")
+            }
+        };
+        Err(format!("{} is already used by {owner}", dir.display()).into())
+    }
+}
+
+/// Result of `Tree::dir_owner`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DirOwner {
+    /// A loaded node (container or task) at this path.
+    Node(NodePath),
+    /// A child dir of the container at this path that could not be loaded.
+    Unloaded(NodePath),
 }
 
 impl Tree {
@@ -194,6 +248,7 @@ impl Tree {
         kind: ContainerKind,
     ) -> Res<NodePath> {
         self.check_can_add(parent, &name)?;
+        self.check_dir_free(&dir)?;
         if dir.join(UDO_FILE_NAME).exists() {
             return Err(format!("{} already contains a udo container", dir.display()).into());
         }
@@ -213,6 +268,7 @@ impl Tree {
         self.check_can_add(parent, &task.name)?;
 
         if let Some(dir) = &task.dir {
+            self.check_dir_free(dir)?;
             fs::create_dir_all(dir).await?;
         }
 
@@ -294,11 +350,12 @@ impl Tree {
     /// Checks before adding a child: `parent` must be a container and must not
     /// already have a child called `name`. Run before touching the disk.
     fn check_can_add(&self, parent: &[usize], name: &str) -> Res<()> {
-        if name.is_empty() {
+        // the folder name is what becomes a path component (task dir,
+        // default container dir), so check that instead of the name
+        let Some(folder) = folder_name(name) else {
             return Err("name cannot be empty".into());
-        }
-        // names become path components (task dir, default container dir)
-        if name == "." || name == ".." || name.contains(['/', '\\']) {
+        };
+        if folder == "." || folder == ".." || folder.contains(['/', '\\']) {
             return Err("name cannot be . or .. or contain / or \\".into());
         }
         if !matches!(self.get(parent), Some(Node::Container(_))) {
