@@ -7,7 +7,12 @@ use crossterm::event::KeyEvent;
 
 use super::{App, Flow, Mode};
 use crate::{
-    model::{NodePath, container::ContainerKind, node::Node, task::Task},
+    model::{
+        NodePath,
+        container::{Container, ContainerKind},
+        node::Node,
+        task::Task,
+    },
     naming::normalize_name,
     tui::form::{FieldId, FolderMode, Form, FormAction, FormOutcome, TaskDefaults},
 };
@@ -96,6 +101,7 @@ impl App<'_> {
         };
         // name rules (empty, `/`, `..`, duplicates) are checked by the tree
         let name = normalize_name(form.text_value(FieldId::Name).unwrap_or(""));
+        let description = form.text_value(FieldId::Description).map(str::to_string);
 
         let created = match &form.action {
             FormAction::CreateTask { parent } => {
@@ -119,8 +125,12 @@ impl App<'_> {
                         return;
                     }
                 };
+
+                let node =
+                    Node::task(name.clone(), Task::new(dir, due)).with_description(description);
+
                 self.tree
-                    .create_task(parent, name.clone(), Task::new(dir, due))
+                    .create(parent, node)
                     .await
                     .map(|path| (path, format!("added task {name}")))
             }
@@ -141,8 +151,12 @@ impl App<'_> {
                         return;
                     }
                 };
+
+                let node = Node::container(name.clone(), Container::new(dir, kind))
+                    .with_description(description);
+
                 self.tree
-                    .create_container(parent, name.clone(), dir, kind)
+                    .create(parent, node)
                     .await
                     .map(|path| (path, format!("created {kind} {name}")))
             }

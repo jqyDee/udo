@@ -7,8 +7,8 @@ use crate::{
     DATE_FMT, Res,
     model::{
         NodePath,
-        container::{ContainerKind, ContainerPatch, ContainerSettings},
-        node::{BodyPatch, NodeBody, NodePatch},
+        container::{Container, ContainerKind},
+        node::{Node, NodeBody},
         task::Task,
         tree::Tree,
     },
@@ -38,6 +38,8 @@ pub enum Commands {
         dir: PathBuf,
         #[arg(short, long)]
         archive_dir: Option<PathBuf>,
+        #[arg(long)]
+        description: Option<String>,
     },
     AddProject {
         #[arg(short, long, value_parser = collapse_whitespaces)]
@@ -47,6 +49,8 @@ pub enum Commands {
         /// Project folder (relative to the cwd); default: `<workspace dir>/<project>`
         #[arg(short, long)]
         dir: Option<PathBuf>,
+        #[arg(long)]
+        description: Option<String>,
     },
     AddTask {
         #[arg(short, long, value_parser = collapse_whitespaces)]
@@ -61,6 +65,8 @@ pub enum Commands {
         custom_dir: Option<PathBuf>,
         #[arg(short, long)]
         no_auto_create_folder: bool,
+        #[arg(long)]
+        description: Option<String>,
     },
     Run {
         #[arg(short, long, value_parser = collapse_whitespaces)]
@@ -80,35 +86,22 @@ impl Cli {
                     name,
                     dir,
                     archive_dir,
+                    description,
                 } => {
                     // absolute: the parent file stores this path, cwd must not matter
                     let dir = absolute(dir)?;
-                    let ws = tree
-                        .create_container(&[], name.clone(), dir.clone(), ContainerKind::Workspace)
-                        .await?;
+                    let mut ws = Container::new(dir.clone(), ContainerKind::Workspace);
+                    ws.settings.archive_dir = archive_dir.as_deref().map(absolute).transpose()?;
 
-                    if let Some(archive_dir) = archive_dir {
-                        tree.update(
-                            &ws,
-                            NodePatch {
-                                body: Some(BodyPatch::Container(ContainerPatch {
-                                    settings: Some(ContainerSettings {
-                                        archive_dir: Some(absolute(archive_dir)?),
-                                        ..Default::default()
-                                    }),
-                                    ..Default::default()
-                                })),
-                                ..Default::default()
-                            },
-                        )?;
-                        tree.save(&ws).await?;
-                    }
+                    let node = Node::container(name.clone(), ws).with_description(description.clone());
+                    tree.create(&[], node).await?;
                     println!("Created workspace {name:?} at {dir:?}");
                 }
                 Commands::AddProject {
                     workspace,
                     project,
                     dir,
+                    description,
                 } => {
                     let ws = tree
                         .resolve(&[workspace.as_str()])
@@ -121,13 +114,10 @@ impl Cli {
                             node_dir(tree, &ws)?.join(folder)
                         }
                     };
-                    tree.create_container(
-                        &ws,
-                        project.clone(),
-                        dir.clone(),
-                        ContainerKind::Project,
-                    )
-                    .await?;
+                    let proj = Container::new(dir.clone(), ContainerKind::Project);
+                    let node = Node::container(project.clone(), proj)
+                        .with_description(description.clone());
+                    tree.create(&ws, node).await?;
                     println!("Created project {project:?} at {dir:?}");
                 }
                 Commands::AddTask {
@@ -137,6 +127,7 @@ impl Cli {
                     due,
                     custom_dir,
                     no_auto_create_folder,
+                    description,
                 } => {
                     // typed as local time (like in the TUI), stored as UTC
                     let local = NaiveDateTime::parse_from_str(due, DATE_FMT)
@@ -168,8 +159,9 @@ impl Cli {
                         None => None,
                     };
 
-                    tree.create_task(&parent, task.clone(), Task::new(dir, date))
-                        .await?;
+                    let node = Node::task(task.clone(), Task::new(dir, date))
+                        .with_description(description.clone());
+                    tree.create(&parent, node).await?;
                     println!("Added task {task:?}");
                 }
                 Commands::Run { project, task } => {

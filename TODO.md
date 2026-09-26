@@ -22,9 +22,15 @@ Priorities as of 2026-09-25, in order. Background and older plans:
 - [x] **Form defaults from outside:** the app passes `TaskDefaults` into the
       form, so defaults can come from settings later.
 - [x] **Stable IDs** for tasks and containers (roadmap 2.3.2).
-- [ ] **Next, separate step (task format):** `created_at`, optional one-line `description`.
-      One file format change. Further fields (estimate + source, planning
-      opt-out, run config) only when their feature is built.
+- [x] **`created_at` + `description`** in a shared `NodeHeader` (tasks and
+      containers); one `Tree::create(parent, node)`. Description in the create
+      forms, `--description` in the CLI, shown in the details pane. Further
+      fields (estimate + source, planning opt-out, run config) only when their
+      feature is built.
+- [ ] **Description as a multi-line textbox** in the forms (Enter = new line,
+      Ctrl+S = submit); details pane shows each line.
+- [ ] **Edit nodes:** `HeaderPatch` (name, description) + `Tree::edit` with
+      the name checks of `create`; fill in the `EditNode` form.
 
 ## 1. Container settings (foundation for everything below)
 

@@ -1,15 +1,12 @@
-use std::path::PathBuf;
-
 use tokio::fs;
 
 use crate::{
     Res, UDO_FILE_NAME,
     model::{
         NodePath,
-        container::{Container, ContainerKind},
         data::ContainerData,
         node::{BodyPatch, Node, NodePatch},
-        task::{Task, TaskPatch, TaskStatus},
+        task::{TaskPatch, TaskStatus},
         tree::Tree,
     },
     naming::folder_name,
@@ -73,23 +70,6 @@ impl Tree {
         }
         self.save(parent).await?; // parent lists the new task row / container dir
         Ok(path)
-    }
-
-    /// `create` for a new container. Kept until CLI and TUI call `create`.
-    pub async fn create_container(
-        &mut self,
-        parent: &[usize],
-        name: String,
-        dir: PathBuf,
-        kind: ContainerKind,
-    ) -> Res<NodePath> {
-        self.create(parent, Node::container(name, Container::new(dir, kind)))
-            .await
-    }
-
-    /// `create` for a new task. Kept until CLI and TUI call `create`.
-    pub async fn create_task(&mut self, parent: &[usize], name: String, task: Task) -> Res<NodePath> {
-        self.create(parent, Node::task(name, task)).await
     }
 
     /// Re-save the nearest file-owning container for `path`.
@@ -166,11 +146,11 @@ mod tests {
         model::{
             container::{ContainerKind, ContainerSettings},
             data::ContainerData,
-            node::{BodyPatch, Node, NodeHeader, NodePatch},
+            node::{BodyPatch, NodeHeader, NodePatch},
             task::{TaskPatch, TaskStatus},
             tree::{
                 Tree,
-                tests::{disk_tree, new_task, tree},
+                tests::{disk_tree, new_container, new_task, tree},
             },
         },
         test_util::{container, container_at, task},
@@ -182,8 +162,7 @@ mod tests {
     async fn create_trims_description_and_saves_it() {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = disk_tree(tmp.path()).await; // root: [a, ws: [b]]
-        let mut node = Node::task("c".into(), new_task(None));
-        node.header.description = Some("  two\nlines  ".into());
+        let node = new_task("c", None).with_description(Some("  two\nlines  ".into()));
 
         let p = t.create(&[1], node).await.unwrap();
 
@@ -196,8 +175,7 @@ mod tests {
     async fn create_turns_blank_description_into_none() {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = disk_tree(tmp.path()).await;
-        let mut node = Node::task("c".into(), new_task(None));
-        node.header.description = Some(" \n ".into());
+        let node = new_task("c", None).with_description(Some(" \n ".into()));
 
         let p = t.create(&[1], node).await.unwrap();
 
@@ -209,8 +187,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = Tree::load_from(tmp.path()).await.unwrap();
         let ws_dir = tmp.path().join("ws");
-        let mut node = container_at("ws", &ws_dir, ContainerKind::Workspace, vec![]);
-        node.header.description = Some("uni stuff".into());
+        let node = container_at("ws", &ws_dir, ContainerKind::Workspace, vec![])
+            .with_description(Some("uni stuff".into()));
 
         t.create(&[], node).await.unwrap();
 
@@ -333,7 +311,7 @@ mod tests {
         assert!(tmp.path().join("ws").join(crate::UDO_FILE_NAME).exists());
     }
 
-    // ---------- create_container ----------
+    // ---------- create: containers ----------
 
     #[tokio::test]
     async fn create_container_makes_dir_and_saves_both_files() {
@@ -341,10 +319,8 @@ mod tests {
         let mut t = Tree::load_from(tmp.path()).await.unwrap(); // empty root
         let ws_dir = tmp.path().join("ws");
 
-        let p = t
-            .create_container(&[], "ws".into(), ws_dir.clone(), ContainerKind::Workspace)
-            .await
-            .unwrap();
+        let ws = new_container("ws", &ws_dir, ContainerKind::Workspace);
+        let p = t.create(&[], ws).await.unwrap();
 
         assert_eq!(p, vec![0]);
         assert_eq!(t.get(&p).unwrap().name(), "ws");
@@ -364,13 +340,10 @@ mod tests {
         let ws_dir = tmp.path().join("ws");
         let proj_dir = ws_dir.join("proj");
 
-        let ws = t
-            .create_container(&[], "ws".into(), ws_dir, ContainerKind::Workspace)
-            .await
-            .unwrap();
-        t.create_container(&ws, "proj".into(), proj_dir, ContainerKind::Project)
-            .await
-            .unwrap();
+        let ws = new_container("ws", &ws_dir, ContainerKind::Workspace);
+        let ws = t.create(&[], ws).await.unwrap();
+        let proj = new_container("proj", &proj_dir, ContainerKind::Project);
+        t.create(&ws, proj).await.unwrap();
 
         let loaded = Tree::load_from(tmp.path()).await.unwrap();
         assert_eq!(loaded.resolve(&["ws", "proj"]), Some(vec![0, 0]));
@@ -381,22 +354,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = Tree::load_from(tmp.path()).await.unwrap();
 
-        t.create_container(
-            &[],
-            "ws".into(),
-            tmp.path().join("ws"),
-            ContainerKind::Workspace,
-        )
-        .await
-        .unwrap();
-        let dup = t
-            .create_container(
-                &[],
-                "ws".into(),
-                tmp.path().join("ws2"),
-                ContainerKind::Workspace,
-            )
-            .await;
+        let ws = new_container("ws", &tmp.path().join("ws"), ContainerKind::Workspace);
+        t.create(&[], ws).await.unwrap();
+        let dup = new_container("ws", &tmp.path().join("ws2"), ContainerKind::Workspace);
+        let dup = t.create(&[], dup).await;
 
         assert!(dup.is_err());
         assert_eq!(t.get(&[]).unwrap().children().len(), 1);
@@ -408,14 +369,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = disk_tree(tmp.path()).await; // [0] is task "a"
 
-        let r = t
-            .create_container(
-                &[0],
-                "x".into(),
-                tmp.path().join("x"),
-                ContainerKind::Project,
-            )
-            .await;
+        let x = new_container("x", &tmp.path().join("x"), ContainerKind::Project);
+        let r = t.create(&[0], x).await;
 
         assert!(r.is_err());
         assert!(!tmp.path().join("x").exists());
@@ -426,14 +381,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = disk_tree(tmp.path()).await; // tmp/ws already has a .udo.toml
 
-        let r = t
-            .create_container(
-                &[],
-                "other".into(),
-                tmp.path().join("ws"),
-                ContainerKind::Workspace,
-            )
-            .await;
+        let other = new_container("other", &tmp.path().join("ws"), ContainerKind::Workspace);
+        let r = t.create(&[], other).await;
 
         assert!(r.is_err());
         let ws = ContainerData::load(&tmp.path().join("ws")).await.unwrap();
@@ -445,31 +394,22 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = Tree::load_from(tmp.path()).await.unwrap();
 
-        let r = t
-            .create_container(
-                &[],
-                "ws".into(),
-                tmp.path().to_path_buf(),
-                ContainerKind::Workspace,
-            )
-            .await;
+        let ws = new_container("ws", tmp.path(), ContainerKind::Workspace);
+        let r = t.create(&[], ws).await;
 
         assert!(r.is_err());
         let root = ContainerData::load(tmp.path()).await.unwrap();
         assert_eq!(root.header.name, "root");
     }
 
-    // ---------- create_task ----------
+    // ---------- create: tasks ----------
 
     #[tokio::test]
     async fn create_task_saves_row_in_parent_file() {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = disk_tree(tmp.path()).await; // root: [a, ws: [b]]
 
-        let p = t
-            .create_task(&[1], "c".into(), new_task(None))
-            .await
-            .unwrap();
+        let p = t.create(&[1], new_task("c", None)).await.unwrap();
 
         assert_eq!(p, vec![1, 1]);
         assert_eq!(t.get(&p).unwrap().name(), "c");
@@ -484,7 +424,7 @@ mod tests {
         let mut t = disk_tree(tmp.path()).await;
         let task_dir = tmp.path().join("ws").join("c");
 
-        t.create_task(&[1], "c".into(), new_task(Some(task_dir.clone())))
+        t.create(&[1], new_task("c", Some(task_dir.clone())))
             .await
             .unwrap();
 
@@ -496,16 +436,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = disk_tree(tmp.path()).await;
 
-        assert!(
-            t.create_task(&[1], "b".into(), new_task(None))
-                .await
-                .is_err()
-        ); // "b" exists in ws
-        assert!(
-            t.create_task(&[], "ws".into(), new_task(None))
-                .await
-                .is_err()
-        ); // clashes with container
+        assert!(t.create(&[1], new_task("b", None)).await.is_err()); // "b" exists in ws
+        assert!(t.create(&[], new_task("ws", None)).await.is_err()); // clashes with container
         assert_eq!(t.get(&[1]).unwrap().children().len(), 1);
     }
 
@@ -514,11 +446,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = disk_tree(tmp.path()).await;
 
-        assert!(
-            t.create_task(&[0], "x".into(), new_task(None))
-                .await
-                .is_err()
-        ); // [0] is task "a"
+        assert!(t.create(&[0], new_task("x", None)).await.is_err()); // [0] is task "a"
     }
 
     // ---------- regressions ----------
@@ -542,9 +470,7 @@ mod tests {
         .unwrap();
 
         let mut t = Tree::load_from(&root_dir).await.unwrap();
-        t.create_task(&[], "x".into(), new_task(None))
-            .await
-            .unwrap(); // re-saves root
+        t.create(&[], new_task("x", None)).await.unwrap(); // re-saves root
 
         let data = ContainerData::load(&root_dir).await.unwrap();
         assert_eq!(data.children, vec![gone]);
@@ -593,19 +519,11 @@ mod tests {
         let mut t = disk_tree(tmp.path()).await; // root: [a, ws: [b]]
 
         for bad in ["", ".", "..", "a/b", "../x", "a\\b"] {
-            assert!(
-                t.create_task(&[1], bad.into(), new_task(None))
-                    .await
-                    .is_err(),
-                "task {bad:?} accepted"
-            );
+            let task = new_task(bad, None);
+            assert!(t.create(&[1], task).await.is_err(), "task {bad:?} accepted");
             let dir = tmp.path().join("ws").join("dir");
-            assert!(
-                t.create_container(&[1], bad.into(), dir, ContainerKind::Project)
-                    .await
-                    .is_err(),
-                "container {bad:?} accepted"
-            );
+            let proj = new_container(bad, &dir, ContainerKind::Project);
+            assert!(t.create(&[1], proj).await.is_err(), "container {bad:?} accepted");
         }
         assert_eq!(t.get(&[1]).unwrap().children().len(), 1); // still only "b"
         assert!(!tmp.path().join("ws").join("dir").exists()); // check before mkdir

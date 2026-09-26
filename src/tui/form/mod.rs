@@ -41,6 +41,7 @@ pub enum FieldId {
     Dir,
     Folder,
     Kind,
+    Description,
 }
 
 impl FieldId {
@@ -52,6 +53,7 @@ impl FieldId {
             Self::Dir => "dir",
             Self::Folder => "folder",
             Self::Kind => "kind",
+            Self::Description => "description",
         }
     }
 }
@@ -138,6 +140,10 @@ impl Form {
             fields: vec![
                 FormField::text(FieldId::Name, ""),
                 FormField {
+                    id: FieldId::Description,
+                    input: FieldInput::Text(TextInput::new("").with_placeholder("optional")),
+                },
+                FormField {
                     id: FieldId::Folder,
                     input: FieldInput::Choice(ChoiceInput {
                         options: FOLDER_CHOICES,
@@ -169,6 +175,10 @@ impl Form {
             title: format!("new container · in {parent_name}"),
             fields: vec![
                 FormField::text(FieldId::Name, ""),
+                FormField {
+                    id: FieldId::Description,
+                    input: FieldInput::Text(TextInput::new("").with_placeholder("optional")),
+                },
                 FormField {
                     id: FieldId::Kind,
                     input: FieldInput::Choice(ChoiceInput::new(
@@ -458,6 +468,7 @@ mod tests {
         assert_eq!(form.active_field, 0);
         assert_eq!(form.action, FormAction::CreateTask { parent: vec![0] });
         assert_eq!(form.text_value(FieldId::Name), Some(""));
+        assert_eq!(form.text_value(FieldId::Description), Some(""));
         assert_eq!(form.date_value(FieldId::Due), Some(fixed_date));
         assert_eq!(form.folder_mode(), Some(FolderMode::Auto));
         assert_eq!(form.text_value(FieldId::Dir), Some(""));
@@ -473,6 +484,7 @@ mod tests {
         assert_eq!(form.container_kind(), Some(ContainerKind::Workspace));
         assert_eq!(form.folder_mode(), Some(FolderMode::Auto));
         assert_eq!(form.text_value(FieldId::Name), Some(""));
+        assert_eq!(form.text_value(FieldId::Description), Some(""));
         assert_eq!(form.text_value(FieldId::Dir), Some(""));
     }
 
@@ -495,7 +507,7 @@ mod tests {
     #[test]
     fn container_kind_can_be_changed() {
         let mut form = Form::new_container(vec![1], "uni", None, ContainerKind::Project);
-        form.handle_key(press(KeyCode::Tab)); // kind
+        focus(&mut form, FieldId::Kind);
         form.handle_key(press(KeyCode::Left)); // project -> workspace (nested)
         assert_eq!(form.container_kind(), Some(ContainerKind::Workspace));
     }
@@ -565,8 +577,7 @@ mod tests {
             folder: FolderMode::Auto,
         };
         let mut form = Form::new_task(vec![], "root", None, defaults);
-        form.handle_key(press(KeyCode::Tab)); // -> folder
-        form.handle_key(press(KeyCode::Tab)); // dir skipped (auto) -> due, on Day
+        focus(&mut form, FieldId::Due); // starts on Day
         form.handle_key(press(KeyCode::Up));
         assert_eq!(form.date_value(FieldId::Due), Some(dt(2026, 6, 16, 12, 0)));
     }
@@ -590,6 +601,17 @@ mod tests {
         form.fields[form.active_field].id
     }
 
+    /// Press Tab until `id` is active, so tests don't depend on field order.
+    fn focus(form: &mut Form, id: FieldId) {
+        for _ in 0..form.fields.len() {
+            if active_id(form) == id {
+                return;
+            }
+            form.handle_key(press(KeyCode::Tab));
+        }
+        panic!("Tab never reached {id:?}");
+    }
+
     #[test]
     fn auto_preview_follows_the_name() {
         let form = task_form(FolderMode::Auto, "lab 3");
@@ -603,8 +625,7 @@ mod tests {
 
         let mut form = task_form(FolderMode::Custom, "lab 3");
         assert_eq!(form.dir_preview(), None); // nothing typed yet
-        form.handle_key(press(KeyCode::Tab)); // folder
-        form.handle_key(press(KeyCode::Tab)); // dir
+        focus(&mut form, FieldId::Dir);
         for c in "~/x".chars() {
             form.handle_key(press(KeyCode::Char(c)));
         }
@@ -614,8 +635,7 @@ mod tests {
     #[test]
     fn container_folder_offers_no_none() {
         let mut form = Form::new_container(vec![], "root", None, ContainerKind::Workspace);
-        form.handle_key(press(KeyCode::Tab)); // kind
-        form.handle_key(press(KeyCode::Tab)); // folder
+        focus(&mut form, FieldId::Folder);
         let mut seen = vec![];
         for _ in 0..CONTAINER_FOLDER_CHOICES.len() {
             seen.push(form.folder_mode().unwrap());
@@ -628,12 +648,13 @@ mod tests {
     #[test]
     fn chosen_dir_checks_custom_text() {
         let mut form = task_form(FolderMode::Auto, "lab 3");
-        form.handle_key(press(KeyCode::Tab)); // folder
+        focus(&mut form, FieldId::Folder);
         form.handle_key(press(KeyCode::Right)); // custom, prefilled with auto path
         assert_eq!(form.chosen_dir(), Ok(Some("/uni/cs101/lab_3".into())));
 
         // replace the text with a relative path
-        let FieldInput::Text(t) = &mut form.fields[2].input else {
+        let dir = form.fields.iter_mut().find(|f| f.id == FieldId::Dir);
+        let Some(FormField { input: FieldInput::Text(t), .. }) = dir else {
             panic!("dir is not a text field");
         };
         *t = TextInput::new("relative/dir");
@@ -645,7 +666,7 @@ mod tests {
     #[test]
     fn switching_to_custom_prefills_the_auto_path() {
         let mut form = task_form(FolderMode::Auto, "lab 3");
-        form.handle_key(press(KeyCode::Tab)); // folder
+        focus(&mut form, FieldId::Folder);
         form.handle_key(press(KeyCode::Right)); // auto -> custom
         assert_eq!(form.folder_mode(), Some(FolderMode::Custom));
         assert_eq!(form.text_value(FieldId::Dir), Some("/uni/cs101/lab_3"));
@@ -654,7 +675,7 @@ mod tests {
     #[test]
     fn prefill_without_name_starts_at_the_parent_dir() {
         let mut form = task_form(FolderMode::Auto, "");
-        form.handle_key(press(KeyCode::Tab));
+        focus(&mut form, FieldId::Folder);
         form.handle_key(press(KeyCode::Right));
         assert_eq!(form.text_value(FieldId::Dir), Some("/uni/cs101/"));
     }
@@ -662,7 +683,7 @@ mod tests {
     #[test]
     fn custom_text_is_kept_while_switching_modes() {
         let mut form = task_form(FolderMode::Auto, "lab 3");
-        form.handle_key(press(KeyCode::Tab)); // folder
+        focus(&mut form, FieldId::Folder);
         form.handle_key(press(KeyCode::Right)); // custom, prefilled
         form.handle_key(press(KeyCode::Tab)); // dir
         form.handle_key(press(KeyCode::Char('!')));
@@ -678,6 +699,8 @@ mod tests {
         for mode in [FolderMode::Auto, FolderMode::None] {
             let mut form = task_form(mode, "");
             form.handle_key(press(KeyCode::Tab));
+            assert_eq!(active_id(&form), FieldId::Description, "{mode:?}");
+            form.handle_key(press(KeyCode::Tab));
             assert_eq!(active_id(&form), FieldId::Folder, "{mode:?}");
             form.handle_key(press(KeyCode::Tab));
             assert_eq!(active_id(&form), FieldId::Due, "{mode:?}");
@@ -689,7 +712,7 @@ mod tests {
     #[test]
     fn tab_reaches_the_dir_row_in_custom() {
         let mut form = task_form(FolderMode::Custom, "");
-        form.handle_key(press(KeyCode::Tab));
+        focus(&mut form, FieldId::Folder);
         form.handle_key(press(KeyCode::Tab));
         assert_eq!(active_id(&form), FieldId::Dir);
         form.handle_key(press(KeyCode::Tab));

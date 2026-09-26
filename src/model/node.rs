@@ -128,8 +128,16 @@ impl Node {
         &self.header.name
     }
 
+    /// Id. Important for future timetracking
     pub fn id(&self) -> NodeId {
         self.header.id
+    }
+
+    /// Same node with `desc` set. Cleaned (trim, empty -> None) by
+    /// `Tree::create`, so callers can pass raw input.
+    pub fn with_description(mut self, desc: Option<String>) -> Self {
+        self.header.description = desc;
+        self
     }
 }
 

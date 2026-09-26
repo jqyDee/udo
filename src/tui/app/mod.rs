@@ -143,12 +143,11 @@ impl<'a> App<'a> {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
     use crossterm::event::{KeyCode, KeyEventState};
 
     use super::*;
     use crate::{
-        model::{node::Node, task::Task},
+        model::node::Node,
         test_util::{container, press, task, tree_with},
         tui::toast::ToastKind,
     };
@@ -250,10 +249,7 @@ mod tests {
     async fn set_status_on_task_updates_and_shows_info_toast() {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = Tree::load_from(tmp.path()).await.unwrap(); // real root: saving works
-        let path = t
-            .create_task(&[], "sheet".into(), Task::new(None, Utc::now()))
-            .await
-            .unwrap();
+        let path = t.create(&[], task("sheet")).await.unwrap();
         t.cursor = path.clone();
         let mut app = App::new(&mut t);
 
@@ -331,10 +327,7 @@ mod tests {
     async fn y_removes_node_from_tree_and_disk() {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = Tree::load_from(tmp.path()).await.unwrap(); // real root: saving works
-        let path = t
-            .create_task(&[], "sheet".into(), Task::new(None, Utc::now()))
-            .await
-            .unwrap();
+        let path = t.create(&[], task("sheet")).await.unwrap();
         t.cursor = path.clone();
         let mut app = App::new(&mut t);
 
@@ -393,6 +386,27 @@ mod tests {
         assert_eq!(app.toast.as_ref().unwrap().kind, ToastKind::Info);
         assert_eq!(app.tree.cursor, vec![0]);
         assert_eq!(app.tree.get(&[0]).unwrap().name(), "exam");
+        assert_eq!(app.tree.get(&[0]).unwrap().header.description, None); // left empty
+    }
+
+    #[tokio::test]
+    async fn description_from_form_is_trimmed_and_saved() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = Tree::load_from(tmp.path()).await.unwrap(); // empty root
+        let mut app = App::new(&mut t);
+
+        app.handle_key(key('t')).await;
+        for k in type_str("exam") {
+            app.handle_key(k).await;
+        }
+        app.handle_key(press(KeyCode::Tab)).await; // -> description
+        for k in type_str("  read ch 3 ") {
+            app.handle_key(k).await;
+        }
+        app.handle_key(press(KeyCode::Enter)).await;
+
+        let desc = &app.tree.get(&[0]).unwrap().header.description;
+        assert_eq!(desc.as_deref(), Some("read ch 3"));
     }
 
     #[tokio::test]

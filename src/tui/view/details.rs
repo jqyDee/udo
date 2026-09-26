@@ -38,6 +38,22 @@ fn detail_lines(node: &Node) -> Vec<Line<'_>> {
         Line::default(),
         field("type", kind.into()),
         field("id", node.id().to_string()),
+        field(
+            "created at",
+            node.header
+                .created_at
+                .with_timezone(&Local)
+                .format(DATE_FMT)
+                .to_string(),
+        ),
+        field(
+            "description",
+            node.header
+                .description
+                .as_deref()
+                .unwrap_or("-")
+                .to_string(),
+        ),
         Line::default(),
     ];
     match &node.body {
@@ -80,7 +96,7 @@ fn detail_lines(node: &Node) -> Vec<Line<'_>> {
 /// `key` dimmed in a fixed-width column, then the value.
 fn field(key: &str, value: String) -> Line<'_> {
     Line::from(vec![
-        Span::raw(format!("{key:<10}")).dim(),
+        Span::raw(format!("{key:<15}")).dim(),
         Span::raw(value),
     ])
 }

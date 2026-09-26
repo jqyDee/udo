@@ -91,13 +91,11 @@ fn collect(node: &Node, out: &mut Vec<PathBuf>) {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
-
     use super::*;
     use crate::{
         UDO_FILE_NAME,
-        model::{container::ContainerKind, task::Task},
-        test_util::{container, task, tree_with},
+        model::container::ContainerKind,
+        test_util::{container, container_at, task, tree_with},
     };
 
     /// root: [a, inner: [b, deep: [c]]]  (in memory, nothing written)
@@ -210,13 +208,9 @@ mod tests {
         let ws_dir = tmp.path().join("ws");
 
         let mut t = Tree::load_from(&root_dir).await.unwrap();
-        let ws = t
-            .create_container(&[], "ws".into(), ws_dir.clone(), ContainerKind::Workspace)
-            .await
-            .unwrap();
-        t.create_task(&ws, "t".into(), Task::new(None, Utc::now()))
-            .await
-            .unwrap();
+        let ws = container_at("ws", &ws_dir, ContainerKind::Workspace, vec![]);
+        let ws = t.create(&[], ws).await.unwrap();
+        t.create(&ws, task("t")).await.unwrap();
         let ws_file_before = std::fs::read_to_string(ws_dir.join(UDO_FILE_NAME)).unwrap();
 
         t.cursor = ws;
