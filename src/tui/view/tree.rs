@@ -39,7 +39,7 @@ pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree, list: &mut ListState) {
 
 fn row_line<'a>(row: &Row<'a>) -> Line<'a> {
     let indent = Span::raw("  ".repeat(row.depth));
-    let name = row.node.name.as_str();
+    let name = row.node.name();
     match &row.node.body {
         NodeBody::Container(c) => {
             let marker = match (c.children.is_empty(), c.collapsed) {

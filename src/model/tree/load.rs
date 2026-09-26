@@ -89,8 +89,7 @@ impl Tree {
         }
 
         Ok(Node {
-            id: data.id,
-            name: data.name,
+            header: data.header,
             body: NodeBody::Container(Container {
                 dir,
                 kind: data.kind,
@@ -118,10 +117,14 @@ fn fix_ids(
     seen: &mut HashSet<NodeId>,
     changed: &mut Vec<NodePath>,
 ) {
-    if !seen.insert(node.id) {
+    let header = &mut node.header;
+    if !seen.insert(header.id) {
         let fresh = NodeId::new();
-        eprintln!("warning: duplicate id {} ({}), new id {fresh}", node.id, node.name);
-        node.id = fresh;
+        eprintln!(
+            "warning: duplicate id {} ({}), new id {fresh}",
+            header.id, header.name
+        );
+        header.id = fresh;
         seen.insert(fresh);
         changed.push(path.clone());
     }
@@ -145,7 +148,7 @@ mod tests {
             container::{ContainerKind, ContainerSettings},
             data::{ContainerData, TaskData},
             id::NodeId,
-            node::Node,
+            node::{Node, NodeHeader},
             task::Task,
             tree::Tree,
         },
@@ -181,7 +184,12 @@ mod tests {
             "root",
             &root_dir,
             ContainerKind::Root,
-            vec![container_at("ws", &ws_dir, ContainerKind::Workspace, vec![task("t")])],
+            vec![container_at(
+                "ws",
+                &ws_dir,
+                ContainerKind::Workspace,
+                vec![task("t")],
+            )],
         ));
         t.save(&[]).await.unwrap(); // root file
         t.save(&[0]).await.unwrap(); // ws file
@@ -210,8 +218,7 @@ mod tests {
 
     fn container_data(name: &str, tasks: Vec<TaskData>, children: Vec<PathBuf>) -> ContainerData {
         ContainerData {
-            id: NodeId::new(),
-            name: name.into(),
+            header: NodeHeader::new(name.into()),
             kind: ContainerKind::Workspace,
             tasks,
             children,
@@ -231,8 +238,7 @@ mod tests {
         root.save(&root_dir).await.unwrap();
         // `cp -r a b`: same container id and same task id in both files
         let row = TaskData {
-            id: NodeId::new(),
-            name: "t".into(),
+            header: NodeHeader::new("t".into()),
             task: Task::new(None, Utc::now()),
         };
         let copied = container_data("ws", vec![row], vec![]);
@@ -246,7 +252,7 @@ mod tests {
         let unique: HashSet<_> = all.iter().collect();
         assert_eq!(all.len(), 5);
         assert_eq!(unique.len(), 5);
-        assert_eq!(first.get(&[0]).unwrap().id(), copied.id); // first one keeps it
+        assert_eq!(first.get(&[0]).unwrap().id(), copied.header.id); // first one keeps it
         assert_eq!(all, ids(&second));
     }
 
@@ -261,9 +267,18 @@ mod tests {
         let mut root = container_data("root", vec![], vec![a.clone(), b.clone()]);
         root.kind = ContainerKind::Root;
         root.save(&root_dir).await.unwrap();
-        container_data("a", vec![], vec![shared.clone()]).save(&a).await.unwrap();
-        container_data("b", vec![], vec![shared.clone()]).save(&b).await.unwrap();
-        container_data("s", vec![], vec![]).save(&shared).await.unwrap();
+        container_data("a", vec![], vec![shared.clone()])
+            .save(&a)
+            .await
+            .unwrap();
+        container_data("b", vec![], vec![shared.clone()])
+            .save(&b)
+            .await
+            .unwrap();
+        container_data("s", vec![], vec![])
+            .save(&shared)
+            .await
+            .unwrap();
 
         let first = Tree::load_from(&root_dir).await.unwrap();
         let second = Tree::load_from(&root_dir).await.unwrap();
@@ -282,8 +297,7 @@ mod tests {
         let root_dir = tmp.path().to_path_buf();
 
         ContainerData {
-            id: NodeId::new(),
-            name: "root".into(),
+            header: NodeHeader::new("root".into()),
             kind: ContainerKind::Root,
             tasks: vec![],
             children: vec![root_dir.join("gone")], // never created

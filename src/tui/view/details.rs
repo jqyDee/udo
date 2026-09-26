@@ -34,10 +34,10 @@ fn detail_lines(node: &Node) -> Vec<Line<'_>> {
         NodeBody::Task(_) => "task",
     };
     let mut lines = vec![
-        Line::from(node.name.as_str()).bold(),
+        Line::from(node.name()).bold(),
         Line::default(),
         field("type", kind.into()),
-        field("id", node.id.to_string()),
+        field("id", node.id().to_string()),
         Line::default(),
     ];
     match &node.body {

@@ -18,7 +18,7 @@ use crate::{
 impl Tree {
     /// Insert `node` as a child of the container at `parent`, returning the new
     /// node's path. Errors if `parent` is not a container. In-memory only: no
-    /// checks, no disk. Prefer `create_container` / `create_task`.
+    /// checks, no disk. Prefer `create`.
     pub fn insert(&mut self, parent: &[usize], node: Node) -> Res<NodePath> {
         let children = self
             .get_mut(parent)
@@ -37,10 +37,45 @@ impl Tree {
             .update(patch)
     }
 
-    /// Create a child container under `parent`:
-    /// mkdir `dir`, insert, save the new container's file AND the parent's file.
-    /// Errors if `parent` is not a container, a sibling already has `name`, or
-    /// `dir` already holds a `.udo.toml` (never overwrite existing data).
+    /// Add `node` (task or container) under container `parent`: check name
+    /// and dir, mkdir its dir (if any), insert, save the new container's own
+    /// file (if it is one) AND the parent's file.
+    ///
+    /// The description is trimmed; empty -> None. Errors if `parent` is not a
+    /// container, a sibling already has the name, the dir is used by another
+    /// node, a new container's dir already holds a `.udo.toml` (never
+    /// overwrite existing data), or a new container has children (only its
+    /// own file would be written).
+    pub async fn create(&mut self, parent: &[usize], mut node: Node) -> Res<NodePath> {
+        self.check_can_add(parent, &node.header.name)?;
+        if !node.children().is_empty() {
+            return Err("a new container must not have children".into());
+        }
+        node.header.description = node
+            .header
+            .description
+            .take()
+            .map(|d| d.trim().to_string())
+            .filter(|d| !d.is_empty());
+
+        if let Some(dir) = node.dir() {
+            self.check_dir_free(dir)?;
+            if node.owns_file() && dir.join(UDO_FILE_NAME).exists() {
+                return Err(format!("{} already contains a udo container", dir.display()).into());
+            }
+            fs::create_dir_all(dir).await?;
+        }
+
+        let owns_file = node.owns_file();
+        let path = self.insert(parent, node)?;
+        if owns_file {
+            self.save(&path).await?; // new container's own .udo.toml
+        }
+        self.save(parent).await?; // parent lists the new task row / container dir
+        Ok(path)
+    }
+
+    /// `create` for a new container. Kept until CLI and TUI call `create`.
     pub async fn create_container(
         &mut self,
         parent: &[usize],
@@ -48,35 +83,13 @@ impl Tree {
         dir: PathBuf,
         kind: ContainerKind,
     ) -> Res<NodePath> {
-        self.check_can_add(parent, &name)?;
-        self.check_dir_free(&dir)?;
-        if dir.join(UDO_FILE_NAME).exists() {
-            return Err(format!("{} already contains a udo container", dir.display()).into());
-        }
-
-        fs::create_dir_all(&dir).await?;
-        let path = self.insert(parent, Node::container(name, Container::new(dir, kind)))?;
-
-        self.save(&path).await?; // new container's own .udo.toml
-        self.save(parent).await?; // parent lists the new dir in `children`
-        Ok(path)
+        self.create(parent, Node::container(name, Container::new(dir, kind)))
+            .await
     }
 
-    /// Add a task called `name` under container `parent` and save the parent's
-    /// file. If `task.dir` is Some, that dir is created. Errors if `parent` is
-    /// not a container or a sibling already has `name`.
+    /// `create` for a new task. Kept until CLI and TUI call `create`.
     pub async fn create_task(&mut self, parent: &[usize], name: String, task: Task) -> Res<NodePath> {
-        self.check_can_add(parent, &name)?;
-
-        if let Some(dir) = &task.dir {
-            self.check_dir_free(dir)?;
-            fs::create_dir_all(dir).await?;
-        }
-
-        let path = self.insert(parent, Node::task(name, task))?;
-
-        self.save(parent).await?;
-        Ok(path)
+        self.create(parent, Node::task(name, task)).await
     }
 
     /// Re-save the nearest file-owning container for `path`.
@@ -153,8 +166,7 @@ mod tests {
         model::{
             container::{ContainerKind, ContainerSettings},
             data::ContainerData,
-            id::NodeId,
-            node::{BodyPatch, NodePatch},
+            node::{BodyPatch, Node, NodeHeader, NodePatch},
             task::{TaskPatch, TaskStatus},
             tree::{
                 Tree,
@@ -163,6 +175,60 @@ mod tests {
         },
         test_util::{container, container_at, task},
     };
+
+    // ---------- create ----------
+
+    #[tokio::test]
+    async fn create_trims_description_and_saves_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path()).await; // root: [a, ws: [b]]
+        let mut node = Node::task("c".into(), new_task(None));
+        node.header.description = Some("  two\nlines  ".into());
+
+        let p = t.create(&[1], node).await.unwrap();
+
+        assert_eq!(t.get(&p).unwrap().header.description.as_deref(), Some("two\nlines"));
+        let ws = ContainerData::load(&tmp.path().join("ws")).await.unwrap();
+        assert_eq!(ws.tasks[1].header.description.as_deref(), Some("two\nlines"));
+    }
+
+    #[tokio::test]
+    async fn create_turns_blank_description_into_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path()).await;
+        let mut node = Node::task("c".into(), new_task(None));
+        node.header.description = Some(" \n ".into());
+
+        let p = t.create(&[1], node).await.unwrap();
+
+        assert_eq!(t.get(&p).unwrap().header.description, None);
+    }
+
+    #[tokio::test]
+    async fn create_container_with_description() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = Tree::load_from(tmp.path()).await.unwrap();
+        let ws_dir = tmp.path().join("ws");
+        let mut node = container_at("ws", &ws_dir, ContainerKind::Workspace, vec![]);
+        node.header.description = Some("uni stuff".into());
+
+        t.create(&[], node).await.unwrap();
+
+        let ws = ContainerData::load(&ws_dir).await.unwrap();
+        assert_eq!(ws.header.description.as_deref(), Some("uni stuff"));
+    }
+
+    #[tokio::test]
+    async fn create_rejects_container_with_children_before_mkdir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = Tree::load_from(tmp.path()).await.unwrap();
+        let ws_dir = tmp.path().join("ws");
+        let node = container_at("ws", &ws_dir, ContainerKind::Workspace, vec![task("x")]);
+
+        assert!(t.create(&[], node).await.is_err());
+        assert!(!ws_dir.exists());
+        assert!(t.get(&[]).unwrap().children().is_empty());
+    }
 
     #[test]
     fn update_edits_node_at_path() {
@@ -217,7 +283,7 @@ mod tests {
 
         // root's file lists its task rows + its child container dirs (not nested content)
         let data = ContainerData::load(dir.path()).await.unwrap();
-        assert_eq!(data.name, "root");
+        assert_eq!(data.header.name, "root");
         assert_eq!(data.tasks.len(), 1); // task "a"
         assert_eq!(data.children, vec![PathBuf::from("/tmp/inner")]); // subcontainer dir only
     }
@@ -284,7 +350,7 @@ mod tests {
         assert_eq!(t.get(&p).unwrap().name(), "ws");
         // new container's own file
         let ws = ContainerData::load(&ws_dir).await.unwrap();
-        assert_eq!(ws.name, "ws");
+        assert_eq!(ws.header.name, "ws");
         assert_eq!(ws.kind, ContainerKind::Workspace);
         // parent lists it
         let root = ContainerData::load(tmp.path()).await.unwrap();
@@ -371,7 +437,7 @@ mod tests {
 
         assert!(r.is_err());
         let ws = ContainerData::load(&tmp.path().join("ws")).await.unwrap();
-        assert_eq!(ws.name, "ws"); // untouched
+        assert_eq!(ws.header.name, "ws"); // untouched
     }
 
     #[tokio::test]
@@ -389,7 +455,8 @@ mod tests {
             .await;
 
         assert!(r.is_err());
-        assert_eq!(ContainerData::load(tmp.path()).await.unwrap().name, "root");
+        let root = ContainerData::load(tmp.path()).await.unwrap();
+        assert_eq!(root.header.name, "root");
     }
 
     // ---------- create_task ----------
@@ -399,12 +466,15 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = disk_tree(tmp.path()).await; // root: [a, ws: [b]]
 
-        let p = t.create_task(&[1], "c".into(), new_task(None)).await.unwrap();
+        let p = t
+            .create_task(&[1], "c".into(), new_task(None))
+            .await
+            .unwrap();
 
         assert_eq!(p, vec![1, 1]);
         assert_eq!(t.get(&p).unwrap().name(), "c");
         let ws = ContainerData::load(&tmp.path().join("ws")).await.unwrap();
-        let names: Vec<_> = ws.tasks.iter().map(|t| t.name.as_str()).collect();
+        let names: Vec<_> = ws.tasks.iter().map(|t| t.header.name.as_str()).collect();
         assert_eq!(names, vec!["b", "c"]);
     }
 
@@ -426,8 +496,16 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = disk_tree(tmp.path()).await;
 
-        assert!(t.create_task(&[1], "b".into(), new_task(None)).await.is_err()); // "b" exists in ws
-        assert!(t.create_task(&[], "ws".into(), new_task(None)).await.is_err()); // clashes with container
+        assert!(
+            t.create_task(&[1], "b".into(), new_task(None))
+                .await
+                .is_err()
+        ); // "b" exists in ws
+        assert!(
+            t.create_task(&[], "ws".into(), new_task(None))
+                .await
+                .is_err()
+        ); // clashes with container
         assert_eq!(t.get(&[1]).unwrap().children().len(), 1);
     }
 
@@ -436,7 +514,11 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = disk_tree(tmp.path()).await;
 
-        assert!(t.create_task(&[0], "x".into(), new_task(None)).await.is_err()); // [0] is task "a"
+        assert!(
+            t.create_task(&[0], "x".into(), new_task(None))
+                .await
+                .is_err()
+        ); // [0] is task "a"
     }
 
     // ---------- regressions ----------
@@ -449,8 +531,7 @@ mod tests {
         let root_dir = tmp.path().to_path_buf();
         let gone = root_dir.join("gone");
         ContainerData {
-            id: NodeId::new(),
-            name: "root".into(),
+            header: NodeHeader::new("root".into()),
             kind: ContainerKind::Root,
             tasks: vec![],
             children: vec![gone.clone()],
@@ -461,7 +542,9 @@ mod tests {
         .unwrap();
 
         let mut t = Tree::load_from(&root_dir).await.unwrap();
-        t.create_task(&[], "x".into(), new_task(None)).await.unwrap(); // re-saves root
+        t.create_task(&[], "x".into(), new_task(None))
+            .await
+            .unwrap(); // re-saves root
 
         let data = ContainerData::load(&root_dir).await.unwrap();
         assert_eq!(data.children, vec![gone]);
@@ -511,7 +594,9 @@ mod tests {
 
         for bad in ["", ".", "..", "a/b", "../x", "a\\b"] {
             assert!(
-                t.create_task(&[1], bad.into(), new_task(None)).await.is_err(),
+                t.create_task(&[1], bad.into(), new_task(None))
+                    .await
+                    .is_err(),
                 "task {bad:?} accepted"
             );
             let dir = tmp.path().join("ws").join("dir");

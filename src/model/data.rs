@@ -5,20 +5,19 @@ use crate::{
     Res, UDO_FILE_NAME,
     model::{
         container::{ContainerKind, ContainerSettings},
-        id::NodeId,
-        node::{Node, NodeBody},
+        node::{Node, NodeBody, NodeHeader},
         task::Task,
     },
     persist::write_toml_atomic,
 };
 use std::path::{Path, PathBuf};
 
-/// One task row in the parent's `.udo.toml`. Flat on disk: the `Task`
-/// fields sit next to `id` and `name`.
+/// One task row in the parent's `.udo.toml`. Flat on disk: header and
+/// `Task` fields sit side by side.
 #[derive(Serialize, Deserialize)]
 pub struct TaskData {
-    pub id: NodeId,
-    pub name: String,
+    #[serde(flatten)]
+    pub header: NodeHeader,
     #[serde(flatten)]
     pub task: Task,
 }
@@ -26,8 +25,7 @@ pub struct TaskData {
 impl TaskData {
     pub fn into_node(self) -> Node {
         Node {
-            id: self.id,
-            name: self.name,
+            header: self.header,
             body: NodeBody::Task(self.task),
         }
     }
@@ -40,8 +38,8 @@ impl TaskData {
 /// own files). This is what keeps it one-file-per-container.
 #[derive(Serialize, Deserialize)]
 pub struct ContainerData {
-    pub id: NodeId,
-    pub name: String,
+    #[serde(flatten)]
+    pub header: NodeHeader,
     pub kind: ContainerKind,
     #[serde(default)]
     pub tasks: Vec<TaskData>, // terminal children (task rows)
@@ -74,16 +72,14 @@ impl TryFrom<&Node> for ContainerData {
     fn try_from(node: &Node) -> Result<Self, Self::Error> {
         let c = node.as_container().ok_or("file owner is not a container")?;
         Ok(ContainerData {
-            id: node.id,
-            name: node.name.clone(),
+            header: node.header.clone(),
             kind: c.kind,
             tasks: c
                 .children
                 .iter()
                 .filter_map(|n| match &n.body {
                     NodeBody::Task(t) => Some(TaskData {
-                        id: n.id,
-                        name: n.name.clone(),
+                        header: n.header.clone(),
                         task: t.clone(),
                     }),
                     NodeBody::Container(_) => None,
@@ -112,8 +108,7 @@ mod tests {
     async fn container_data_roundtrips() {
         let dir = tempfile::tempdir().unwrap();
         let data = ContainerData {
-            id: NodeId::new(),
-            name: "w".into(),
+            header: NodeHeader::new("w".into()),
             kind: ContainerKind::Workspace,
             tasks: vec![],
             children: vec![PathBuf::from("/tmp/sub")],
@@ -125,7 +120,7 @@ mod tests {
         data.save(dir.path()).await.unwrap();
 
         let loaded = ContainerData::load(dir.path()).await.unwrap();
-        assert_eq!(loaded.name, "w");
+        assert_eq!(loaded.header.name, "w");
         assert_eq!(loaded.children, vec![PathBuf::from("/tmp/sub")]);
         // #[serde(flatten)] settings must survive the round-trip
         assert_eq!(
@@ -162,24 +157,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ids_roundtrip() {
+    async fn headers_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
-        let node = container("w", vec![task("t")]);
+        let mut node = container("w", vec![task("t")]);
+        node.header.description = Some("line one\nline two".into());
         let data = ContainerData::try_from(&node).unwrap();
         data.save(dir.path()).await.unwrap();
 
         let loaded = ContainerData::load(dir.path()).await.unwrap();
 
-        assert_eq!(loaded.id, node.id);
-        assert_eq!(loaded.tasks[0].id, node.children()[0].id);
+        // whole header: id, name, created_at, description
+        assert_eq!(loaded.header, node.header);
+        assert_eq!(loaded.tasks[0].header, node.children()[0].header);
     }
 
     #[test]
     fn try_from_keeps_task_rows_only() {
         let node = container("w", vec![container("inner", vec![]), task("t")]);
         let data = ContainerData::try_from(&node).unwrap();
-        assert_eq!(data.name, "w");
-        let names: Vec<_> = data.tasks.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(data.header.name, "w");
+        let names: Vec<_> = data.tasks.iter().map(|t| t.header.name.as_str()).collect();
         assert_eq!(names, vec!["t"]);
         assert_eq!(data.children, vec![PathBuf::from("/tmp/inner")]);
     }
@@ -190,10 +187,15 @@ mod tests {
     }
 
     #[test]
-    fn task_row_is_flat_on_disk() {
+    fn file_is_flat_and_skips_empty_description() {
         let node = container("w", vec![task("t")]);
         let text = toml::to_string(&ContainerData::try_from(&node).unwrap()).unwrap();
+        assert!(text.starts_with("id = "), "got:\n{text}"); // header fields at the top
+        assert!(text.contains("created_at = "));
         assert!(text.contains("[[tasks]]"));
-        assert!(!text.contains("[tasks.task]")); // no nested table from `flatten`
+        // no nested tables from `flatten`
+        assert!(!text.contains("[header]") && !text.contains("[tasks.header]"));
+        assert!(!text.contains("[tasks.task]"));
+        assert!(!text.contains("description")); // None -> no line
     }
 }

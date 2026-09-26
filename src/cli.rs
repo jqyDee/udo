@@ -191,7 +191,7 @@ fn print_tree(tree: &Tree) {
     }
     for row in rows {
         let indent = "  ".repeat(row.depth);
-        let name = &row.node.name;
+        let name = row.node.name();
         match &row.node.body {
             NodeBody::Container(c) => {
                 println!("{:<30}{}", format!("{indent}{name}/"), c.kind);

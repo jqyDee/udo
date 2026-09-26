@@ -1,5 +1,8 @@
 use std::path::Path;
 
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
 use crate::{
     Res,
     model::{
@@ -12,9 +15,19 @@ use crate::{
 /// One entry of the tree. Fields every node has live here; the kind
 /// specific part is the `body`.
 pub struct Node {
+    pub header: NodeHeader,
+    pub body: NodeBody,
+}
+
+/// Fields every node has, tasks and containers alike. Also the shared part
+/// of both file rows (`TaskData`, `ContainerData`), flattened there.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NodeHeader {
     pub id: NodeId,
     pub name: String,
-    pub body: NodeBody,
+    pub created_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 pub enum NodeBody {
@@ -26,8 +39,7 @@ impl Node {
     /// New task node with a fresh id.
     pub fn task(name: String, task: Task) -> Self {
         Self {
-            id: NodeId::new(),
-            name,
+            header: NodeHeader::new(name),
             body: NodeBody::Task(task),
         }
     }
@@ -35,8 +47,7 @@ impl Node {
     /// New container node with a fresh id.
     pub fn container(name: String, container: Container) -> Self {
         Self {
-            id: NodeId::new(),
-            name,
+            header: NodeHeader::new(name),
             body: NodeBody::Container(container),
         }
     }
@@ -98,7 +109,7 @@ impl Node {
             _ => return Err("patch kind does not match node kind".into()),
         }
         if let Some(name) = patch.name {
-            self.name = name;
+            self.header.name = name;
         }
         Ok(())
     }
@@ -114,11 +125,23 @@ impl Node {
 
     /// Display name (container name or task name). Used by TUI rendering.
     pub fn name(&self) -> &str {
-        &self.name
+        &self.header.name
     }
 
     pub fn id(&self) -> NodeId {
-        self.id
+        self.header.id
+    }
+}
+
+impl NodeHeader {
+    /// Fresh id, created now, no description.
+    pub fn new(name: String) -> Self {
+        Self {
+            id: NodeId::new(),
+            name,
+            created_at: Utc::now(),
+            description: None,
+        }
     }
 }
 
