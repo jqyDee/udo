@@ -131,8 +131,6 @@ pub struct ContainerPatch {
 
 #[cfg(test)]
 mod tests {
-    use crate::model::task::TaskStatus;
-
     use super::*;
     use chrono::Utc;
 
@@ -146,25 +144,13 @@ mod tests {
     }
 
     fn task(name: &str, dir: Option<PathBuf>) -> Task {
-        Task {
-            id: NodeId::new(),
-            name: name.into(),
-            dir,
-            status: TaskStatus::Pending,
-            due_date: Utc::now(),
-        }
+        Task::new(name.into(), dir, Utc::now())
     }
     fn container(name: &str, children: Vec<Node>, path: Option<PathBuf>) -> Container {
-        Container {
-            id: NodeId::new(),
-            name: name.into(),
-            dir: path.unwrap_or_else(|| PathBuf::from("/tmp/x")),
-            kind: ContainerKind::Workspace,
-            settings: ContainerSettings::default(),
-            unloaded: vec![],
-            collapsed: false,
-            children,
-        }
+        let dir = path.unwrap_or_else(|| PathBuf::from("/tmp/x"));
+        let mut c = Container::new(name.into(), dir, ContainerKind::Workspace);
+        c.children = children;
+        c
     }
 
     #[test]

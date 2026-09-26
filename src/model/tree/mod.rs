@@ -14,6 +14,14 @@ pub struct Tree {
 }
 
 impl Tree {
+    /// Tree with `root`, cursor on nothing (`[]`).
+    pub fn new(root: Node) -> Self {
+        Self {
+            root,
+            cursor: vec![],
+        }
+    }
+
     /// Get the node at a given path:
     ///
     /// Path is structured as the children ids from the root node.
@@ -75,73 +83,33 @@ mod tests {
 
     use chrono::Utc;
 
-    use crate::model::{
-        container::{Container, ContainerKind, ContainerSettings},
-        id::NodeId,
-        node::{Node, NodePatch},
-        task::{Task, TaskPatch, TaskStatus},
-        tree::Tree,
+    use crate::{
+        model::{
+            container::ContainerKind,
+            node::NodePatch,
+            task::{Task, TaskPatch},
+            tree::Tree,
+        },
+        test_util::{container, container_at, task, tree_with},
     };
 
-    pub(super) fn task(name: &str) -> Node {
-        Node::Task(Task {
-            id: NodeId::new(),
-            name: name.into(),
-            dir: None,
-            status: TaskStatus::Pending,
-            due_date: Utc::now(),
-        })
-    }
-
-    pub(super) fn container(name: &str, children: Vec<Node>) -> Node {
-        Node::Container(Container {
-            id: NodeId::new(),
-            name: name.into(),
-            dir: PathBuf::from("/tmp").join(name), // distinct dirs — useful later
-            kind: ContainerKind::Workspace,
-            settings: ContainerSettings::default(),
-            unloaded: vec![],
-            collapsed: false,
-            children,
-        })
-    }
-
     pub(super) fn tree() -> Tree {
-        Tree {
-            root: container("root", vec![task("a"), container("inner", vec![task("b")])]),
-            cursor: vec![],
-        }
+        tree_with(vec![task("a"), container("inner", vec![task("b")])], &[])
     }
 
     /// root (tmp) -> [task "a", ws (tmp/ws) -> [task "b"]], both files saved.
     pub(super) async fn disk_tree(root_dir: &Path) -> Tree {
         let ws_dir = root_dir.join("ws");
         std::fs::create_dir(&ws_dir).unwrap();
-        let t = Tree {
-            root: Node::Container(Container {
-                id: NodeId::new(),
-                name: "root".into(),
-                dir: root_dir.to_path_buf(),
-                kind: ContainerKind::Root,
-                settings: ContainerSettings::default(),
-                unloaded: vec![],
-                collapsed: false,
-                children: vec![
-                    task("a"),
-                    Node::Container(Container {
-                        id: NodeId::new(),
-                        name: "ws".into(),
-                        dir: ws_dir,
-                        kind: ContainerKind::Workspace,
-                        settings: ContainerSettings::default(),
-                        unloaded: vec![],
-                        collapsed: false,
-                        children: vec![task("b")],
-                    }),
-                ],
-            }),
-            cursor: vec![],
-        };
+        let t = Tree::new(container_at(
+            "root",
+            root_dir,
+            ContainerKind::Root,
+            vec![
+                task("a"),
+                container_at("ws", &ws_dir, ContainerKind::Workspace, vec![task("b")]),
+            ],
+        ));
         t.save(&[]).await.unwrap();
         t.save(&[1]).await.unwrap();
         t

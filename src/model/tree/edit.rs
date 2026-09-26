@@ -147,16 +147,19 @@ impl Tree {
 mod tests {
     use std::path::PathBuf;
 
-    use crate::model::{
-        container::{Container, ContainerKind, ContainerSettings},
-        data::ContainerData,
-        id::NodeId,
-        node::{Node, NodePatch},
-        task::{TaskPatch, TaskStatus},
-        tree::{
-            Tree,
-            tests::{container, disk_tree, new_task, task, tree},
+    use crate::{
+        model::{
+            container::{ContainerKind, ContainerSettings},
+            data::ContainerData,
+            id::NodeId,
+            node::{Node, NodePatch},
+            task::{TaskPatch, TaskStatus},
+            tree::{
+                Tree,
+                tests::{disk_tree, new_task, tree},
+            },
         },
+        test_util::{container, container_at, task},
     };
 
     #[test]
@@ -199,19 +202,12 @@ mod tests {
     #[tokio::test]
     async fn save_writes_owner_container_file() {
         let dir = tempfile::tempdir().unwrap();
-        let t = Tree {
-            root: Node::Container(Container {
-                id: NodeId::new(),
-                name: "root".into(),
-                dir: dir.path().to_path_buf(),
-                kind: ContainerKind::Root,
-                settings: ContainerSettings::default(),
-                unloaded: vec![],
-                collapsed: false,
-                children: vec![task("a"), container("inner", vec![task("b")])],
-            }),
-            cursor: vec![],
-        };
+        let t = Tree::new(container_at(
+            "root",
+            dir.path(),
+            ContainerKind::Root,
+            vec![task("a"), container("inner", vec![task("b")])],
+        ));
 
         t.save(&[]).await.unwrap();
 

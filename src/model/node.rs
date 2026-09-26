@@ -95,34 +95,17 @@ pub enum NodePatch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{
-        container::{ContainerKind, ContainerSettings},
-        id::NodeId,
-        task::TaskStatus,
-    };
+    use crate::model::container::ContainerKind;
     use chrono::Utc;
     use std::path::PathBuf;
 
     fn task(name: &str, dir: Option<PathBuf>) -> Task {
-        Task {
-            id: NodeId::new(),
-            name: name.into(),
-            dir,
-            status: TaskStatus::Pending,
-            due_date: Utc::now(),
-        }
+        Task::new(name.into(), dir, Utc::now())
     }
     fn container(name: &str, children: Vec<Node>) -> Container {
-        Container {
-            id: NodeId::new(),
-            name: name.into(),
-            dir: PathBuf::from("/tmp/x"),
-            kind: ContainerKind::Workspace,
-            settings: ContainerSettings::default(),
-            unloaded: vec![],
-            collapsed: false,
-            children,
-        }
+        let mut c = Container::new(name.into(), "/tmp/x".into(), ContainerKind::Workspace);
+        c.children = children;
+        c
     }
 
     #[test]

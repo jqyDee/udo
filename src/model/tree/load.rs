@@ -32,19 +32,13 @@ impl Tree {
             fs::create_dir_all(root_dir).await?;
 
             let root = Container::new("root".into(), root_dir.to_path_buf(), ContainerKind::Root);
-            let tree = Self {
-                root: Node::Container(root),
-                cursor: vec![],
-            };
+            let tree = Self::new(Node::Container(root));
             tree.save(&[]).await?;
             return Ok(tree);
         }
         let mut loaded = HashSet::from([root_dir.to_path_buf()]);
         let root = Self::build_container(root_dir.to_path_buf(), &mut loaded).await?;
-        let mut tree = Self {
-            root,
-            cursor: vec![],
-        };
+        let mut tree = Self::new(root);
 
         // Write back files whose ids changed, so the new ones stay stable.
         let changed = tree.fix_duplicate_ids();
@@ -144,13 +138,16 @@ mod tests {
 
     use chrono::Utc;
 
-    use crate::model::{
-        container::{Container, ContainerKind, ContainerSettings},
-        data::ContainerData,
-        id::NodeId,
-        node::Node,
-        task::Task,
-        tree::{Tree, tests::task},
+    use crate::{
+        model::{
+            container::{ContainerKind, ContainerSettings},
+            data::ContainerData,
+            id::NodeId,
+            node::Node,
+            task::Task,
+            tree::Tree,
+        },
+        test_util::{container_at, task},
     };
 
     fn root_kind(t: &Tree) -> ContainerKind {
@@ -180,28 +177,12 @@ mod tests {
         std::fs::create_dir(&ws_dir).unwrap();
 
         // root -> ws (Workspace) -> task "t"
-        let t = Tree {
-            root: Node::Container(Container {
-                id: NodeId::new(),
-                name: "root".into(),
-                dir: root_dir.clone(),
-                kind: ContainerKind::Root,
-                settings: ContainerSettings::default(),
-                unloaded: vec![],
-                collapsed: false,
-                children: vec![Node::Container(Container {
-                    id: NodeId::new(),
-                    name: "ws".into(),
-                    dir: ws_dir.clone(),
-                    kind: ContainerKind::Workspace,
-                    settings: ContainerSettings::default(),
-                    unloaded: vec![],
-                    collapsed: false,
-                    children: vec![task("t")],
-                })],
-            }),
-            cursor: vec![],
-        };
+        let t = Tree::new(container_at(
+            "root",
+            &root_dir,
+            ContainerKind::Root,
+            vec![container_at("ws", &ws_dir, ContainerKind::Workspace, vec![task("t")])],
+        ));
         t.save(&[]).await.unwrap(); // root file
         t.save(&[0]).await.unwrap(); // ws file
 
