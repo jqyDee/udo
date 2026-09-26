@@ -36,6 +36,9 @@ fn detail_lines(node: &Node) -> Vec<Line<'_>> {
             let mut lines = vec![
                 Line::from(c.name.as_str()).bold(),
                 Line::default(),
+                field("type", "container".into()),
+                field("id", c.id.to_string()),
+                Line::default(),
                 field("kind", c.kind.to_string()),
                 field("dir", c.dir.display().to_string()),
                 field("tasks", tasks.to_string()),
@@ -51,6 +54,9 @@ fn detail_lines(node: &Node) -> Vec<Line<'_>> {
         }
         Node::Task(t) => vec![
             Line::from(t.name.as_str()).bold(),
+            Line::default(),
+            field("type", "task".into()),
+            field("id", t.id.to_string()),
             Line::default(),
             field("status", t.status.to_string()),
             // stored as UTC, shown local (same as entered in the form)
