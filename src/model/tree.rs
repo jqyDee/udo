@@ -1,25 +1,18 @@
-use std::{
-    ffi::OsString,
-    path::{Path, PathBuf, absolute},
-};
+use std::path::{Path, PathBuf};
 
 use async_recursion::async_recursion;
-use directories::BaseDirs;
 use tokio::fs;
 
 use crate::{
-    Res, UDO_FILE_NAME,
-    model::{
+    Res, UDO_FILE_NAME, dir::root_dir, model::{
+        NodePath,
         container::{Container, ContainerKind},
         data::ContainerData,
-        folder_name,
         node::{Node, NodePatch},
         task::{Task, TaskPatch, TaskStatus},
         view::ViewState,
-    },
+    }, naming::folder_name,
 };
-
-pub type NodePath = Vec<usize>;
 
 /// In-memory tree node. Not serialized directly - Persistence goes through DTOs.
 pub struct Tree {
@@ -368,49 +361,14 @@ impl Tree {
     }
 }
 
-// DTO conversion for a container
-impl From<&Container> for ContainerData {
-    fn from(c: &Container) -> Self {
-        ContainerData {
-            name: c.name.clone(),
-            kind: c.kind,
-            tasks: c.task_children(),
-            // loaded children + ones we couldn't load (must not be dropped)
-            children: c
-                .container_children_paths()
-                .into_iter()
-                .chain(c.unloaded.iter().cloned())
-                .collect(),
-            settings: c.settings.clone(),
-        }
-    }
-}
-
-/// Env var that overrides the root dir (test data, throwaway setups).
-pub const ROOT_ENV: &str = "UDO_ROOT";
-
-/// `$UDO_ROOT` if set and non-empty, else `~/.config/udo`.
-fn root_dir() -> Res<PathBuf> {
-    root_dir_from(std::env::var_os(ROOT_ENV))
-}
-
-/// `root_dir` with the env value passed in, so tests don't touch the real env.
-fn root_dir_from(env: Option<OsString>) -> Res<PathBuf> {
-    if let Some(dir) = env.filter(|d| !d.is_empty()) {
-        // absolute: children paths are stored absolute, cwd must not matter
-        return Ok(absolute(PathBuf::from(dir))?);
-    }
-    let base_dirs = BaseDirs::new().ok_or("Could not acquire Base dirs")?;
-    Ok(base_dirs.home_dir().join(".config").join("udo"))
-}
-
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use std::ffi::OsString;
+
+use chrono::Utc;
 
     use crate::{
-        model::container::{ContainerKind, ContainerSettings},
-        model::task::{Task, TaskPatch, TaskStatus},
+        dir::root_dir_from, model::{container::{ContainerKind, ContainerSettings}, task::{Task, TaskPatch, TaskStatus}},
     };
 
     use super::*;

@@ -9,7 +9,7 @@ use ratatui::{
     widgets::{Block, Paragraph},
 };
 
-use crate::model::{node::Node, task::DATE_FMT, tree::Tree};
+use crate::{DATE_FMT, model::{node::Node, tree::Tree}};
 
 pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree) {
     let lines = match tree.get(&tree.cursor) {

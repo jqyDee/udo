@@ -2,8 +2,9 @@
 
 use crossterm::event::{KeyCode, KeyEvent};
 
+use crate::model::NodePath;
+
 use super::{App, Flow, Mode};
-use crate::model::tree::NodePath;
 
 /// What a pending "remove?" prompt is about. Stored when `d` is pressed, so
 /// the answer always applies to the node that was selected at that moment.

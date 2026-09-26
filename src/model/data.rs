@@ -2,12 +2,9 @@ use serde::{Deserialize, Serialize};
 use tokio::fs;
 
 use crate::{
-    Res, UDO_FILE_NAME,
-    model::{
-        container::{ContainerKind, ContainerSettings},
-        task::Task,
-    },
-    persist::write_toml_atomic,
+    Res, UDO_FILE_NAME, model::{
+        container::{Container, ContainerKind, ContainerSettings}, task::Task,
+    }, persist::write_toml_atomic,
 };
 use std::path::{Path, PathBuf};
 
@@ -41,6 +38,24 @@ impl ContainerData {
     /// Write <dir>/.udo.toml atomically.
     pub async fn save(&self, dir: &Path) -> Res<()> {
         write_toml_atomic(&dir.join(UDO_FILE_NAME), self).await
+    }
+}
+
+// DTO conversion for a container
+impl From<&Container> for ContainerData {
+    fn from(c: &Container) -> Self {
+        ContainerData {
+            name: c.name.clone(),
+            kind: c.kind,
+            tasks: c.task_children(),
+            // loaded children + ones we couldn't load (must not be dropped)
+            children: c
+                .container_children_paths()
+                .into_iter()
+                .chain(c.unloaded.iter().cloned())
+                .collect(),
+            settings: c.settings.clone(),
+        }
     }
 }
 

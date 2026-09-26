@@ -1,19 +1,12 @@
 use std::path::{PathBuf, absolute};
 
-use chrono::{Local, NaiveDateTime};
+use chrono::{Local, NaiveDateTime, TimeZone, Utc};
 use clap::{Parser, Subcommand};
 
 use crate::{
-    Res,
-    model::{
-        container::{ContainerKind, ContainerPatch, ContainerSettings},
-        folder_name,
-        node::{Node, NodePatch},
-        normalize_name,
-        task::{DATE_FMT, Task, local_to_utc},
-        tree::{NodePath, Tree},
-    },
-    tui,
+    DATE_FMT, Res, model::{
+        NodePath, container::{ContainerKind, ContainerPatch, ContainerSettings}, node::{Node, NodePatch}, task::Task, tree::Tree,
+    }, naming::{folder_name, normalize_name}, tui,
 };
 
 #[derive(Parser)]
@@ -138,7 +131,12 @@ impl Cli {
                     // typed as local time (like in the TUI), stored as UTC
                     let local = NaiveDateTime::parse_from_str(due, DATE_FMT)
                         .map_err(|_| format!("invalid --due {due:?}, use YYYY-MM-DD HH:MM"))?;
-                    let date = local_to_utc(local).ok_or("that time doesn't exist (DST switch)")?;
+
+                    let date = Local
+                        .from_local_datetime(&local)
+                        .earliest()
+                        .map(|t| t.with_timezone(&Utc))
+                        .ok_or("that time doesn't exist (DST switch)")?;
 
                     let parent: NodePath = match (workspace, project) {
                         (None, None) => vec![], // root

@@ -2,19 +2,12 @@
 //! the parent, the form edits itself (`Form::handle_key`), submit calls the
 //! tree (which checks names and creates dirs).
 
-use chrono::{Local, NaiveTime, TimeDelta};
+use chrono::{Local, NaiveTime, TimeDelta, TimeZone, Utc};
 use crossterm::event::KeyEvent;
 
 use super::{App, Flow, Mode};
 use crate::{
-    model::{
-        container::ContainerKind,
-        node::Node,
-        normalize_name,
-        task::{Task, local_to_utc},
-        tree::NodePath,
-    },
-    tui::form::{FieldId, FolderMode, Form, FormAction, FormOutcome, TaskDefaults},
+    model::{NodePath, container::ContainerKind, node::Node, task::Task}, naming::normalize_name, tui::form::{FieldId, FolderMode, Form, FormAction, FormOutcome, TaskDefaults},
 };
 
 impl App<'_> {
@@ -104,7 +97,11 @@ impl App<'_> {
                 let Some(local) = form.date_value(FieldId::Due) else {
                     return;
                 };
-                let Some(due) = local_to_utc(local) else {
+                let Some(due) = Local
+                    .from_local_datetime(&local)
+                    .earliest()
+                    .map(|t| t.with_timezone(&Utc))
+                else {
                     self.error("that time doesn't exist (DST switch)");
                     return;
                 };

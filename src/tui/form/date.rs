@@ -5,7 +5,7 @@ use std::ops::Range;
 use chrono::{Local, Months, NaiveDateTime, TimeDelta};
 use crossterm::event::{KeyCode, KeyEvent};
 
-use crate::{model::task::DATE_FMT, tui::keys::is_text_input};
+use crate::{DATE_FMT, tui::keys::is_text_input};
 
 /// Local date + time, edited one segment at a time (←/→ pick, ↑/↓ change).
 /// Local, not UTC: converted only on submit (`App::submit_form`).
