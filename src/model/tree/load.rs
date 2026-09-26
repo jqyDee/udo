@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 use async_recursion::async_recursion;
 use tokio::fs;
@@ -7,8 +10,10 @@ use crate::{
     Res, UDO_FILE_NAME,
     dir::root_dir,
     model::{
+        NodePath,
         container::{Container, ContainerKind},
         data::ContainerData,
+        id::NodeId,
         node::Node,
         tree::Tree,
         view::ViewState,
@@ -34,10 +39,25 @@ impl Tree {
             tree.save(&[]).await?;
             return Ok(tree);
         }
+        let mut loaded = HashSet::from([root_dir.to_path_buf()]);
+        let root = Self::build_container(root_dir.to_path_buf(), &mut loaded).await?;
         let mut tree = Self {
-            root: Self::build_container(root_dir.to_path_buf()).await?,
+            root,
             cursor: vec![],
         };
+
+        // Write back files whose ids changed, so the new ones stay stable.
+        let changed = tree.fix_duplicate_ids();
+        let mut owners: Vec<NodePath> = changed
+            .iter()
+            .filter_map(|p| tree.nearest_file_owner(p))
+            .collect();
+        owners.sort();
+        owners.dedup();
+        for owner in &owners {
+            tree.save(owner).await?;
+        }
+
         tree.apply_view(&ViewState::load(root_dir).await);
         Ok(tree)
     }
@@ -45,9 +65,12 @@ impl Tree {
     /// Recursively build one container from its dir: load DTO, map tasks ->
     /// Node::Task, recurse each child dir -> Node::Container.
     ///
+    /// `loaded` holds every dir built so far, so a dir listed by two parents
+    /// is only loaded once.
+    ///
     /// `#[async_recursion]` boxes the future (async fn can't recurse, E0733).
     #[async_recursion]
-    async fn build_container(dir: PathBuf) -> Res<Node> {
+    async fn build_container(dir: PathBuf, loaded: &mut HashSet<PathBuf>) -> Res<Node> {
         let data = ContainerData::load(&dir).await?;
 
         let mut children: Vec<Node> = data.tasks.into_iter().map(Node::Task).collect();
@@ -59,11 +82,20 @@ impl Tree {
                 unloaded.push(child_path); // keep it registered, see Container::unloaded
                 continue;
             }
+            // e.g. after `cp -r`: the copy's file still lists the original's children
+            if !loaded.insert(child_path.clone()) {
+                eprintln!(
+                    "warning: {child_path:?} is listed by more than one container, loaded only once"
+                );
+                unloaded.push(child_path);
+                continue;
+            }
 
-            children.push(Self::build_container(child_path).await?);
+            children.push(Self::build_container(child_path, loaded).await?);
         }
 
         Ok(Node::Container(Container {
+            id: data.id,
             name: data.name,
             dir,
             kind: data.kind,
@@ -73,14 +105,51 @@ impl Tree {
             collapsed: false,
         }))
     }
+
+    /// Give every node whose id was already seen a fresh one (first in
+    /// depth-first order keeps it). Returns the paths of changed nodes.
+    fn fix_duplicate_ids(&mut self) -> Vec<NodePath> {
+        let mut seen = HashSet::new();
+        let mut changed = vec![];
+        fix_ids(&mut self.root, &mut vec![], &mut seen, &mut changed);
+        changed
+    }
+}
+
+fn fix_ids(
+    node: &mut Node,
+    path: &mut NodePath,
+    seen: &mut HashSet<NodeId>,
+    changed: &mut Vec<NodePath>,
+) {
+    if !seen.insert(node.id()) {
+        let fresh = NodeId::new();
+        eprintln!("warning: duplicate id {} ({}), new id {fresh}", node.id(), node.name());
+        node.set_id(fresh);
+        seen.insert(fresh);
+        changed.push(path.clone());
+    }
+    if let Some(children) = node.children_mut() {
+        for (i, child) in children.iter_mut().enumerate() {
+            path.push(i);
+            fix_ids(child, path, seen, changed);
+            path.pop();
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::HashSet, path::PathBuf};
+
+    use chrono::Utc;
+
     use crate::model::{
         container::{Container, ContainerKind, ContainerSettings},
         data::ContainerData,
+        id::NodeId,
         node::Node,
+        task::Task,
         tree::{Tree, tests::task},
     };
 
@@ -113,6 +182,7 @@ mod tests {
         // root -> ws (Workspace) -> task "t"
         let t = Tree {
             root: Node::Container(Container {
+                id: NodeId::new(),
                 name: "root".into(),
                 dir: root_dir.clone(),
                 kind: ContainerKind::Root,
@@ -120,6 +190,7 @@ mod tests {
                 unloaded: vec![],
                 collapsed: false,
                 children: vec![Node::Container(Container {
+                    id: NodeId::new(),
                     name: "ws".into(),
                     dir: ws_dir.clone(),
                     kind: ContainerKind::Workspace,
@@ -142,6 +213,81 @@ mod tests {
         assert_eq!(loaded.get(&[0]).unwrap().dir(), Some(ws_dir.as_path()));
         assert_eq!(loaded.get(&[0, 0]).unwrap().name(), "t");
         assert!(loaded.get(&[1]).is_none());
+        assert_eq!(ids(&loaded), ids(&t));
+    }
+
+    /// Every id in the tree, depth-first.
+    fn ids(t: &Tree) -> Vec<NodeId> {
+        fn walk(n: &Node, out: &mut Vec<NodeId>) {
+            out.push(n.id());
+            n.children().iter().for_each(|c| walk(c, out));
+        }
+        let mut out = vec![];
+        walk(t.get(&[]).unwrap(), &mut out);
+        out
+    }
+
+    fn container_data(name: &str, tasks: Vec<Task>, children: Vec<PathBuf>) -> ContainerData {
+        ContainerData {
+            id: NodeId::new(),
+            name: name.into(),
+            kind: ContainerKind::Workspace,
+            tasks,
+            children,
+            settings: ContainerSettings::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn load_copied_container_gets_fresh_ids_that_stay_stable() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root_dir = tmp.path().to_path_buf();
+        let (a, b) = (root_dir.join("a"), root_dir.join("b"));
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        let mut root = container_data("root", vec![], vec![a.clone(), b.clone()]);
+        root.kind = ContainerKind::Root;
+        root.save(&root_dir).await.unwrap();
+        // `cp -r a b`: same container id and same task id in both files
+        let copied = container_data("ws", vec![Task::new("t".into(), None, Utc::now())], vec![]);
+        copied.save(&a).await.unwrap();
+        copied.save(&b).await.unwrap();
+
+        let first = Tree::load_from(&root_dir).await.unwrap();
+        let second = Tree::load_from(&root_dir).await.unwrap();
+
+        let all = ids(&first);
+        let unique: HashSet<_> = all.iter().collect();
+        assert_eq!(all.len(), 5);
+        assert_eq!(unique.len(), 5);
+        assert_eq!(first.get(&[0]).unwrap().id(), copied.id); // first one keeps it
+        assert_eq!(all, ids(&second));
+    }
+
+    #[tokio::test]
+    async fn load_dir_listed_twice_is_loaded_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root_dir = tmp.path().to_path_buf();
+        let (a, b, shared) = (root_dir.join("a"), root_dir.join("b"), root_dir.join("s"));
+        for d in [&a, &b, &shared] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let mut root = container_data("root", vec![], vec![a.clone(), b.clone()]);
+        root.kind = ContainerKind::Root;
+        root.save(&root_dir).await.unwrap();
+        container_data("a", vec![], vec![shared.clone()]).save(&a).await.unwrap();
+        container_data("b", vec![], vec![shared.clone()]).save(&b).await.unwrap();
+        container_data("s", vec![], vec![]).save(&shared).await.unwrap();
+
+        let first = Tree::load_from(&root_dir).await.unwrap();
+        let second = Tree::load_from(&root_dir).await.unwrap();
+
+        assert_eq!(first.get(&[0, 0]).unwrap().name(), "s");
+        assert!(first.get(&[1]).unwrap().children().is_empty());
+        assert_eq!(ids(&first), ids(&second));
+        // still registered in b's file, not dropped
+        let b_data = ContainerData::load(&b).await.unwrap();
+        assert_eq!(b_data.children, vec![shared]);
     }
 
     #[tokio::test]
@@ -150,6 +296,7 @@ mod tests {
         let root_dir = tmp.path().to_path_buf();
 
         ContainerData {
+            id: NodeId::new(),
             name: "root".into(),
             kind: ContainerKind::Root,
             tasks: vec![],

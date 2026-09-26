@@ -18,3 +18,4 @@ directories = "5.0"
 tempfile = "3"
 async-recursion = "1.1.1"
 futures-util = { version = "0.3.34", default-features = false }
+uuid = { version = "1.26.1", features = ["v7", "serde"] }

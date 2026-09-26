@@ -77,6 +77,7 @@ mod tests {
 
     use crate::model::{
         container::{Container, ContainerKind, ContainerSettings},
+        id::NodeId,
         node::{Node, NodePatch},
         task::{Task, TaskPatch, TaskStatus},
         tree::Tree,
@@ -84,6 +85,7 @@ mod tests {
 
     pub(super) fn task(name: &str) -> Node {
         Node::Task(Task {
+            id: NodeId::new(),
             name: name.into(),
             dir: None,
             status: TaskStatus::Pending,
@@ -93,6 +95,7 @@ mod tests {
 
     pub(super) fn container(name: &str, children: Vec<Node>) -> Node {
         Node::Container(Container {
+            id: NodeId::new(),
             name: name.into(),
             dir: PathBuf::from("/tmp").join(name), // distinct dirs — useful later
             kind: ContainerKind::Workspace,
@@ -116,6 +119,7 @@ mod tests {
         std::fs::create_dir(&ws_dir).unwrap();
         let t = Tree {
             root: Node::Container(Container {
+                id: NodeId::new(),
                 name: "root".into(),
                 dir: root_dir.to_path_buf(),
                 kind: ContainerKind::Root,
@@ -125,6 +129,7 @@ mod tests {
                 children: vec![
                     task("a"),
                     Node::Container(Container {
+                        id: NodeId::new(),
                         name: "ws".into(),
                         dir: ws_dir,
                         kind: ContainerKind::Workspace,

@@ -2,8 +2,11 @@ use std::path::Path;
 
 use crate::{
     Res,
-    model::container::{Container, ContainerPatch},
-    model::task::{Task, TaskPatch},
+    model::{
+        container::{Container, ContainerPatch},
+        id::NodeId,
+        task::{Task, TaskPatch},
+    },
 };
 
 pub enum Node {
@@ -67,6 +70,21 @@ impl Node {
             Node::Task(t) => &t.name,
         }
     }
+
+    pub fn id(&self) -> NodeId {
+        match self {
+            Node::Container(c) => c.id,
+            Node::Task(t) => t.id,
+        }
+    }
+
+    /// Replace the id. Only for repairing duplicates on load.
+    pub fn set_id(&mut self, id: NodeId) {
+        match self {
+            Node::Container(c) => c.id = id,
+            Node::Task(t) => t.id = id,
+        }
+    }
 }
 
 pub enum NodePatch {
@@ -77,15 +95,17 @@ pub enum NodePatch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        model::container::{ContainerKind, ContainerSettings},
-        model::task::TaskStatus,
+    use crate::model::{
+        container::{ContainerKind, ContainerSettings},
+        id::NodeId,
+        task::TaskStatus,
     };
     use chrono::Utc;
     use std::path::PathBuf;
 
     fn task(name: &str, dir: Option<PathBuf>) -> Task {
         Task {
+            id: NodeId::new(),
             name: name.into(),
             dir,
             status: TaskStatus::Pending,
@@ -94,6 +114,7 @@ mod tests {
     }
     fn container(name: &str, children: Vec<Node>) -> Container {
         Container {
+            id: NodeId::new(),
             name: name.into(),
             dir: PathBuf::from("/tmp/x"),
             kind: ContainerKind::Workspace,

@@ -150,6 +150,7 @@ mod tests {
     use crate::model::{
         container::{Container, ContainerKind, ContainerSettings},
         data::ContainerData,
+        id::NodeId,
         node::{Node, NodePatch},
         task::{TaskPatch, TaskStatus},
         tree::{
@@ -200,6 +201,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let t = Tree {
             root: Node::Container(Container {
+                id: NodeId::new(),
                 name: "root".into(),
                 dir: dir.path().to_path_buf(),
                 kind: ContainerKind::Root,
@@ -447,6 +449,7 @@ mod tests {
         let root_dir = tmp.path().to_path_buf();
         let gone = root_dir.join("gone");
         ContainerData {
+            id: NodeId::new(),
             name: "root".into(),
             kind: ContainerKind::Root,
             tasks: vec![],

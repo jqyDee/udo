@@ -5,6 +5,7 @@ use crate::{
     Res, UDO_FILE_NAME,
     model::{
         container::{Container, ContainerKind, ContainerSettings},
+        id::NodeId,
         task::Task,
     },
     persist::write_toml_atomic,
@@ -18,6 +19,7 @@ use std::path::{Path, PathBuf};
 /// own files). This is what keeps it one-file-per-container.
 #[derive(Serialize, Deserialize)]
 pub struct ContainerData {
+    pub id: NodeId,
     pub name: String,
     pub kind: ContainerKind,
     #[serde(default)]
@@ -48,6 +50,7 @@ impl ContainerData {
 impl From<&Container> for ContainerData {
     fn from(c: &Container) -> Self {
         ContainerData {
+            id: c.id,
             name: c.name.clone(),
             kind: c.kind,
             tasks: c.task_children(),
@@ -71,6 +74,7 @@ mod tests {
     async fn container_data_roundtrips() {
         let dir = tempfile::tempdir().unwrap();
         let data = ContainerData {
+            id: NodeId::new(),
             name: "w".into(),
             kind: ContainerKind::Workspace,
             tasks: vec![],
@@ -117,5 +121,22 @@ mod tests {
             .to_string();
 
         assert!(err.contains(UDO_FILE_NAME));
+    }
+
+    #[tokio::test]
+    async fn ids_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut data = ContainerData::from(&Container::new(
+            "w".into(),
+            dir.path().to_path_buf(),
+            ContainerKind::Workspace,
+        ));
+        data.tasks = vec![Task::new("t".into(), None, chrono::Utc::now())];
+        data.save(dir.path()).await.unwrap();
+
+        let loaded = ContainerData::load(dir.path()).await.unwrap();
+
+        assert_eq!(loaded.id, data.id);
+        assert_eq!(loaded.tasks[0].id, data.tasks[0].id);
     }
 }

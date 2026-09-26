@@ -88,10 +88,12 @@ Goal: Build robust CLI commands to manipulate local folders and TOML metadata.
         * Add a `Tree` constructor; tests stop building `Tree { .. }` directly.
         * Done when all existing tests pass unchanged in behaviour.
 
-    [ ] 2.3.2 Stable IDs
-        * Give `Task` a `uuid`: tasks are currently keyed by name among
-          siblings, so a rename breaks any DB key.
-        * Containers keep `dir` as ID (unique thanks to the overwrite check).
+    [x] 2.3.2 Stable IDs
+        * Every node (task and container) has a `NodeId` (uuid v7): names
+          and dirs can change (rename, `mv`), so neither works as a DB key.
+        * `id` is required in the file (no migration of old files). Duplicate
+          ids (e.g. after `cp -r`) get fresh ones, the first node keeps its id.
+          A dir listed by two containers is loaded once.
         * Bonus: view.toml can then remember the selected node.
 
     [ ] 2.3.3 `SingleFileStore` (~1-2 hours)

@@ -21,8 +21,8 @@ Priorities as of 2026-09-25, in order. Background and older plans:
       default as today; allows nested workspaces.
 - [x] **Form defaults from outside:** the app passes `TaskDefaults` into the
       form, so defaults can come from settings later.
-- [ ] **Next, separate step (task format):** stable task IDs (existing
-      tasks get one on load), `created_at`, optional one-line `description`.
+- [x] **Stable IDs** for tasks and containers (roadmap 2.3.2).
+- [ ] **Next, separate step (task format):** `created_at`, optional one-line `description`.
       One file format change. Further fields (estimate + source, planning
       opt-out, run config) only when their feature is built.
 
@@ -102,7 +102,7 @@ Priorities as of 2026-09-25, in order. Background and older plans:
       manual), opt-in `ai_access` setting (only name, description and times
       by default). Provider behind a small interface, so a local model can be
       used for full privacy. Rust: plain HTTP (no official SDK).
-- [ ] Needs **stable task IDs** first (roadmap 2.3.2): time logs must survive
+- [x] Needs **stable task IDs** first (roadmap 2.3.2): time logs must survive
       renaming a task.
 
 ## 3. Timetable / scheduling

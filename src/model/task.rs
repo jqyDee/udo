@@ -3,8 +3,11 @@ use std::{fmt, path::PathBuf};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::model::id::NodeId;
+
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct Task {
+    pub id: NodeId,
     pub name: String,
     pub dir: Option<PathBuf>,
     pub status: TaskStatus,
@@ -14,6 +17,7 @@ pub struct Task {
 impl Task {
     pub fn new(name: String, dir: Option<PathBuf>, due_date: DateTime<Utc>) -> Self {
         Self {
+            id: NodeId::new(),
             name,
             dir,
             status: TaskStatus::Pending,

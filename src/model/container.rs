@@ -2,9 +2,10 @@ use std::{fmt, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{node::Node, task::Task};
+use crate::model::{id::NodeId, node::Node, task::Task};
 
 pub struct Container {
+    pub id: NodeId,
     pub name: String,
     pub dir: PathBuf,
     pub kind: ContainerKind,
@@ -21,6 +22,7 @@ impl Container {
     /// Create a new container
     pub fn new(name: String, dir: PathBuf, kind: ContainerKind) -> Self {
         Self {
+            id: NodeId::new(),
             name,
             dir,
             kind,
@@ -145,6 +147,7 @@ mod tests {
 
     fn task(name: &str, dir: Option<PathBuf>) -> Task {
         Task {
+            id: NodeId::new(),
             name: name.into(),
             dir,
             status: TaskStatus::Pending,
@@ -153,6 +156,7 @@ mod tests {
     }
     fn container(name: &str, children: Vec<Node>, path: Option<PathBuf>) -> Container {
         Container {
+            id: NodeId::new(),
             name: name.into(),
             dir: path.unwrap_or_else(|| PathBuf::from("/tmp/x")),
             kind: ContainerKind::Workspace,
