@@ -5,7 +5,7 @@ use crate::{
     model::{
         NodePath,
         data::ContainerData,
-        node::{BodyPatch, Node, NodePatch},
+        node::{BodyPatch, Node, NodePatch, clean_description},
         task::{TaskPatch, TaskStatus},
         tree::Tree,
     },
@@ -28,6 +28,8 @@ impl Tree {
         Ok(path)
     }
 
+    /// Apply `patch` to the node at `path`. In-memory only: no checks, no
+    /// disk. Prefer `edit`.
     pub fn update(&mut self, path: &[usize], patch: NodePatch) -> Res<()> {
         self.get_mut(path)
             .ok_or("no node at the path")?
@@ -44,16 +46,11 @@ impl Tree {
     /// overwrite existing data), or a new container has children (only its
     /// own file would be written).
     pub async fn create(&mut self, parent: &[usize], mut node: Node) -> Res<NodePath> {
-        self.check_can_add(parent, &node.header.name)?;
+        self.check_name(parent, &node.header.name, None)?;
         if !node.children().is_empty() {
             return Err("a new container must not have children".into());
         }
-        node.header.description = node
-            .header
-            .description
-            .take()
-            .map(|d| d.trim().to_string())
-            .filter(|d| !d.is_empty());
+        node.header.description = node.header.description.take().and_then(clean_description);
 
         if let Some(dir) = node.dir() {
             self.check_dir_free(dir)?;
@@ -70,6 +67,35 @@ impl Tree {
         }
         self.save(parent).await?; // parent lists the new task row / container dir
         Ok(path)
+    }
+
+    /// Edit the node at `path` and save its file. A new name gets the same
+    /// checks as in `create` (against the siblings, not itself); the
+    /// description is cleaned (trim, blank -> None). Errors, before anything
+    /// changes, for the root, a missing path, a bad name, a patch of the
+    /// other kind, or a dir change (moving folders is not supported).
+    pub async fn edit(&mut self, path: &[usize], mut patch: NodePatch) -> Res<()> {
+        let (&idx, parent) = path.split_last().ok_or("the root cannot be edited")?;
+        if self.get(path).is_none() {
+            return Err("no node at the path".into());
+        }
+        let changes_dir = match &patch.body {
+            Some(BodyPatch::Container(p)) => p.dir.is_some(),
+            Some(BodyPatch::Task(p)) => p.dir.is_some(),
+            None => false,
+        };
+        if changes_dir {
+            return Err("changing a dir is not supported yet".into());
+        }
+        if let Some(name) = &patch.header.name {
+            self.check_name(parent, name, Some(idx))?;
+        }
+        if let Some(desc) = patch.header.description.take() {
+            patch.header.description = Some(desc.and_then(clean_description));
+        }
+
+        self.update(path, patch)?;
+        self.save(path).await
     }
 
     /// Re-save the nearest file-owning container for `path`.
@@ -117,9 +143,11 @@ impl Tree {
         self.save(path).await
     }
 
-    /// Checks before adding a child: `parent` must be a container and must not
-    /// already have a child called `name`. Run before touching the disk.
-    fn check_can_add(&self, parent: &[usize], name: &str) -> Res<()> {
+    /// Name checks for a child of `parent` (new or renamed): `name` must work as
+    /// one path component, `parent` must be a container, and no other child
+    /// may be called `name`. `except` is the index of a child to skip (the
+    /// node being renamed). Run before touching the disk.
+    fn check_name(&self, parent: &[usize], name: &str, except: Option<usize>) -> Res<()> {
         // the folder name is what becomes a path component (task dir,
         // default container dir), so check that instead of the name
         let Some(folder) = folder_name(name) else {
@@ -131,7 +159,9 @@ impl Tree {
         if self.get(parent).and_then(Node::as_container).is_none() {
             return Err("parent missing or not a container".into());
         }
-        if self.find_child(parent, name).is_some() {
+        if let Some(found) = self.find_child(parent, name)
+            && found.last().copied() != except
+        {
             return Err(format!("{name:?} already exists here").into());
         }
         Ok(())
@@ -146,7 +176,7 @@ mod tests {
         model::{
             container::{ContainerKind, ContainerSettings},
             data::ContainerData,
-            node::{BodyPatch, NodeHeader, NodePatch},
+            node::{BodyPatch, HeaderPatch, NodeHeader, NodePatch},
             task::{TaskPatch, TaskStatus},
             tree::{
                 Tree,
@@ -166,9 +196,15 @@ mod tests {
 
         let p = t.create(&[1], node).await.unwrap();
 
-        assert_eq!(t.get(&p).unwrap().header.description.as_deref(), Some("two\nlines"));
+        assert_eq!(
+            t.get(&p).unwrap().header.description.as_deref(),
+            Some("two\nlines")
+        );
         let ws = ContainerData::load(&tmp.path().join("ws")).await.unwrap();
-        assert_eq!(ws.tasks[1].header.description.as_deref(), Some("two\nlines"));
+        assert_eq!(
+            ws.tasks[1].header.description.as_deref(),
+            Some("two\nlines")
+        );
     }
 
     #[tokio::test]
@@ -208,13 +244,122 @@ mod tests {
         assert!(t.get(&[]).unwrap().children().is_empty());
     }
 
+    // ---------- edit (disk_tree: root: [a, ws: [b]]) ----------
+
+    fn rename(name: &str) -> HeaderPatch {
+        HeaderPatch {
+            name: Some(name.into()),
+            ..Default::default()
+        }
+    }
+
+    fn header_patch(header: HeaderPatch) -> NodePatch {
+        NodePatch {
+            header,
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn edit_renames_task_in_parent_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path()).await;
+
+        t.edit(&[1, 0], header_patch(rename("b2"))).await.unwrap();
+
+        assert_eq!(t.get(&[1, 0]).unwrap().name(), "b2");
+        let ws = ContainerData::load(&tmp.path().join("ws")).await.unwrap();
+        assert_eq!(ws.tasks[0].header.name, "b2");
+    }
+
+    #[tokio::test]
+    async fn edit_renames_container_in_own_file_and_keeps_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path()).await;
+
+        t.edit(&[1], header_patch(rename("Uni WS26")))
+            .await
+            .unwrap();
+
+        let ws_dir = tmp.path().join("ws"); // folder not renamed
+        assert_eq!(t.get(&[1]).unwrap().dir(), Some(ws_dir.as_path()));
+        let ws = ContainerData::load(&ws_dir).await.unwrap();
+        assert_eq!(ws.header.name, "Uni WS26");
+    }
+
+    #[tokio::test]
+    async fn edit_keeps_own_name_but_rejects_a_siblings() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path()).await;
+
+        t.edit(&[0], header_patch(rename("a"))).await.unwrap(); // unchanged: fine
+        assert!(t.edit(&[0], header_patch(rename("ws"))).await.is_err()); // sibling
+        assert_eq!(t.get(&[0]).unwrap().name(), "a");
+    }
+
+    #[tokio::test]
+    async fn edit_rejects_bad_names_root_and_missing_paths() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path()).await;
+
+        for bad in ["", "..", "a/b"] {
+            assert!(
+                t.edit(&[0], header_patch(rename(bad))).await.is_err(),
+                "{bad:?}"
+            );
+        }
+        assert!(t.edit(&[], header_patch(rename("x"))).await.is_err()); // root
+        assert!(t.edit(&[9], NodePatch::default()).await.is_err());
+        assert_eq!(t.get(&[0]).unwrap().name(), "a");
+    }
+
+    #[tokio::test]
+    async fn edit_cleans_sets_and_removes_description() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path()).await;
+        let desc = |d: Option<&str>| {
+            header_patch(HeaderPatch {
+                description: Some(d.map(String::from)),
+                ..Default::default()
+            })
+        };
+        let saved = async || {
+            let ws = ContainerData::load(&tmp.path().join("ws")).await.unwrap();
+            ws.tasks[0].header.description.clone()
+        };
+
+        t.edit(&[1, 0], desc(Some("  notes "))).await.unwrap();
+        assert_eq!(saved().await.as_deref(), Some("notes"));
+        t.edit(&[1, 0], desc(Some("   "))).await.unwrap(); // blank = remove
+        assert_eq!(saved().await, None);
+        t.edit(&[1, 0], desc(Some("x"))).await.unwrap();
+        t.edit(&[1, 0], desc(None)).await.unwrap(); // explicit remove
+        assert_eq!(saved().await, None);
+    }
+
+    #[tokio::test]
+    async fn edit_rejects_dir_changes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path()).await;
+        let patch = NodePatch {
+            body: Some(BodyPatch::Task(TaskPatch {
+                dir: Some(tmp.path().join("elsewhere")),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+
+        assert!(t.edit(&[1, 0], patch).await.is_err());
+        assert_eq!(t.get(&[1, 0]).unwrap().dir(), None);
+    }
+
     #[test]
     fn update_edits_node_at_path() {
         let mut t = tree();
         t.update(
             &[1, 0],
             NodePatch {
-                name: Some("z".into()),
+                header: rename("z"),
                 body: Some(BodyPatch::Task(TaskPatch {
                     status: Some(TaskStatus::Finished),
                     ..Default::default()
@@ -523,7 +668,10 @@ mod tests {
             assert!(t.create(&[1], task).await.is_err(), "task {bad:?} accepted");
             let dir = tmp.path().join("ws").join("dir");
             let proj = new_container(bad, &dir, ContainerKind::Project);
-            assert!(t.create(&[1], proj).await.is_err(), "container {bad:?} accepted");
+            assert!(
+                t.create(&[1], proj).await.is_err(),
+                "container {bad:?} accepted"
+            );
         }
         assert_eq!(t.get(&[1]).unwrap().children().len(), 1); // still only "b"
         assert!(!tmp.path().join("ws").join("dir").exists()); // check before mkdir

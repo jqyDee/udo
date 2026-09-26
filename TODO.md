@@ -27,8 +27,6 @@ Priorities as of 2026-09-25, in order. Background and older plans:
       forms, `--description` in the CLI, shown in the details pane. Further
       fields (estimate + source, planning opt-out, run config) only when their
       feature is built.
-- [ ] **Description as a multi-line textbox** in the forms (Enter = new line,
-      Ctrl+S = submit); details pane shows each line.
 - [ ] **Edit nodes:** `HeaderPatch` (name, description) + `Tree::edit` with
       the name checks of `create`; fill in the `EditNode` form.
 
@@ -188,7 +186,8 @@ around your calendar and shows the result on your phone.
 
 ## Smaller / later
 
-- [ ] Edit existing nodes (`e`, `FormAction::EditNode`).
+- [ ] **Description as a multi-line textbox** in the forms (Enter = new line,
+      Ctrl+S = submit); details pane shows each line.
 - [ ] `udo run` is a `todo!()` and panics: error out until it is built.
 - [ ] `submit_form` clones the whole form on every Enter.
 - [ ] `cli.rs` cleanup.
@@ -197,7 +196,7 @@ around your calendar and shows the result on your phone.
 
 ## Later: understanding tasks
 
-- [ ] **Description field** per task (typed by you, one line is enough).
+- [x] **Description field** per task (see "Now").
 - [ ] **Local assignment analysis, no AI:** read the assignment PDF from the
       task folder, extract structure (pages, number of exercises, word
       count, code vs. report) and keywords.

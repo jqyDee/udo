@@ -87,7 +87,7 @@ mod tests {
     use crate::{
         model::{
             container::ContainerKind,
-            node::{Node, NodePatch},
+            node::Node,
             task::Task,
             tree::Tree,
         },
@@ -141,13 +141,7 @@ mod tests {
     #[test]
     fn get_mut() {
         let mut tree = tree();
-        tree.get_mut(&[0])
-            .unwrap()
-            .update(NodePatch {
-                name: Some("x".into()),
-                ..Default::default()
-            })
-            .unwrap();
+        tree.get_mut(&[0]).unwrap().header.name = "x".into();
         assert_eq!(tree.get(&[0]).unwrap().name(), "x");
     }
 
