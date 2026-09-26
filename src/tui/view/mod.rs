@@ -19,6 +19,7 @@ use crate::tui::app::{App, Mode};
 
 /// Fixed hint; the full key list is the `?` overlay, generated from `KEYMAP`.
 const HINT: &str = " ? help · q quit";
+const LABEL_WIDTH: usize = 15;
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let [main, bottom] =

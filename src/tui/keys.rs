@@ -21,6 +21,7 @@ pub enum Action {
     CollapseAll,
     ExpandAll,
     SetStatus(TaskStatus),
+    Edit,
     Delete,
     NewContainer { global: bool },
     NewTask { global: bool },
@@ -58,6 +59,7 @@ pub const KEYMAP: &[Section] = &[
         Binding { keys: &[KeyCode::Char('p')], action: Action::SetStatus(InProgress), help: "mark in progress" },
         Binding { keys: &[KeyCode::Char('s')], action: Action::SetStatus(Stale), help: "mark stale" },
         Binding { keys: &[KeyCode::Char('u')], action: Action::SetStatus(Pending), help: "mark to do" },
+        Binding { keys: &[KeyCode::Char('e')], action: Action::Edit, help: "edit" },
         Binding { keys: &[KeyCode::Char('d')], action: Action::Delete, help: "remove from udo" },
     ]},
     Section {title: "create", bindings: &[
@@ -196,6 +198,12 @@ mod tests {
             action_for(press(KeyCode::Char('T'))),
             Some(Action::NewTask { global: true })
         );
+    }
+
+    #[test]
+    fn edit_and_delete_keys() {
+        assert_eq!(action_for(press(KeyCode::Char('e'))), Some(Action::Edit));
+        assert_eq!(action_for(press(KeyCode::Char('d'))), Some(Action::Delete));
     }
 
     #[test]

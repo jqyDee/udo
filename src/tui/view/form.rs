@@ -8,7 +8,7 @@ use ratatui::{
     widgets::{Block, Paragraph},
 };
 
-use crate::tui::form::{ChoiceInput, DateInput, FieldId, FieldInput, FolderMode, Form, TextInput};
+use crate::tui::{form::{ChoiceInput, DateInput, FieldId, FieldInput, FolderMode, Form, TextInput}, view::LABEL_WIDTH};
 
 /// Width of the `" ▸ "` / `"   "` column in front of each field.
 const PREFIX_W: usize = 3;
@@ -16,34 +16,19 @@ const PREFIX_W: usize = 3;
 pub fn draw(frame: &mut Frame, area: Rect, form: &Form) {
     let mut lines = Vec::new();
 
-    // label column = longest label + 1 space; the value gets the rest of the
-    // inner width (- 2 border)
-    let label_w = form
-        .fields
-        .iter()
-        .map(|f| f.id.label().chars().count())
-        .max()
-        .unwrap_or(0);
-    let value_w = (area.width as usize).saturating_sub(2 + PREFIX_W + label_w + 1);
+    let value_w = (area.width as usize).saturating_sub(2 + PREFIX_W + LABEL_WIDTH + 1);
 
     for (idx, field) in form.fields.iter().enumerate() {
         let is_active = idx == form.active_field;
 
-        // Prefix arrow
-        let prefix = if is_active {
-            Span::styled(" ▸ ", Style::new().fg(Color::Yellow).bold())
-        } else {
-            Span::raw("   ")
-        };
-
-        let label = format!("{:<label_w$} ", field.id.label());
+        let label = format!("{:<LABEL_WIDTH$}", field.id.label());
         let label = if is_active {
             Span::styled(label, Style::new().bold())
         } else {
             Span::styled(label, Style::new().dim())
         };
 
-        let mut spans = vec![prefix, label];
+        let mut spans = vec![label];
         if let Some(preview) = dir_preview_span(form, field.id, value_w) {
             spans.push(preview);
         } else {
@@ -125,13 +110,17 @@ fn text_spans(t: &TextInput, is_active: bool, width: usize) -> Vec<Span<'static>
             Style::new().reversed(),
         ));
         spans.push(Span::raw(text(cursor + 1, end)));
+    } else if chars.is_empty() && t.placeholder.is_some() {
+        // empty: the cursor sits on the hint's first char, so the hint
+        // doesn't jump one cell right when the field gets focus
+        let hint = tail(placeholder, width);
+        let mut rest = hint.chars();
+        let first = rest.next().unwrap_or(' ');
+        spans.push(Span::styled(first.to_string(), Style::new().reversed()));
+        spans.push(Span::styled(rest.collect::<String>(), Style::new().dim()));
     } else {
         // cursor block at the end
         spans.push(Span::styled(" ", Style::new().reversed()));
-        if chars.is_empty() && t.placeholder.is_some() {
-            let hint = tail(placeholder, width - 1);
-            spans.push(Span::styled(hint, Style::new().dim()));
-        }
     }
     spans
 }
@@ -270,7 +259,24 @@ mod tests {
         assert_eq!(shown(&at("/very/long/path/dir", 0), false, 8), "…ath/dir");
         let empty = TextInput::new("").with_placeholder("/home/me/uni/<name>");
         assert_eq!(shown(&empty, false, 8), "…/<name>");
-        assert_eq!(shown(&empty, true, 8), " …<name>"); // cursor block + hint
+        assert_eq!(shown(&empty, true, 8), "…/<name>"); // cursor on the `…`
+    }
+
+    #[test]
+    fn placeholder_does_not_move_when_the_field_gets_focus() {
+        let empty = TextInput::new("").with_placeholder("optional");
+        assert_eq!(shown(&empty, true, 20), shown(&empty, false, 20));
+
+        // the cursor cell is the hint's first char, the rest stays dim
+        let spans = text_spans(&empty, true, 20);
+        assert_eq!(spans[spans.len() - 2].content, "o");
+        assert_eq!(spans[spans.len() - 2].style, Style::new().reversed());
+        assert_eq!(spans[spans.len() - 1].content, "ptional");
+    }
+
+    #[test]
+    fn empty_field_without_placeholder_shows_a_cursor_block() {
+        assert_eq!(shown(&TextInput::new(""), true, 20), " ");
     }
 
     // --------------- Choice Tests ---------------

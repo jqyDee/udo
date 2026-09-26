@@ -27,8 +27,10 @@ Priorities as of 2026-09-25, in order. Background and older plans:
       forms, `--description` in the CLI, shown in the details pane. Further
       fields (estimate + source, planning opt-out, run config) only when their
       feature is built.
-- [ ] **Edit nodes:** `HeaderPatch` (name, description) + `Tree::edit` with
-      the name checks of `create`; fill in the `EditNode` form.
+- [x] **Edit nodes** (`e`): name, description, due (tasks), kind
+      (containers). `HeaderPatch` + `Tree::edit` with the name checks of
+      `create`. Create and edit forms are built by one `Form::for_node`
+      (create = a template node) and read by one `Form::values`.
 
 ## 1. Container settings (foundation for everything below)
 
@@ -192,7 +194,15 @@ around your calendar and shows the result on your phone.
 - [ ] `submit_form` clones the whole form on every Enter.
 - [ ] `cli.rs` cleanup.
 - [ ] `roadmap.txt` 6.1 status is out of date (event loop is async, TUI
-      writes: status, delete, create).
+      writes: status, delete, create, edit).
+- [ ] `udo edit` in the CLI (with the `cli.rs` cleanup); the CLI still
+      converts dates inline instead of `local_to_utc`.
+- [ ] Edit dirs (move folders): its own operation (rename on disk, fix the
+      parent's `children` / task row), not a plain patch field.
+- [ ] Delete with folder: optionally remove the node's folder too (today `d`
+      only unregisters, files stay). Separate, clearly worded confirm
+      (`also delete /…/lab_3 and its files?`); containers take their whole
+      subtree. Maybe to the trash instead of deleting for good.
 
 ## Later: understanding tasks
 

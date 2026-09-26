@@ -100,6 +100,7 @@ impl<'a> App<'a> {
             Action::CollapseAll => self.tree.collapse_all(),
             Action::ExpandAll => self.tree.expand_all(),
             Action::SetStatus(status) => self.set_status(status).await,
+            Action::Edit => self.open_edit_form(),
             Action::Delete => self.ask_delete(),
             Action::NewContainer { global } => self.open_container_form(global),
             Action::NewTask { global } => self.open_task_form(global),
@@ -143,13 +144,13 @@ impl<'a> App<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crossterm::event::{KeyCode, KeyEventState};
+    use crossterm::event::{KeyCode, KeyEventState, KeyModifiers};
 
     use super::*;
     use crate::{
-        model::node::Node,
-        test_util::{container, press, task, tree_with},
-        tui::toast::ToastKind,
+        model::{container::ContainerKind, node::Node},
+        test_util::{container, container_at, press, task, tree_with},
+        tui::{form::FormAction, toast::ToastKind},
     };
 
     /// root: [a, ws: [b]], cursor on `cursor`. In memory, never saved.
@@ -437,5 +438,141 @@ mod tests {
 
         assert_eq!(app.mode, Mode::Normal);
         assert_eq!(app.tree.get(&[]).unwrap().children().len(), 2);
+    }
+
+    // ---------- edit form ----------
+
+    /// Ctrl+U: clears the text field (cursor starts at the end).
+    fn clear() -> KeyEvent {
+        KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL)
+    }
+
+    /// Real root with tasks "sheet" ([0]) and "exam" ([1]), cursor on `cursor`.
+    async fn disk_tree(tmp: &std::path::Path, cursor: &[usize]) -> Tree {
+        let mut t = Tree::load_from(tmp).await.unwrap();
+        t.create(&[], task("sheet")).await.unwrap();
+        t.create(&[], task("exam")).await.unwrap();
+        t.cursor = cursor.to_vec();
+        t
+    }
+
+    async fn type_into(app: &mut App<'_>, s: &str) {
+        for k in type_str(s) {
+            app.handle_key(k).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn e_opens_form_prefilled_with_the_node() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path(), &[1]).await;
+        let mut app = App::new(&mut t);
+
+        app.handle_key(key('e')).await;
+
+        let Mode::Form(form) = &app.mode else {
+            panic!("no form open");
+        };
+        assert_eq!(form.action, FormAction::EditNode { path: vec![1] });
+        assert_eq!(form.values().name, "exam");
+    }
+
+    #[tokio::test]
+    async fn edit_renames_and_sets_description_on_disk() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path(), &[0]).await;
+        let mut app = App::new(&mut t);
+
+        app.handle_key(key('e')).await;
+        app.handle_key(clear()).await;
+        type_into(&mut app, "sheet 2").await;
+        app.handle_key(press(KeyCode::Tab)).await; // -> description
+        type_into(&mut app, "  ex 1-4 ").await;
+        app.handle_key(press(KeyCode::Enter)).await;
+
+        assert_eq!(app.mode, Mode::Normal);
+        assert_eq!(app.toast.as_ref().unwrap().kind, ToastKind::Info);
+        assert_eq!(app.tree.cursor, vec![0]); // same node stays selected
+        let reloaded = Tree::load_from(tmp.path()).await.unwrap();
+        let node = reloaded.get(&[0]).unwrap();
+        assert_eq!(node.name(), "sheet 2");
+        assert_eq!(node.header.description.as_deref(), Some("ex 1-4"));
+    }
+
+    #[tokio::test]
+    async fn clearing_the_description_removes_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path(), &[0]).await;
+        t.get_mut(&[0]).unwrap().header.description = Some("old".into());
+        let mut app = App::new(&mut t);
+
+        app.handle_key(key('e')).await;
+        app.handle_key(press(KeyCode::Tab)).await; // -> description
+        app.handle_key(clear()).await;
+        app.handle_key(press(KeyCode::Enter)).await;
+
+        assert_eq!(app.tree.get(&[0]).unwrap().header.description, None);
+    }
+
+    #[tokio::test]
+    async fn edit_to_a_siblings_name_keeps_form_open_with_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path(), &[0]).await;
+        let mut app = App::new(&mut t);
+
+        app.handle_key(key('e')).await;
+        app.handle_key(clear()).await;
+        type_into(&mut app, "exam").await; // [1] is called that
+        app.handle_key(press(KeyCode::Enter)).await;
+
+        assert!(matches!(app.mode, Mode::Form(_)), "form closed on error");
+        assert_eq!(app.toast.as_ref().unwrap().kind, ToastKind::Error);
+        assert_eq!(app.tree.get(&[0]).unwrap().name(), "sheet");
+    }
+
+    #[tokio::test]
+    async fn edit_changes_container_kind_on_disk() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = Tree::load_from(tmp.path()).await.unwrap();
+        let ws_dir = tmp.path().join("uni");
+        let uni = container_at("uni", &ws_dir, ContainerKind::Workspace, vec![]);
+        t.create(&[], uni).await.unwrap();
+        t.cursor = vec![0];
+        let mut app = App::new(&mut t);
+
+        app.handle_key(key('e')).await;
+        app.handle_key(press(KeyCode::Tab)).await; // -> description
+        app.handle_key(press(KeyCode::Tab)).await; // -> kind
+        app.handle_key(press(KeyCode::Right)).await; // workspace -> project
+        app.handle_key(press(KeyCode::Enter)).await;
+
+        let reloaded = Tree::load_from(tmp.path()).await.unwrap();
+        let uni = reloaded.get(&[0]).and_then(Node::as_container).unwrap();
+        assert_eq!(uni.kind, ContainerKind::Project);
+        assert_eq!(uni.dir, ws_dir); // dir untouched
+    }
+
+    #[tokio::test]
+    async fn e_without_selection_shows_error() {
+        let mut t = tree_with(vec![], &[]); // cursor on the root
+        let mut app = App::new(&mut t);
+
+        app.handle_key(key('e')).await;
+
+        assert_eq!(app.mode, Mode::Normal);
+        assert_eq!(app.toast.as_ref().unwrap().kind, ToastKind::Error);
+    }
+
+    #[tokio::test]
+    async fn esc_closes_edit_form_without_changes() {
+        let mut t = tree(&[0]); // in memory: Esc never saves
+        let mut app = App::new(&mut t);
+
+        app.handle_key(key('e')).await;
+        type_into(&mut app, "zzz").await;
+        app.handle_key(press(KeyCode::Esc)).await;
+
+        assert_eq!(app.mode, Mode::Normal);
+        assert_eq!(app.tree.get(&[0]).unwrap().name(), "a");
     }
 }

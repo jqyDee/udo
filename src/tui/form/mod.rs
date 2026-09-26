@@ -1,8 +1,13 @@
-//! Forms for creating nodes: a list of fields (text or date) plus what to
-//! do on submit.
+//! Forms for creating and editing nodes: a list of fields plus what to do
+//! on submit.
+//!
+//! Both are filled the same way (`Form::for_node`): editing starts from the
+//! node, creating from a template node with the defaults. Both are read the
+//! same way (`Form::values`).
 //!
 //! - `text`: `TextInput`, free text with a cursor
 //! - `date`: `DateInput`, local date + time edited by segment
+//! - `choice`: `ChoiceInput`, one of a few options (←/→)
 
 mod choice;
 mod date;
@@ -10,20 +15,25 @@ mod text;
 
 use std::path::PathBuf;
 
-use chrono::NaiveDateTime;
+use chrono::{Local, NaiveDateTime, Utc};
 use crossterm::event::{KeyCode, KeyEvent};
 
 pub use choice::{
     CONTAINER_FOLDER_CHOICES, CONTAINER_KIND_CHOICES, ChoiceInput, FOLDER_CHOICES, FolderMode,
     kind_from_label,
 };
-pub use date::{DateInput, Segment};
+pub use date::{DateInput, Segment, local_to_utc};
 pub use text::TextInput;
 
 use crate::{
     dir::parse_abs_dir,
-    model::{NodePath, container::ContainerKind},
-    naming::folder_name,
+    model::{
+        NodePath,
+        container::{Container, ContainerKind},
+        node::{Node, NodeBody},
+        task::Task,
+    },
+    naming::{folder_name, normalize_name},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,6 +95,33 @@ pub struct TaskDefaults {
     pub folder: FolderMode,
 }
 
+/// A filled-in form, independent of create or edit (`Form::values`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormValues {
+    /// Normalized like every name (`normalize_name`).
+    pub name: String,
+    /// As typed; the tree trims it and turns blank into "no description".
+    pub description: String,
+    /// Task forms only; local time, as typed.
+    pub due: Option<NaiveDateTime>,
+    /// Container forms only.
+    pub kind: Option<ContainerKind>,
+}
+
+/// Folder choice + dir row (create forms only).
+fn folder_rows(choices: &'static [&'static str], mode: FolderMode) -> [FormField; 2] {
+    [
+        FormField {
+            id: FieldId::Folder,
+            input: FieldInput::Choice(ChoiceInput::new(choices, mode.label())),
+        },
+        FormField {
+            id: FieldId::Dir,
+            input: FieldInput::Text(TextInput::new("").with_placeholder("/… or ~/…")),
+        },
+    ]
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Form {
     pub title: String,
@@ -99,9 +136,9 @@ pub struct Form {
 pub enum FormOutcome {
     /// Keep editing.
     Continue,
-    /// Enter: validate and create (`App::submit_form`).
+    /// Enter: validate and save (`App::submit_form`).
     Submit,
-    /// Esc: close without creating.
+    /// Esc: close without saving.
     Cancel,
 }
 
@@ -124,8 +161,9 @@ impl FormField {
 }
 
 impl Form {
-    /// Due date and folder mode come from `defaults`. The dir row is only
-    /// edited in `custom` mode; `auto` / `none` show a preview instead (see
+    /// Create form for a task: a template node with the due date from
+    /// `defaults`. Folder rows start in `defaults.folder`; the dir row is only
+    /// edited in `custom` mode, `auto` / `none` show a preview instead (see
     /// `dir_preview`).
     pub fn new_task(
         parent: NodePath,
@@ -133,74 +171,116 @@ impl Form {
         parent_dir: Option<PathBuf>,
         defaults: TaskDefaults,
     ) -> Self {
-        let dir = TextInput::new("").with_placeholder("/… or ~/…");
-
-        Self {
-            title: format!("new task · in {parent_name}"),
-            fields: vec![
-                FormField::text(FieldId::Name, ""),
-                FormField {
-                    id: FieldId::Description,
-                    input: FieldInput::Text(TextInput::new("").with_placeholder("optional")),
-                },
-                FormField {
-                    id: FieldId::Folder,
-                    input: FieldInput::Choice(ChoiceInput {
-                        options: FOLDER_CHOICES,
-                        selected: defaults.folder.index(),
-                    }),
-                },
-                FormField {
-                    id: FieldId::Dir,
-                    input: FieldInput::Text(dir),
-                },
-                FormField::date(FieldId::Due, defaults.due),
-            ],
+        // template stores UTC like a real task; `for_node` shows it local again
+        let due = local_to_utc(defaults.due).unwrap_or_else(Utc::now);
+        let template = Node::task(String::new(), Task::new(None, due));
+        Self::for_node(
+            format!("new task · in {parent_name}"),
+            FormAction::CreateTask { parent },
+            &template,
             parent_dir,
-            active_field: 0,
-            action: FormAction::CreateTask { parent },
-        }
+            Some(defaults.folder),
+        )
     }
 
-    /// `kind` is the guessed default, changeable in the form (nested
-    /// workspaces are fine). Folder: `auto` or `custom`, never `none`.
+    /// Create form for a container: a template node of the guessed `kind`
+    /// (changeable in the form, nested workspaces are fine). Folder: `auto`
+    /// or `custom`, never `none`.
     pub fn new_container(
         parent: NodePath,
         parent_name: &str,
         parent_dir: Option<PathBuf>,
         kind: ContainerKind,
     ) -> Self {
-        let dir = TextInput::new("").with_placeholder("/… or ~/…");
-        Self {
-            title: format!("new container · in {parent_name}"),
-            fields: vec![
-                FormField::text(FieldId::Name, ""),
-                FormField {
-                    id: FieldId::Description,
-                    input: FieldInput::Text(TextInput::new("").with_placeholder("optional")),
-                },
-                FormField {
+        // the dir comes from the folder rows on submit, this one is never used
+        let template = Node::container(String::new(), Container::new(PathBuf::new(), kind));
+        Self::for_node(
+            format!("new container · in {parent_name}"),
+            FormAction::CreateContainer { parent },
+            &template,
+            parent_dir,
+            Some(FolderMode::Auto),
+        )
+    }
+
+    /// Edit form for an existing node, prefilled with its values. No folder
+    /// rows: dirs can't be changed yet.
+    pub fn edit_node(path: NodePath, node: &Node) -> Self {
+        let kind = match node.body {
+            NodeBody::Container(_) => "container",
+            NodeBody::Task(_) => "task",
+        };
+        Self::for_node(
+            format!("edit {kind} · {}", node.name()),
+            FormAction::EditNode { path },
+            node,
+            None,
+            None,
+        )
+    }
+
+    /// Fields for `node`, prefilled with its values. Same fields in the same
+    /// order for creating and editing: task = name, description, [folder,
+    /// dir], due; container = name, description, kind, [folder, dir].
+    /// `folder`: `Some(mode)` adds the folder + dir rows (create), `None`
+    /// leaves them out (edit).
+    fn for_node(
+        title: String,
+        action: FormAction,
+        node: &Node,
+        parent_dir: Option<PathBuf>,
+        folder: Option<FolderMode>,
+    ) -> Self {
+        let description = node.header.description.clone().unwrap_or_default();
+        let mut fields = vec![
+            FormField::text(FieldId::Name, node.name()),
+            FormField {
+                id: FieldId::Description,
+                input: FieldInput::Text(TextInput::new(description).with_placeholder("optional")),
+            },
+        ];
+        match &node.body {
+            NodeBody::Task(t) => {
+                if let Some(mode) = folder {
+                    fields.extend(folder_rows(FOLDER_CHOICES, mode));
+                }
+                // stored as UTC, edited as local time
+                let due = t.due_date.with_timezone(&Local).naive_local();
+                fields.push(FormField::date(FieldId::Due, due));
+            }
+            NodeBody::Container(c) => {
+                fields.push(FormField {
                     id: FieldId::Kind,
                     input: FieldInput::Choice(ChoiceInput::new(
                         CONTAINER_KIND_CHOICES,
-                        &kind.to_string(),
+                        c.kind.label(),
                     )),
-                },
-                FormField {
-                    id: FieldId::Folder,
-                    input: FieldInput::Choice(ChoiceInput::new(
-                        CONTAINER_FOLDER_CHOICES,
-                        FolderMode::Auto.label(),
-                    )),
-                },
-                FormField {
-                    id: FieldId::Dir,
-                    input: FieldInput::Text(dir),
-                },
-            ],
+                });
+                if let Some(mode) = folder {
+                    fields.extend(folder_rows(CONTAINER_FOLDER_CHOICES, mode));
+                }
+            }
+        }
+        Self {
+            title,
+            fields,
             parent_dir,
             active_field: 0,
-            action: FormAction::CreateContainer { parent },
+            action,
+        }
+    }
+
+    /// What the form says right now, for create and edit alike. Raw input:
+    /// the tree checks names and cleans descriptions.
+    pub fn values(&self) -> FormValues {
+        FormValues {
+            name: normalize_name(self.text_value(FieldId::Name).unwrap_or("")),
+            description: self
+                .text_value(FieldId::Description)
+                .unwrap_or("")
+                .to_string(),
+            due: self.date_value(FieldId::Due),
+            kind: self.container_kind(),
         }
     }
 
@@ -510,6 +590,76 @@ mod tests {
         focus(&mut form, FieldId::Kind);
         form.handle_key(press(KeyCode::Left)); // project -> workspace (nested)
         assert_eq!(form.container_kind(), Some(ContainerKind::Workspace));
+    }
+
+    // --------------- Edit Form Tests ---------------
+
+    fn ids(form: &Form) -> Vec<FieldId> {
+        form.fields.iter().map(|f| f.id).collect()
+    }
+
+    #[test]
+    fn edit_task_is_prefilled_without_folder_rows() {
+        let due = dt(2026, 10, 15, 14, 30); // local, like the form shows it
+        let task = Task::new(Some("/uni/lab".into()), local_to_utc(due).unwrap());
+        let node = Node::task("lab 3".into(), task).with_description(Some("ex 1-4".into()));
+
+        let form = Form::edit_node(vec![0, 1], &node);
+
+        assert_eq!(form.title, "edit task · lab 3");
+        assert_eq!(form.action, FormAction::EditNode { path: vec![0, 1] });
+        assert_eq!(ids(&form), [FieldId::Name, FieldId::Description, FieldId::Due]);
+        let v = form.values();
+        assert_eq!(v.name, "lab 3");
+        assert_eq!(v.description, "ex 1-4");
+        assert_eq!(v.due, Some(due)); // UTC -> local round trip
+        assert_eq!(v.kind, None);
+        assert_eq!(form.chosen_dir(), Ok(None)); // no folder rows: dir untouched
+    }
+
+    #[test]
+    fn edit_container_is_prefilled_with_its_kind() {
+        let c = Container::new("/uni".into(), ContainerKind::Project);
+        let form = Form::edit_node(vec![0], &Node::container("uni".into(), c));
+
+        assert_eq!(form.title, "edit container · uni");
+        assert_eq!(ids(&form), [FieldId::Name, FieldId::Description, FieldId::Kind]);
+        let v = form.values();
+        assert_eq!(v.description, ""); // none set
+        assert_eq!(v.kind, Some(ContainerKind::Project));
+        assert_eq!(v.due, None);
+    }
+
+    #[test]
+    fn create_and_edit_forms_share_field_order() {
+        let defaults = TaskDefaults {
+            due: dt(2026, 10, 15, 14, 30),
+            folder: FolderMode::Auto,
+        };
+        let create = Form::new_task(vec![], "root", None, defaults);
+        let edit = Form::edit_node(vec![0], &Node::task("t".into(), Task::new(None, Utc::now())));
+        // edit = create without the folder rows
+        let without_folder: Vec<_> = ids(&create)
+            .into_iter()
+            .filter(|id| !matches!(id, FieldId::Folder | FieldId::Dir))
+            .collect();
+        assert_eq!(ids(&edit), without_folder);
+    }
+
+    #[test]
+    fn values_normalize_the_name_but_keep_the_description_raw() {
+        let mut form = Form::edit_node(vec![0], &Node::task("a".into(), Task::new(None, Utc::now())));
+        focus(&mut form, FieldId::Name);
+        for c in "  b   c ".chars() {
+            form.handle_key(press(KeyCode::Char(c)));
+        }
+        focus(&mut form, FieldId::Description);
+        for c in "  d ".chars() {
+            form.handle_key(press(KeyCode::Char(c)));
+        }
+        let v = form.values();
+        assert_eq!(v.name, "a b c"); // collapsed like everywhere
+        assert_eq!(v.description, "  d "); // the tree cleans it
     }
 
     // --------------- Date Field Tests ---------------
