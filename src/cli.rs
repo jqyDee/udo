@@ -8,7 +8,7 @@ use crate::{
     model::{
         NodePath,
         container::{ContainerKind, ContainerPatch, ContainerSettings},
-        node::{Node, NodePatch},
+        node::{BodyPatch, NodeBody, NodePatch},
         task::Task,
         tree::Tree,
     },
@@ -90,13 +90,16 @@ impl Cli {
                     if let Some(archive_dir) = archive_dir {
                         tree.update(
                             &ws,
-                            NodePatch::Container(ContainerPatch {
-                                settings: Some(ContainerSettings {
-                                    archive_dir: Some(absolute(archive_dir)?),
+                            NodePatch {
+                                body: Some(BodyPatch::Container(ContainerPatch {
+                                    settings: Some(ContainerSettings {
+                                        archive_dir: Some(absolute(archive_dir)?),
+                                        ..Default::default()
+                                    }),
                                     ..Default::default()
-                                }),
+                                })),
                                 ..Default::default()
-                            }),
+                            },
                         )?;
                         tree.save(&ws).await?;
                     }
@@ -165,7 +168,7 @@ impl Cli {
                         None => None,
                     };
 
-                    tree.create_task(&parent, Task::new(task.clone(), dir, date))
+                    tree.create_task(&parent, task.clone(), Task::new(dir, date))
                         .await?;
                     println!("Added task {task:?}");
                 }
@@ -188,14 +191,15 @@ fn print_tree(tree: &Tree) {
     }
     for row in rows {
         let indent = "  ".repeat(row.depth);
-        match row.node {
-            Node::Container(c) => {
-                println!("{:<30}{}", format!("{indent}{}/", c.name), c.kind);
+        let name = &row.node.name;
+        match &row.node.body {
+            NodeBody::Container(c) => {
+                println!("{:<30}{}", format!("{indent}{name}/"), c.kind);
             }
-            Node::Task(t) => {
+            NodeBody::Task(t) => {
                 println!(
                     "{:<30}{:<12}{}",
-                    format!("{indent}{}", t.name),
+                    format!("{indent}{name}"),
                     t.status,
                     t.due_date.with_timezone(&Local).format(DATE_FMT)
                 );

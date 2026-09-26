@@ -2,11 +2,10 @@ use std::{fmt, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{id::NodeId, node::Node, task::Task};
+use crate::model::node::{Node, NodeBody};
 
+/// Container body of a `Node` (id and name live on the node).
 pub struct Container {
-    pub id: NodeId,
-    pub name: String,
     pub dir: PathBuf,
     pub kind: ContainerKind,
     pub settings: ContainerSettings,
@@ -20,10 +19,8 @@ pub struct Container {
 
 impl Container {
     /// Create a new container
-    pub fn new(name: String, dir: PathBuf, kind: ContainerKind) -> Self {
+    pub fn new(dir: PathBuf, kind: ContainerKind) -> Self {
         Self {
-            id: NodeId::new(),
-            name,
             dir,
             kind,
             settings: ContainerSettings::default(),
@@ -33,33 +30,19 @@ impl Container {
         }
     }
 
-    /// Direct Task children, cloned into a Vec (for the DTO).
-    pub fn task_children(&self) -> Vec<Task> {
-        self.children
-            .iter()
-            .filter_map(|n| match n {
-                Node::Task(t) => Some(t.clone()),
-                Node::Container(_) => None,
-            })
-            .collect()
-    }
-
     /// Dirs of direct Container children (the `children` list in the DTO).
     pub fn container_children_paths(&self) -> Vec<PathBuf> {
         self.children
             .iter()
-            .filter_map(|n| match n {
-                Node::Container(c) => Some(c.dir.clone()),
-                Node::Task(_) => None,
+            .filter_map(|n| match &n.body {
+                NodeBody::Container(c) => Some(c.dir.clone()),
+                NodeBody::Task(_) => None,
             })
             .collect()
     }
 
     /// Update the containers information
     pub fn update(&mut self, patch: ContainerPatch) {
-        if let Some(name) = patch.name {
-            self.name = name
-        }
         if let Some(dir) = patch.dir {
             self.dir = dir
         }
@@ -123,7 +106,6 @@ pub struct ContainerSettings {
 
 #[derive(Default)]
 pub struct ContainerPatch {
-    pub name: Option<String>,
     pub dir: Option<PathBuf>,
     pub kind: Option<ContainerKind>,
     pub settings: Option<ContainerSettings>,
@@ -132,7 +114,7 @@ pub struct ContainerPatch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
+    use crate::test_util::{container_at, task};
 
     #[test]
     fn kind_index_matches_all_and_display_is_label() {
@@ -143,58 +125,25 @@ mod tests {
         assert!(!ContainerKind::CREATABLE.contains(&ContainerKind::Root));
     }
 
-    fn task(name: &str, dir: Option<PathBuf>) -> Task {
-        Task::new(name.into(), dir, Utc::now())
-    }
-    fn container(name: &str, children: Vec<Node>, path: Option<PathBuf>) -> Container {
-        let dir = path.unwrap_or_else(|| PathBuf::from("/tmp/x"));
-        let mut c = Container::new(name.into(), dir, ContainerKind::Workspace);
-        c.children = children;
-        c
-    }
-
     #[test]
-    fn container_update_name() {
-        let mut c = container("c", vec![], None);
-        assert_eq!(c.name, "c");
-        assert_eq!(c.kind, ContainerKind::Workspace);
+    fn container_update_kind() {
+        let mut c = Container::new("/tmp/x".into(), ContainerKind::Workspace);
         c.update(ContainerPatch {
-            name: Some("new".into()),
-            dir: None,
-            kind: None,
-            settings: None,
+            kind: Some(ContainerKind::Project),
+            ..Default::default()
         });
-        assert_eq!(c.name, "new");
-        assert_eq!(c.kind, ContainerKind::Workspace);
-    }
-
-    #[test]
-    fn container_task_children() {
-        let t = task("t_inner", Some(PathBuf::from("/tmp/t_inner")));
-        let c = container(
-            "c",
-            vec![
-                Node::Container(container("c_inner", vec![], None)),
-                Node::Task(t.clone()),
-            ],
-            None,
-        );
-        let tasks = c.task_children();
-        assert_eq!(tasks.len(), 1);
-        assert_eq!(tasks[0], t);
+        assert_eq!(c.kind, ContainerKind::Project);
+        assert_eq!(c.dir, PathBuf::from("/tmp/x"));
     }
 
     #[test]
     fn container_container_children_paths() {
         let path = PathBuf::from("/tmp/c_inner");
-        let c = container(
-            "c",
-            vec![
-                Node::Container(container("c_inner", vec![], Some(path.clone()))),
-                Node::Task(task("t_inner", Some(PathBuf::from("/tmp/t_inner")))),
-            ],
-            None,
-        );
+        let mut c = Container::new("/tmp/x".into(), ContainerKind::Workspace);
+        c.children = vec![
+            container_at("c_inner", &path, ContainerKind::Workspace, vec![]),
+            task("t_inner"),
+        ];
         let child_paths = c.container_children_paths();
         assert_eq!(child_paths.len(), 1);
         assert_eq!(child_paths[0], path);

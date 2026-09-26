@@ -11,7 +11,10 @@ use ratatui::{
 
 use crate::{
     DATE_FMT,
-    model::{node::Node, tree::Tree},
+    model::{
+        node::{Node, NodeBody},
+        tree::Tree,
+    },
 };
 
 pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree) {
@@ -26,38 +29,34 @@ pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree) {
 }
 
 fn detail_lines(node: &Node) -> Vec<Line<'_>> {
-    match node {
-        Node::Container(c) => {
-            let tasks = c
-                .children
-                .iter()
-                .filter(|n| matches!(n, Node::Task(_)))
-                .count();
-            let mut lines = vec![
-                Line::from(c.name.as_str()).bold(),
-                Line::default(),
-                field("type", "container".into()),
-                field("id", c.id.to_string()),
-                Line::default(),
+    let kind = match node.body {
+        NodeBody::Container(_) => "container",
+        NodeBody::Task(_) => "task",
+    };
+    let mut lines = vec![
+        Line::from(node.name.as_str()).bold(),
+        Line::default(),
+        field("type", kind.into()),
+        field("id", node.id.to_string()),
+        Line::default(),
+    ];
+    match &node.body {
+        NodeBody::Container(c) => {
+            let tasks = c.children.iter().filter(|n| n.as_task().is_some()).count();
+            lines.extend([
                 field("kind", c.kind.to_string()),
                 field("dir", c.dir.display().to_string()),
                 field("tasks", tasks.to_string()),
                 field("children", (c.children.len() - tasks).to_string()),
-            ];
+            ]);
             if let Some(a) = &c.settings.archive_dir {
                 lines.push(field("archive", a.display().to_string()));
             }
             if !c.unloaded.is_empty() {
                 lines.push(field("missing", c.unloaded.len().to_string()).red());
             }
-            lines
         }
-        Node::Task(t) => vec![
-            Line::from(t.name.as_str()).bold(),
-            Line::default(),
-            field("type", "task".into()),
-            field("id", t.id.to_string()),
-            Line::default(),
+        NodeBody::Task(t) => lines.extend([
             field("status", t.status.to_string()),
             // stored as UTC, shown local (same as entered in the form)
             field(
@@ -73,8 +72,9 @@ fn detail_lines(node: &Node) -> Vec<Line<'_>> {
                     .as_ref()
                     .map_or("-".into(), |d| d.display().to_string()),
             ),
-        ],
+        ]),
     }
+    lines
 }
 
 /// `key` dimmed in a fixed-width column, then the value.

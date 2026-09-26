@@ -251,7 +251,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = Tree::load_from(tmp.path()).await.unwrap(); // real root: saving works
         let path = t
-            .create_task(&[], Task::new("sheet".into(), None, Utc::now()))
+            .create_task(&[], "sheet".into(), Task::new(None, Utc::now()))
             .await
             .unwrap();
         t.cursor = path.clone();
@@ -262,10 +262,8 @@ mod tests {
         let toast = app.toast.as_ref().expect("no toast");
         assert_eq!(toast.kind, ToastKind::Info);
         assert_eq!(toast.msg, "sheet -> done");
-        let Some(Node::Task(sheet)) = app.tree.get(&path) else {
-            panic!("expected a task at {path:?}");
-        };
-        assert_eq!(sheet.status, TaskStatus::Finished);
+        let sheet = app.tree.get(&path).and_then(Node::as_task);
+        assert_eq!(sheet.expect("expected a task").status, TaskStatus::Finished);
     }
 
     // ---------- delete + confirm ----------
@@ -334,7 +332,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = Tree::load_from(tmp.path()).await.unwrap(); // real root: saving works
         let path = t
-            .create_task(&[], Task::new("sheet".into(), None, Utc::now()))
+            .create_task(&[], "sheet".into(), Task::new(None, Utc::now()))
             .await
             .unwrap();
         t.cursor = path.clone();

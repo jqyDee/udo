@@ -70,7 +70,7 @@ impl Tree {
 }
 
 fn apply(node: &mut Node, collapsed: &HashSet<&Path>) {
-    if let Node::Container(c) = node {
+    if let Some(c) = node.as_container_mut() {
         c.collapsed = collapsed.contains(c.dir.as_path());
         for child in &mut c.children {
             apply(child, collapsed);
@@ -79,7 +79,7 @@ fn apply(node: &mut Node, collapsed: &HashSet<&Path>) {
 }
 
 fn collect(node: &Node, out: &mut Vec<PathBuf>) {
-    if let Node::Container(c) = node {
+    if let Some(c) = node.as_container() {
         if c.collapsed {
             out.push(c.dir.clone());
         }
@@ -214,7 +214,7 @@ mod tests {
             .create_container(&[], "ws".into(), ws_dir.clone(), ContainerKind::Workspace)
             .await
             .unwrap();
-        t.create_task(&ws, Task::new("t".into(), None, Utc::now()))
+        t.create_task(&ws, "t".into(), Task::new(None, Utc::now()))
             .await
             .unwrap();
         let ws_file_before = std::fs::read_to_string(ws_dir.join(UDO_FILE_NAME)).unwrap();

@@ -3,22 +3,17 @@ use std::{fmt, path::PathBuf};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::model::id::NodeId;
-
+/// Task body of a `Node` (id and name live on the node).
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct Task {
-    pub id: NodeId,
-    pub name: String,
     pub dir: Option<PathBuf>,
     pub status: TaskStatus,
     pub due_date: DateTime<Utc>,
 }
 
 impl Task {
-    pub fn new(name: String, dir: Option<PathBuf>, due_date: DateTime<Utc>) -> Self {
+    pub fn new(dir: Option<PathBuf>, due_date: DateTime<Utc>) -> Self {
         Self {
-            id: NodeId::new(),
-            name,
             dir,
             status: TaskStatus::Pending,
             due_date,
@@ -26,9 +21,6 @@ impl Task {
     }
 
     pub fn update(&mut self, patch: TaskPatch) {
-        if let Some(name) = patch.name {
-            self.name = name;
-        }
         if let Some(status) = patch.status {
             self.status = status;
         }
@@ -65,7 +57,6 @@ impl fmt::Display for TaskStatus {
 
 #[derive(Default)]
 pub struct TaskPatch {
-    pub name: Option<String>,
     pub dir: Option<PathBuf>,
     pub status: Option<TaskStatus>,
     pub due_date: Option<DateTime<Utc>>,
@@ -77,7 +68,7 @@ mod tests {
 
     #[test]
     fn new_task_is_pending() {
-        let t = Task::new("t".into(), None, Utc::now());
+        let t = Task::new(None, Utc::now());
         assert_eq!(t.status, TaskStatus::Pending);
         assert!(t.dir.is_none());
     }
@@ -85,7 +76,7 @@ mod tests {
     #[test]
     fn update_changes_only_given_fields() {
         let due = Utc::now();
-        let mut t = Task::new("t".into(), Some("/tmp/t".into()), due);
+        let mut t = Task::new(Some("/tmp/t".into()), due);
 
         t.update(TaskPatch {
             status: Some(TaskStatus::InProgress),
@@ -93,24 +84,21 @@ mod tests {
         });
 
         assert_eq!(t.status, TaskStatus::InProgress);
-        assert_eq!(t.name, "t");
         assert_eq!(t.dir, Some(PathBuf::from("/tmp/t")));
         assert_eq!(t.due_date, due);
     }
 
     #[test]
     fn update_sets_all_fields() {
-        let mut t = Task::new("t".into(), None, Utc::now());
+        let mut t = Task::new(None, Utc::now());
         let due = Utc::now();
 
         t.update(TaskPatch {
-            name: Some("new".into()),
             dir: Some("/tmp/new".into()),
             status: Some(TaskStatus::Finished),
             due_date: Some(due),
         });
 
-        assert_eq!(t.name, "new");
         assert_eq!(t.dir, Some(PathBuf::from("/tmp/new")));
         assert_eq!(t.status, TaskStatus::Finished);
         assert_eq!(t.due_date, due);

@@ -47,9 +47,10 @@ impl Tree {
     /// Path of the nearest ancestor (or self) that owns a file.
     /// Task -> its parent container; container -> itself; missing -> None.
     pub fn nearest_file_owner(&self, path: &[usize]) -> Option<NodePath> {
-        match self.get(path)? {
-            Node::Container(_) => Some(path.to_vec()),
-            Node::Task(_) => Some(path[..path.len() - 1].to_vec()), // go one up
+        if self.get(path)?.owns_file() {
+            Some(path.to_vec())
+        } else {
+            Some(path[..path.len() - 1].to_vec()) // task: go one up
         }
     }
 
@@ -87,7 +88,7 @@ mod tests {
         model::{
             container::ContainerKind,
             node::NodePatch,
-            task::{Task, TaskPatch},
+            task::Task,
             tree::Tree,
         },
         test_util::{container, container_at, task, tree_with},
@@ -115,8 +116,9 @@ mod tests {
         t
     }
 
-    pub(super) fn new_task(name: &str, dir: Option<PathBuf>) -> Task {
-        Task::new(name.into(), dir, Utc::now())
+    /// Task body with an optional dir, due now (for `create_task`).
+    pub(super) fn new_task(dir: Option<PathBuf>) -> Task {
+        Task::new(dir, Utc::now())
     }
 
     // ---------- lookup (tree() = root: [a, inner: [b]]) ----------
@@ -136,10 +138,10 @@ mod tests {
         let mut tree = tree();
         tree.get_mut(&[0])
             .unwrap()
-            .update(NodePatch::Task(TaskPatch {
+            .update(NodePatch {
                 name: Some("x".into()),
                 ..Default::default()
-            }))
+            })
             .unwrap();
         assert_eq!(tree.get(&[0]).unwrap().name(), "x");
     }

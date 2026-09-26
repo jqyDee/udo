@@ -13,7 +13,7 @@ use crate::{
     DATE_FMT,
     model::{
         nav::Row,
-        node::Node,
+        node::NodeBody,
         task::{Task, TaskStatus},
         tree::Tree,
     },
@@ -39,8 +39,9 @@ pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree, list: &mut ListState) {
 
 fn row_line<'a>(row: &Row<'a>) -> Line<'a> {
     let indent = Span::raw("  ".repeat(row.depth));
-    match row.node {
-        Node::Container(c) => {
+    let name = row.node.name.as_str();
+    match &row.node.body {
+        NodeBody::Container(c) => {
             let marker = match (c.children.is_empty(), c.collapsed) {
                 (true, _) => "  ",
                 (false, true) => "▸ ",
@@ -49,13 +50,13 @@ fn row_line<'a>(row: &Row<'a>) -> Line<'a> {
             Line::from(vec![
                 indent,
                 Span::raw(marker),
-                Span::raw(format!("{}/", c.name)).bold().blue(),
+                Span::raw(format!("{name}/")).bold().blue(),
             ])
         }
-        Node::Task(t) => Line::from(vec![
+        NodeBody::Task(t) => Line::from(vec![
             indent,
             Span::raw(format!("{} ", status_icon(&t.status))),
-            task_name(t),
+            task_name(name, t),
             // stored as UTC, shown local (same as entered in the form)
             Span::raw(format!(
                 "  {}",
@@ -66,8 +67,8 @@ fn row_line<'a>(row: &Row<'a>) -> Line<'a> {
     }
 }
 
-fn task_name(t: &Task) -> Span<'_> {
-    let name = Span::raw(t.name.as_str());
+fn task_name<'a>(name: &'a str, t: &Task) -> Span<'a> {
+    let name = Span::raw(name);
     match t.status {
         TaskStatus::Finished => name.dim().crossed_out(),
         TaskStatus::Stale => name.red(),

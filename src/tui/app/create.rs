@@ -51,9 +51,13 @@ impl App<'_> {
         let parent_dir = parent_node.and_then(|n| n.dir().map(|d| d.to_path_buf()));
 
         // folders only in projects, until the `task_folders` setting
-        let folder = match parent_node {
-            Some(Node::Container(c)) if c.kind == ContainerKind::Project => FolderMode::Auto,
-            _ => FolderMode::None,
+        let in_project = parent_node
+            .and_then(Node::as_container)
+            .is_some_and(|c| c.kind == ContainerKind::Project);
+        let folder = if in_project {
+            FolderMode::Auto
+        } else {
+            FolderMode::None
         };
 
         // this has to move into the tree at some point I believe
@@ -115,9 +119,8 @@ impl App<'_> {
                         return;
                     }
                 };
-                let task = Task::new(name.clone(), dir, due);
                 self.tree
-                    .create_task(parent, task)
+                    .create_task(parent, name.clone(), Task::new(dir, due))
                     .await
                     .map(|path| (path, format!("added task {name}")))
             }

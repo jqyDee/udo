@@ -19,21 +19,18 @@ impl Tree {
     /// Default dir for a new child container: `<parent dir>/<name>`.
     /// None if `parent` is missing or a task.
     pub fn default_child_dir(&self, parent: &[usize], name: &str) -> Option<PathBuf> {
-        match self.get(parent)? {
-            Node::Container(c) => Some(c.dir.join(folder_name(name)?)),
-            Node::Task(_) => None,
-        }
+        let c = self.get(parent)?.as_container()?;
+        Some(c.dir.join(folder_name(name)?))
     }
 
     /// Automatic dir for a new task: `<project dir>/<name>` if `parent` is a
     /// Project, None elsewhere (tasks in workspaces / root get no folder).
     pub fn auto_task_dir(&self, parent: &[usize], name: &str) -> Option<PathBuf> {
-        match self.get(parent)? {
-            Node::Container(c) if c.kind == ContainerKind::Project => {
-                Some(c.dir.join(folder_name(name)?))
-            }
-            _ => None,
+        let c = self.get(parent)?.as_container()?;
+        if c.kind != ContainerKind::Project {
+            return None;
         }
+        Some(c.dir.join(folder_name(name)?))
     }
 
     /// Who already uses `dir`, anywhere in the tree. Containers, tasks with a
@@ -43,9 +40,7 @@ impl Tree {
             if node.dir() == Some(dir) {
                 return Some(DirOwner::Node(path.clone()));
             }
-            let Node::Container(c) = node else {
-                return None;
-            };
+            let c = node.as_container()?;
             if c.unloaded.iter().any(|u| u == dir) {
                 return Some(DirOwner::Unloaded(path.clone()));
             }
@@ -107,9 +102,7 @@ mod tests {
         assert_eq!(t.auto_task_dir(&[1], "c"), None);
         assert_eq!(t.auto_task_dir(&[], "c"), None); // root
 
-        if let Some(Node::Container(c)) = t.get_mut(&[1]) {
-            c.kind = ContainerKind::Project;
-        }
+        t.get_mut(&[1]).and_then(Node::as_container_mut).unwrap().kind = ContainerKind::Project;
         assert_eq!(
             t.auto_task_dir(&[1], "c"),
             Some(PathBuf::from("/tmp/inner/c"))

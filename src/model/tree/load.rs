@@ -12,9 +12,9 @@ use crate::{
     model::{
         NodePath,
         container::{Container, ContainerKind},
-        data::ContainerData,
+        data::{ContainerData, TaskData},
         id::NodeId,
-        node::Node,
+        node::{Node, NodeBody},
         tree::Tree,
         view::ViewState,
     },
@@ -31,8 +31,8 @@ impl Tree {
             println!("First run: creating root in {root_dir:?}!");
             fs::create_dir_all(root_dir).await?;
 
-            let root = Container::new("root".into(), root_dir.to_path_buf(), ContainerKind::Root);
-            let tree = Self::new(Node::Container(root));
+            let root = Container::new(root_dir.to_path_buf(), ContainerKind::Root);
+            let tree = Self::new(Node::container("root".into(), root));
             tree.save(&[]).await?;
             return Ok(tree);
         }
@@ -56,8 +56,8 @@ impl Tree {
         Ok(tree)
     }
 
-    /// Recursively build one container from its dir: load DTO, map tasks ->
-    /// Node::Task, recurse each child dir -> Node::Container.
+    /// Recursively build one container from its dir: load DTO, map task rows
+    /// -> task nodes, recurse each child dir -> container node.
     ///
     /// `loaded` holds every dir built so far, so a dir listed by two parents
     /// is only loaded once.
@@ -67,7 +67,7 @@ impl Tree {
     async fn build_container(dir: PathBuf, loaded: &mut HashSet<PathBuf>) -> Res<Node> {
         let data = ContainerData::load(&dir).await?;
 
-        let mut children: Vec<Node> = data.tasks.into_iter().map(Node::Task).collect();
+        let mut children: Vec<Node> = data.tasks.into_iter().map(TaskData::into_node).collect();
         let mut unloaded = vec![];
 
         for child_path in data.children {
@@ -88,16 +88,18 @@ impl Tree {
             children.push(Self::build_container(child_path, loaded).await?);
         }
 
-        Ok(Node::Container(Container {
+        Ok(Node {
             id: data.id,
             name: data.name,
-            dir,
-            kind: data.kind,
-            settings: data.settings,
-            children,
-            unloaded,
-            collapsed: false,
-        }))
+            body: NodeBody::Container(Container {
+                dir,
+                kind: data.kind,
+                settings: data.settings,
+                children,
+                unloaded,
+                collapsed: false,
+            }),
+        })
     }
 
     /// Give every node whose id was already seen a fresh one (first in
@@ -116,10 +118,10 @@ fn fix_ids(
     seen: &mut HashSet<NodeId>,
     changed: &mut Vec<NodePath>,
 ) {
-    if !seen.insert(node.id()) {
+    if !seen.insert(node.id) {
         let fresh = NodeId::new();
-        eprintln!("warning: duplicate id {} ({}), new id {fresh}", node.id(), node.name());
-        node.set_id(fresh);
+        eprintln!("warning: duplicate id {} ({}), new id {fresh}", node.id, node.name);
+        node.id = fresh;
         seen.insert(fresh);
         changed.push(path.clone());
     }
@@ -141,7 +143,7 @@ mod tests {
     use crate::{
         model::{
             container::{ContainerKind, ContainerSettings},
-            data::ContainerData,
+            data::{ContainerData, TaskData},
             id::NodeId,
             node::Node,
             task::Task,
@@ -151,10 +153,8 @@ mod tests {
     };
 
     fn root_kind(t: &Tree) -> ContainerKind {
-        match t.get(&[]) {
-            Some(Node::Container(c)) => c.kind,
-            _ => panic!("root is not a container"),
-        }
+        let root = t.get(&[]).and_then(Node::as_container);
+        root.expect("root is not a container").kind
     }
 
     #[tokio::test]
@@ -208,7 +208,7 @@ mod tests {
         out
     }
 
-    fn container_data(name: &str, tasks: Vec<Task>, children: Vec<PathBuf>) -> ContainerData {
+    fn container_data(name: &str, tasks: Vec<TaskData>, children: Vec<PathBuf>) -> ContainerData {
         ContainerData {
             id: NodeId::new(),
             name: name.into(),
@@ -230,7 +230,12 @@ mod tests {
         root.kind = ContainerKind::Root;
         root.save(&root_dir).await.unwrap();
         // `cp -r a b`: same container id and same task id in both files
-        let copied = container_data("ws", vec![Task::new("t".into(), None, Utc::now())], vec![]);
+        let row = TaskData {
+            id: NodeId::new(),
+            name: "t".into(),
+            task: Task::new(None, Utc::now()),
+        };
+        let copied = container_data("ws", vec![row], vec![]);
         copied.save(&a).await.unwrap();
         copied.save(&b).await.unwrap();
 

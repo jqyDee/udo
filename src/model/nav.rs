@@ -81,7 +81,7 @@ impl Tree {
         if self.cursor.is_empty() {
             return;
         }
-        let Some(Node::Container(c)) = self.get(&self.cursor) else {
+        let Some(c) = self.get(&self.cursor).and_then(Node::as_container) else {
             return;
         };
         let collapsed = !c.collapsed;
@@ -111,7 +111,7 @@ impl Tree {
     }
 
     fn set_collapsed(&mut self, path: &[usize], collapsed: bool) {
-        if let Some(Node::Container(c)) = self.get_mut(path) {
+        if let Some(c) = self.get_mut(path).and_then(Node::as_container_mut) {
             c.collapsed = collapsed;
         }
     }
@@ -150,7 +150,7 @@ fn walk<'a>(node: &'a Node, path: &mut NodePath, depth: usize, out: &mut Vec<Row
             path: path.clone(),
             node: child,
         });
-        if !matches!(child, Node::Container(c) if c.collapsed) {
+        if !child.as_container().is_some_and(|c| c.collapsed) {
             walk(child, path, depth + 1, out);
         }
         path.pop();
@@ -160,7 +160,7 @@ fn walk<'a>(node: &'a Node, path: &mut NodePath, depth: usize, out: &mut Vec<Row
 /// Set `collapsed` on every container below `node` (not `node` itself).
 fn set_collapsed_all(node: &mut Node, collapsed: bool) {
     for child in node.children_mut().into_iter().flatten() {
-        if let Node::Container(c) = child {
+        if let Some(c) = child.as_container_mut() {
             c.collapsed = collapsed;
         }
         set_collapsed_all(child, collapsed);

@@ -8,7 +8,7 @@ use crate::{
         NodePath,
         container::{Container, ContainerKind},
         data::ContainerData,
-        node::{Node, NodePatch},
+        node::{BodyPatch, Node, NodePatch},
         task::{Task, TaskPatch, TaskStatus},
         tree::Tree,
     },
@@ -55,25 +55,25 @@ impl Tree {
         }
 
         fs::create_dir_all(&dir).await?;
-        let path = self.insert(parent, Node::Container(Container::new(name, dir, kind)))?;
+        let path = self.insert(parent, Node::container(name, Container::new(dir, kind)))?;
 
         self.save(&path).await?; // new container's own .udo.toml
         self.save(parent).await?; // parent lists the new dir in `children`
         Ok(path)
     }
 
-    /// Add `task` under container `parent` and save the parent's file.
-    /// If `task.dir` is Some, that dir is created. Errors if `parent` is not a
-    /// container or a sibling already has the task's name.
-    pub async fn create_task(&mut self, parent: &[usize], task: Task) -> Res<NodePath> {
-        self.check_can_add(parent, &task.name)?;
+    /// Add a task called `name` under container `parent` and save the parent's
+    /// file. If `task.dir` is Some, that dir is created. Errors if `parent` is
+    /// not a container or a sibling already has `name`.
+    pub async fn create_task(&mut self, parent: &[usize], name: String, task: Task) -> Res<NodePath> {
+        self.check_can_add(parent, &name)?;
 
         if let Some(dir) = &task.dir {
             self.check_dir_free(dir)?;
             fs::create_dir_all(dir).await?;
         }
 
-        let path = self.insert(parent, Node::Task(task))?;
+        let path = self.insert(parent, Node::task(name, task))?;
 
         self.save(parent).await?;
         Ok(path)
@@ -82,10 +82,9 @@ impl Tree {
     /// Re-save the nearest file-owning container for `path`.
     pub async fn save(&self, path: &[usize]) -> Res<()> {
         let owner = self.nearest_file_owner(path).ok_or("no node at the path")?;
-        match self.get(&owner) {
-            Some(Node::Container(c)) => ContainerData::from(c).save(&c.dir).await,
-            _ => Err("file owner is not a container".into()),
-        }
+        let node = self.get(&owner).ok_or("no node at the path")?;
+        let c = node.as_container().ok_or("file owner is not a container")?;
+        ContainerData::try_from(node)?.save(&c.dir).await
     }
 
     /// Unregister the node at `path` and re-save its parent.
@@ -109,15 +108,18 @@ impl Tree {
     }
 
     pub async fn set_task_status(&mut self, path: &[usize], status: TaskStatus) -> Res<()> {
-        if !matches!(self.get(path), Some(Node::Task(_))) {
+        if self.get(path).and_then(Node::as_task).is_none() {
             return Err("only tasks have a status".into());
         }
         self.update(
             path,
-            NodePatch::Task(TaskPatch {
-                status: Some(status),
+            NodePatch {
+                body: Some(BodyPatch::Task(TaskPatch {
+                    status: Some(status),
+                    ..Default::default()
+                })),
                 ..Default::default()
-            }),
+            },
         )?;
         self.save(path).await
     }
@@ -133,7 +135,7 @@ impl Tree {
         if folder == "." || folder == ".." || folder.contains(['/', '\\']) {
             return Err("name cannot be . or .. or contain / or \\".into());
         }
-        if !matches!(self.get(parent), Some(Node::Container(_))) {
+        if self.get(parent).and_then(Node::as_container).is_none() {
             return Err("parent missing or not a container".into());
         }
         if self.find_child(parent, name).is_some() {
@@ -152,7 +154,7 @@ mod tests {
             container::{ContainerKind, ContainerSettings},
             data::ContainerData,
             id::NodeId,
-            node::{Node, NodePatch},
+            node::{BodyPatch, NodePatch},
             task::{TaskPatch, TaskStatus},
             tree::{
                 Tree,
@@ -167,22 +169,24 @@ mod tests {
         let mut t = tree();
         t.update(
             &[1, 0],
-            NodePatch::Task(TaskPatch {
+            NodePatch {
                 name: Some("z".into()),
-                ..Default::default()
-            }),
+                body: Some(BodyPatch::Task(TaskPatch {
+                    status: Some(TaskStatus::Finished),
+                    ..Default::default()
+                })),
+            },
         )
         .unwrap();
-        assert_eq!(t.get(&[1, 0]).unwrap().name(), "z");
+        let b = t.get(&[1, 0]).unwrap();
+        assert_eq!(b.name(), "z");
+        assert_eq!(b.as_task().unwrap().status, TaskStatus::Finished);
     }
 
     #[test]
     fn update_errors_on_missing_path() {
         let mut t = tree();
-        assert!(
-            t.update(&[9], NodePatch::Task(TaskPatch::default()))
-                .is_err()
-        );
+        assert!(t.update(&[9], NodePatch::default()).is_err());
     }
 
     #[test]
@@ -395,7 +399,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = disk_tree(tmp.path()).await; // root: [a, ws: [b]]
 
-        let p = t.create_task(&[1], new_task("c", None)).await.unwrap();
+        let p = t.create_task(&[1], "c".into(), new_task(None)).await.unwrap();
 
         assert_eq!(p, vec![1, 1]);
         assert_eq!(t.get(&p).unwrap().name(), "c");
@@ -410,7 +414,7 @@ mod tests {
         let mut t = disk_tree(tmp.path()).await;
         let task_dir = tmp.path().join("ws").join("c");
 
-        t.create_task(&[1], new_task("c", Some(task_dir.clone())))
+        t.create_task(&[1], "c".into(), new_task(Some(task_dir.clone())))
             .await
             .unwrap();
 
@@ -422,8 +426,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = disk_tree(tmp.path()).await;
 
-        assert!(t.create_task(&[1], new_task("b", None)).await.is_err()); // "b" exists in ws
-        assert!(t.create_task(&[], new_task("ws", None)).await.is_err()); // clashes with container
+        assert!(t.create_task(&[1], "b".into(), new_task(None)).await.is_err()); // "b" exists in ws
+        assert!(t.create_task(&[], "ws".into(), new_task(None)).await.is_err()); // clashes with container
         assert_eq!(t.get(&[1]).unwrap().children().len(), 1);
     }
 
@@ -432,7 +436,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = disk_tree(tmp.path()).await;
 
-        assert!(t.create_task(&[0], new_task("x", None)).await.is_err()); // [0] is task "a"
+        assert!(t.create_task(&[0], "x".into(), new_task(None)).await.is_err()); // [0] is task "a"
     }
 
     // ---------- regressions ----------
@@ -457,7 +461,7 @@ mod tests {
         .unwrap();
 
         let mut t = Tree::load_from(&root_dir).await.unwrap();
-        t.create_task(&[], new_task("x", None)).await.unwrap(); // re-saves root
+        t.create_task(&[], "x".into(), new_task(None)).await.unwrap(); // re-saves root
 
         let data = ContainerData::load(&root_dir).await.unwrap();
         assert_eq!(data.children, vec![gone]);
@@ -474,14 +478,12 @@ mod tests {
             .await
             .unwrap();
 
-        let Some(Node::Task(b)) = t.get(&[1, 0]) else {
-            panic!("expected a task at [1, 0]");
-        };
-        assert_eq!(b.status, TaskStatus::Finished);
-        assert_eq!(b.name, "b"); // nothing else changed
+        let b = t.get(&[1, 0]).unwrap();
+        assert_eq!(b.as_task().unwrap().status, TaskStatus::Finished);
+        assert_eq!(b.name(), "b"); // nothing else changed
 
         let ws = ContainerData::load(&tmp.path().join("ws")).await.unwrap();
-        assert_eq!(ws.tasks[0].status, TaskStatus::Finished);
+        assert_eq!(ws.tasks[0].task.status, TaskStatus::Finished);
     }
 
     #[tokio::test]
@@ -509,7 +511,7 @@ mod tests {
 
         for bad in ["", ".", "..", "a/b", "../x", "a\\b"] {
             assert!(
-                t.create_task(&[1], new_task(bad, None)).await.is_err(),
+                t.create_task(&[1], bad.into(), new_task(None)).await.is_err(),
                 "task {bad:?} accepted"
             );
             let dir = tmp.path().join("ws").join("dir");

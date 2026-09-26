@@ -15,7 +15,7 @@ use crate::model::{
 
 /// Pending task without a dir, due now.
 pub fn task(name: &str) -> Node {
-    Node::Task(Task::new(name.into(), None, Utc::now()))
+    Node::task(name.into(), Task::new(None, Utc::now()))
 }
 
 /// Workspace container at `/tmp/<name>` with the given children.
@@ -26,9 +26,9 @@ pub fn container(name: &str, children: Vec<Node>) -> Node {
 
 /// Container of `kind` at a real `dir` (for tests that save/load).
 pub fn container_at(name: &str, dir: &Path, kind: ContainerKind, children: Vec<Node>) -> Node {
-    let mut c = Container::new(name.into(), dir.to_path_buf(), kind);
+    let mut c = Container::new(dir.to_path_buf(), kind);
     c.children = children;
-    Node::Container(c)
+    Node::container(name.into(), c)
 }
 
 /// Tree whose root (`/tmp/root`) has `children`, cursor at `cursor`.
