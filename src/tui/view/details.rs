@@ -1,6 +1,7 @@
 //! Right pane: fields of the selected node.
 
 use chrono::Local;
+
 use ratatui::{
     Frame,
     layout::Rect,
@@ -15,6 +16,7 @@ use crate::{
         node::{Node, NodeBody},
         tree::Tree,
     },
+    tui::view::LABEL_WIDTH,
 };
 
 pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree) {
@@ -96,7 +98,7 @@ fn detail_lines(node: &Node) -> Vec<Line<'_>> {
 /// `key` dimmed in a fixed-width column, then the value.
 fn field(key: &str, value: String) -> Line<'_> {
     Line::from(vec![
-        Span::raw(format!("{key:<15}")).dim(),
+        Span::raw(format!("{key:<LABEL_WIDTH$}")).dim(),
         Span::raw(value),
     ])
 }

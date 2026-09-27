@@ -108,9 +108,7 @@ impl Node {
             (_, None) => {}
             _ => return Err("patch kind does not match node kind".into()),
         }
-        if let Some(name) = patch.name {
-            self.header.name = name;
-        }
+        self.header.update(patch.header);
         Ok(())
     }
 
@@ -151,18 +149,44 @@ impl NodeHeader {
             description: None,
         }
     }
+
+    /// Apply `patch` as is. No checks here: names and descriptions are
+    /// checked / cleaned by `Tree::edit`.
+    pub fn update(&mut self, patch: HeaderPatch) {
+        if let Some(name) = patch.name {
+            self.name = name;
+        }
+        if let Some(desc) = patch.description {
+            self.description = desc;
+        }
+    }
 }
 
 /// Changes to a node. `None` fields stay as they are.
 #[derive(Default)]
 pub struct NodePatch {
-    pub name: Option<String>,
+    pub header: HeaderPatch,
     pub body: Option<BodyPatch>,
+}
+
+/// Editable header fields. `id` and `created_at` are missing on purpose:
+/// they never change after creation.
+#[derive(Default)]
+pub struct HeaderPatch {
+    pub name: Option<String>,
+    /// `None` keep, `Some(None)` remove, `Some(Some(d))` set.
+    pub description: Option<Option<String>>,
 }
 
 pub enum BodyPatch {
     Container(ContainerPatch),
     Task(TaskPatch),
+}
+
+/// Trimmed description; blank -> None. Used by `Tree::create` and `Tree::edit`.
+pub fn clean_description(desc: String) -> Option<String> {
+    let desc = desc.trim();
+    (!desc.is_empty()).then(|| desc.to_string())
 }
 
 #[cfg(test)]
@@ -204,11 +228,18 @@ mod tests {
         assert_eq!(n.children().len(), 1);
     }
 
+    fn rename(name: &str) -> HeaderPatch {
+        HeaderPatch {
+            name: Some(name.into()),
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn update_renames_any_node() {
         let mut n = task("old", None);
         n.update(NodePatch {
-            name: Some("new".into()),
+            header: rename("new"),
             ..Default::default()
         })
         .unwrap();
@@ -219,10 +250,32 @@ mod tests {
     fn update_rejects_mismatched_patch_and_changes_nothing() {
         let mut n = task("t", None);
         let patch = NodePatch {
-            name: Some("new".into()),
+            header: rename("new"),
             body: Some(BodyPatch::Container(ContainerPatch::default())),
         };
         assert!(n.update(patch).is_err());
         assert_eq!(n.name(), "t");
+    }
+
+    #[test]
+    fn header_description_keep_set_remove() {
+        let mut h = NodeHeader::new("t".into());
+        let desc = |d: Option<Option<&str>>| HeaderPatch {
+            description: d.map(|d| d.map(String::from)),
+            ..Default::default()
+        };
+
+        h.update(desc(Some(Some("x"))));
+        assert_eq!(h.description.as_deref(), Some("x")); // set
+        h.update(desc(None));
+        assert_eq!(h.description.as_deref(), Some("x")); // kept
+        h.update(desc(Some(None)));
+        assert_eq!(h.description, None); // removed
+    }
+
+    #[test]
+    fn clean_description_trims_and_drops_blank() {
+        assert_eq!(clean_description("  a\nb ".into()).as_deref(), Some("a\nb"));
+        assert_eq!(clean_description(" \n\t ".into()), None);
     }
 }

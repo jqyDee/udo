@@ -4,8 +4,10 @@ mod cursor;
 mod edit;
 mod folders;
 mod load;
+mod purge;
 
 pub use folders::DirOwner;
+pub use purge::{PurgePlan, PurgeReport, TrashFn, system_trash};
 
 /// In-memory tree node. Not serialized directly - Persistence goes through DTOs.
 pub struct Tree {
@@ -87,7 +89,7 @@ mod tests {
     use crate::{
         model::{
             container::ContainerKind,
-            node::{Node, NodePatch},
+            node::Node,
             task::Task,
             tree::Tree,
         },
@@ -141,13 +143,7 @@ mod tests {
     #[test]
     fn get_mut() {
         let mut tree = tree();
-        tree.get_mut(&[0])
-            .unwrap()
-            .update(NodePatch {
-                name: Some("x".into()),
-                ..Default::default()
-            })
-            .unwrap();
+        tree.get_mut(&[0]).unwrap().header.name = "x".into();
         assert_eq!(tree.get(&[0]).unwrap().name(), "x");
     }
 

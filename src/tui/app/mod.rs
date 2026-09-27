@@ -2,7 +2,7 @@
 //! testable: feed keys into `handle_key`, check tree / mode / toast.
 //!
 //! One file per mode that needs more than a line or two:
-//! - `confirm`: "remove?" prompt (`d`)
+//! - `confirm`: "remove?" prompt (`d`) and full delete (`D`)
 //! - `create`:  new task / container forms (`t` `T` `c` `C`)
 
 mod confirm;
@@ -13,10 +13,13 @@ use std::time::Instant;
 use crossterm::event::{KeyEvent, KeyEventKind};
 use ratatui::widgets::ListState;
 
-pub use confirm::Confirm;
+pub use confirm::{Confirm, ConfirmStage, PurgeOption};
 
 use crate::{
-    model::{task::TaskStatus, tree::Tree},
+    model::{
+        task::TaskStatus,
+        tree::{TrashFn, Tree, system_trash},
+    },
     tui::{
         form::Form,
         keys::{Action, action_for},
@@ -32,7 +35,8 @@ pub enum Mode {
     Normal,
     /// Key help overlay open; any key closes it.
     Help,
-    /// "Remove?" prompt open; only y / n / esc do anything.
+    /// "Remove?" prompt open: y / n / D / esc, then the path input of a
+    /// full delete.
     Confirm(Confirm),
     /// Create form open; keys go to `Form::handle_key`.
     Form(Box<Form>),
@@ -51,6 +55,9 @@ pub struct App<'a> {
     pub toast: Option<Toast>,
     /// Selection + scroll offset of the tree list (kept across frames).
     pub list: ListState,
+    /// How a full delete moves folders away: `system_trash`; tests swap in
+    /// a fake so they never touch the real Trash.
+    pub trash: TrashFn,
 }
 
 impl<'a> App<'a> {
@@ -64,6 +71,7 @@ impl<'a> App<'a> {
             mode: Mode::Normal,
             toast: None,
             list: ListState::default(),
+            trash: system_trash,
         }
     }
 
@@ -100,6 +108,7 @@ impl<'a> App<'a> {
             Action::CollapseAll => self.tree.collapse_all(),
             Action::ExpandAll => self.tree.expand_all(),
             Action::SetStatus(status) => self.set_status(status).await,
+            Action::Edit => self.open_edit_form(),
             Action::Delete => self.ask_delete(),
             Action::NewContainer { global } => self.open_container_form(global),
             Action::NewTask { global } => self.open_task_form(global),
@@ -143,13 +152,18 @@ impl<'a> App<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crossterm::event::{KeyCode, KeyEventState};
+    use std::path::Path;
+
+    use crossterm::event::{KeyCode, KeyEventState, KeyModifiers};
 
     use super::*;
     use crate::{
-        model::node::Node,
-        test_util::{container, press, task, tree_with},
-        tui::toast::ToastKind,
+        model::{container::ContainerKind, node::Node},
+        test_util::{container, container_at, press, task, tree_with},
+        tui::{
+            form::{FormAction, TextInput},
+            toast::ToastKind,
+        },
     };
 
     /// root: [a, ws: [b]], cursor on `cursor`. In memory, never saved.
@@ -277,7 +291,9 @@ mod tests {
             app.mode,
             Mode::Confirm(Confirm {
                 path: vec![0],
-                name: "a".into()
+                name: "a".into(),
+                purge: PurgeOption::NoFolder, // task without dir
+                stage: ConfirmStage::Ask,
             })
         );
     }
@@ -344,6 +360,162 @@ mod tests {
         // saved: a fresh load doesn't have it either
         let reloaded = Tree::load_from(tmp.path()).await.unwrap();
         assert!(reloaded.rows().is_empty());
+    }
+
+    // ---------- full delete (D) ----------
+    // Every test that can reach `purge` sets `app.trash = fake_trash`.
+
+    /// Fake Trash: deletes for real (inside the tempdir only).
+    fn fake_trash(p: &Path) -> Result<(), String> {
+        std::fs::remove_dir_all(p).map_err(|e| e.to_string())
+    }
+
+    /// `D` as terminals send it: with SHIFT.
+    fn shift_d() -> KeyEvent {
+        KeyEvent::new(KeyCode::Char('D'), KeyModifiers::SHIFT)
+    }
+
+    /// Real root (tmp/udo) with project "lab" (tmp/lab) holding task
+    /// "notes"; cursor on "lab".
+    async fn lab_tree(tmp: &Path) -> Tree {
+        let mut t = Tree::load_from(&tmp.join("udo")).await.unwrap();
+        let lab = container_at("lab", &tmp.join("lab"), ContainerKind::Project, vec![]);
+        t.create(&[], lab).await.unwrap();
+        t.create(&[0], task("notes")).await.unwrap();
+        t.cursor = vec![0];
+        t
+    }
+
+    fn stage<'m>(app: &'m App<'_>) -> &'m ConfirmStage {
+        match &app.mode {
+            Mode::Confirm(c) => &c.stage,
+            other => panic!("no prompt open: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn shift_d_with_a_plan_opens_the_purge_stage() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = lab_tree(tmp.path()).await;
+        let mut app = App::new(&mut t);
+
+        app.handle_key(key('d')).await;
+        app.handle_key(shift_d()).await;
+
+        let empty = ConfirmStage::Purge {
+            input: TextInput::new(""),
+        };
+        assert_eq!(stage(&app), &empty);
+        assert!(app.toast.is_none());
+    }
+
+    #[tokio::test]
+    async fn d_on_task_without_folder_shows_hint() {
+        let mut t = tree(&[0]);
+        let mut app = App::new(&mut t);
+
+        app.handle_key(key('d')).await;
+        app.handle_key(shift_d()).await;
+
+        assert_eq!(stage(&app), &ConfirmStage::Ask);
+        let toast = app.toast.as_ref().expect("no toast");
+        assert_eq!(toast.kind, ToastKind::Info);
+        assert_eq!(toast.msg, "no folder to delete, use y");
+    }
+
+    #[tokio::test]
+    async fn d_when_refused_shows_the_reason() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = Tree::load_from(&tmp.path().join("udo")).await.unwrap();
+        // folder above the udo root: never offered (in memory, nothing saved)
+        let big = container_at("big", tmp.path(), ContainerKind::Workspace, vec![]);
+        t.insert(&[], big).unwrap();
+        t.cursor = vec![0];
+        let mut app = App::new(&mut t);
+
+        app.handle_key(key('d')).await;
+        app.handle_key(shift_d()).await;
+
+        assert_eq!(stage(&app), &ConfirmStage::Ask);
+        let toast = app.toast.as_ref().expect("no toast");
+        assert_eq!(toast.kind, ToastKind::Error);
+        assert!(toast.msg.contains("udo root"), "got: {}", toast.msg);
+    }
+
+    #[tokio::test]
+    async fn wrong_path_keeps_popup_and_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = lab_tree(tmp.path()).await;
+        let lab = tmp.path().join("lab");
+        let mut app = App::new(&mut t);
+        app.trash = fake_trash;
+
+        let exact = lab.display().to_string();
+        let wrongs = [
+            "nope yq".to_string(),
+            "~/lab".into(),
+            format!("{exact}/"),
+            format!(" {exact}"),
+        ];
+        for wrong in wrongs {
+            app.handle_key(key('d')).await;
+            app.handle_key(shift_d()).await;
+            type_into(&mut app, &wrong).await; // y / n / q are text here
+            app.handle_key(press(KeyCode::Enter)).await;
+
+            let typed = ConfirmStage::Purge {
+                input: TextInput::new(wrong.as_str()),
+            };
+            assert_eq!(stage(&app), &typed, "{wrong:?}");
+            let toast = app.toast.as_ref().expect("no toast");
+            assert_eq!(toast.kind, ToastKind::Error);
+            assert_eq!(toast.msg, "path does not match");
+            assert!(lab.exists());
+            assert_eq!(app.tree.get(&[0]).unwrap().name(), "lab");
+            app.handle_key(press(KeyCode::Esc)).await; // next round from Normal
+        }
+    }
+
+    #[tokio::test]
+    async fn exact_path_deletes_node_and_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = lab_tree(tmp.path()).await;
+        let lab = tmp.path().join("lab");
+        let mut app = App::new(&mut t);
+        app.trash = fake_trash;
+
+        app.handle_key(key('d')).await;
+        app.handle_key(shift_d()).await;
+        type_into(&mut app, &lab.display().to_string()).await;
+        app.handle_key(press(KeyCode::Enter)).await;
+
+        assert_eq!(app.mode, Mode::Normal);
+        assert!(!lab.exists());
+        assert!(app.tree.get(&[0]).is_none());
+        assert!(app.tree.cursor.is_empty()); // last node gone: nothing selected
+        let toast = app.toast.as_ref().expect("no toast");
+        assert_eq!(toast.kind, ToastKind::Info);
+        assert_eq!(toast.msg, "deleted lab · 1 folder moved to Trash");
+        let reloaded = Tree::load_from(&tmp.path().join("udo")).await.unwrap();
+        assert!(reloaded.rows().is_empty());
+    }
+
+    #[tokio::test]
+    async fn esc_in_purge_stage_cancels_everything() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = lab_tree(tmp.path()).await;
+        let mut app = App::new(&mut t);
+        app.trash = fake_trash;
+
+        app.handle_key(key('d')).await;
+        app.handle_key(shift_d()).await;
+        type_into(&mut app, "x").await;
+        app.handle_key(press(KeyCode::Esc)).await;
+
+        assert_eq!(app.mode, Mode::Normal); // closed, not back to Ask
+        assert!(tmp.path().join("lab").exists());
+        assert_eq!(app.tree.get(&[0]).unwrap().name(), "lab");
+        assert!(app.toast.is_none());
     }
 
     // ---------- toast lifetime ----------
@@ -437,5 +609,141 @@ mod tests {
 
         assert_eq!(app.mode, Mode::Normal);
         assert_eq!(app.tree.get(&[]).unwrap().children().len(), 2);
+    }
+
+    // ---------- edit form ----------
+
+    /// Ctrl+U: clears the text field (cursor starts at the end).
+    fn clear() -> KeyEvent {
+        KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL)
+    }
+
+    /// Real root with tasks "sheet" ([0]) and "exam" ([1]), cursor on `cursor`.
+    async fn disk_tree(tmp: &std::path::Path, cursor: &[usize]) -> Tree {
+        let mut t = Tree::load_from(tmp).await.unwrap();
+        t.create(&[], task("sheet")).await.unwrap();
+        t.create(&[], task("exam")).await.unwrap();
+        t.cursor = cursor.to_vec();
+        t
+    }
+
+    async fn type_into(app: &mut App<'_>, s: &str) {
+        for k in type_str(s) {
+            app.handle_key(k).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn e_opens_form_prefilled_with_the_node() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path(), &[1]).await;
+        let mut app = App::new(&mut t);
+
+        app.handle_key(key('e')).await;
+
+        let Mode::Form(form) = &app.mode else {
+            panic!("no form open");
+        };
+        assert_eq!(form.action, FormAction::EditNode { path: vec![1] });
+        assert_eq!(form.values().name, "exam");
+    }
+
+    #[tokio::test]
+    async fn edit_renames_and_sets_description_on_disk() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path(), &[0]).await;
+        let mut app = App::new(&mut t);
+
+        app.handle_key(key('e')).await;
+        app.handle_key(clear()).await;
+        type_into(&mut app, "sheet 2").await;
+        app.handle_key(press(KeyCode::Tab)).await; // -> description
+        type_into(&mut app, "  ex 1-4 ").await;
+        app.handle_key(press(KeyCode::Enter)).await;
+
+        assert_eq!(app.mode, Mode::Normal);
+        assert_eq!(app.toast.as_ref().unwrap().kind, ToastKind::Info);
+        assert_eq!(app.tree.cursor, vec![0]); // same node stays selected
+        let reloaded = Tree::load_from(tmp.path()).await.unwrap();
+        let node = reloaded.get(&[0]).unwrap();
+        assert_eq!(node.name(), "sheet 2");
+        assert_eq!(node.header.description.as_deref(), Some("ex 1-4"));
+    }
+
+    #[tokio::test]
+    async fn clearing_the_description_removes_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path(), &[0]).await;
+        t.get_mut(&[0]).unwrap().header.description = Some("old".into());
+        let mut app = App::new(&mut t);
+
+        app.handle_key(key('e')).await;
+        app.handle_key(press(KeyCode::Tab)).await; // -> description
+        app.handle_key(clear()).await;
+        app.handle_key(press(KeyCode::Enter)).await;
+
+        assert_eq!(app.tree.get(&[0]).unwrap().header.description, None);
+    }
+
+    #[tokio::test]
+    async fn edit_to_a_siblings_name_keeps_form_open_with_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path(), &[0]).await;
+        let mut app = App::new(&mut t);
+
+        app.handle_key(key('e')).await;
+        app.handle_key(clear()).await;
+        type_into(&mut app, "exam").await; // [1] is called that
+        app.handle_key(press(KeyCode::Enter)).await;
+
+        assert!(matches!(app.mode, Mode::Form(_)), "form closed on error");
+        assert_eq!(app.toast.as_ref().unwrap().kind, ToastKind::Error);
+        assert_eq!(app.tree.get(&[0]).unwrap().name(), "sheet");
+    }
+
+    #[tokio::test]
+    async fn edit_changes_container_kind_on_disk() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = Tree::load_from(tmp.path()).await.unwrap();
+        let ws_dir = tmp.path().join("uni");
+        let uni = container_at("uni", &ws_dir, ContainerKind::Workspace, vec![]);
+        t.create(&[], uni).await.unwrap();
+        t.cursor = vec![0];
+        let mut app = App::new(&mut t);
+
+        app.handle_key(key('e')).await;
+        app.handle_key(press(KeyCode::Tab)).await; // -> description
+        app.handle_key(press(KeyCode::Tab)).await; // -> kind
+        app.handle_key(press(KeyCode::Right)).await; // workspace -> project
+        app.handle_key(press(KeyCode::Enter)).await;
+
+        let reloaded = Tree::load_from(tmp.path()).await.unwrap();
+        let uni = reloaded.get(&[0]).and_then(Node::as_container).unwrap();
+        assert_eq!(uni.kind, ContainerKind::Project);
+        assert_eq!(uni.dir, ws_dir); // dir untouched
+    }
+
+    #[tokio::test]
+    async fn e_without_selection_shows_error() {
+        let mut t = tree_with(vec![], &[]); // cursor on the root
+        let mut app = App::new(&mut t);
+
+        app.handle_key(key('e')).await;
+
+        assert_eq!(app.mode, Mode::Normal);
+        assert_eq!(app.toast.as_ref().unwrap().kind, ToastKind::Error);
+    }
+
+    #[tokio::test]
+    async fn esc_closes_edit_form_without_changes() {
+        let mut t = tree(&[0]); // in memory: Esc never saves
+        let mut app = App::new(&mut t);
+
+        app.handle_key(key('e')).await;
+        type_into(&mut app, "zzz").await;
+        app.handle_key(press(KeyCode::Esc)).await;
+
+        assert_eq!(app.mode, Mode::Normal);
+        assert_eq!(app.tree.get(&[0]).unwrap().name(), "a");
     }
 }
