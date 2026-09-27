@@ -1,10 +1,11 @@
 # udo TODO
 
-Priorities as of 2026-09-27, in order. Background and older plans:
+Priorities as of 2026-09-28, in order. Background and older plans:
 `roadmap.txt` (phase numbers below refer to it).
 
-**Next up:** time tracking (section 2), starting with the SQLite session
-storage design.
+**Next up:** time tracking (section 2): the SQLite session backend (step 2
+of `docs/superpowers/specs/2026-09-27-storage-and-sessions-design.md`),
+then manual start / stop in the TUI and CLI.
 
 ## Done: creation flow
 
@@ -75,12 +76,23 @@ storage design.
 
 ## 2. Time tracking (the core feature)
 
-- [ ] **Default estimate** per workspace / project: how long a task takes,
+- [x] **Default estimate** per workspace / project: how long a task takes,
       as a first guess. An inherited setting `estimate: Option<Minutes>`
       plus one `SETTINGS` entry.
+- [x] **One time type:** every point in time is `model::time::Time`
+      (`DateTime<FixedOffset>`: instant + the local offset when recorded,
+      `time::now()`); shown via `with_timezone(&Local)`. Old `…Z` values
+      still load.
+- [x] **Sessions API** (`model::sessions`): `Session`, `TaskRef` (name,
+      description, container path; survives a task delete),
+      `SessionStore` trait (start, stop, running, query, add, split, cut,
+      edit, delete), `SessionError`. Reference backend `MemorySessions`
+      and a contract (`store_contract!`, one test per rule) every backend
+      has to pass.
 - [ ] **Sessions, not totals:** every work session is stored with start and
       end (total = sum), plus its source (`manual`, `nvim`, `tmux`, `idea`,
-      ...) and whether it was edited.
+      ...) and whether it was edited. API done; persisted once the SQLite
+      backend is in.
 - [ ] **Manual start/stop first** (`w` in the TUI; `udo start <task>`,
       `udo stop`, `udo status` in the CLI). Only one timer at a time;
       starting another task stops the current one. Starting sets the status
@@ -98,11 +110,15 @@ storage design.
 - [ ] **No daemon for now.** A real background service (launchd / systemd)
       later, when idle detection, file watching or reminders come. Same
       session data either way.
-- [ ] **Corrections are a core feature:** edit start/end, split, delete, add
-      sessions manually. Warn on suspiciously long sessions when stopping.
+- [ ] **Corrections are a core feature:** edit start/end, split, cut (e.g.
+      a lunch break the timer ran through), delete, add sessions manually.
+      Warn on suspiciously long sessions when stopping. Store side done
+      (`SessionStore`); UI to do.
 - [ ] **Storage: SQLite** (`udo.db` at root, `rusqlite`), sessions linked to
       tasks by ID. Several writers at once (TUI, CLI, helpers, tmux hooks)
-      are safe there. Tasks stay in `.udo.toml` for now.
+      are safe there (WAL, `busy_timeout`, `BEGIN IMMEDIATE`). Tasks stay in
+      `.udo.toml` for now. `SqliteSessions` behind `SessionStore`, passing
+      the same contract as the memory store; `session_edits` log.
 - [ ] **Learn:** per container, the average time of tasks replaces the
       default. Unfinished tasks count too, weighted lower (their time so far
       is an "at least"). Averages are calculated from the sessions, not
@@ -222,8 +238,7 @@ around your calendar and shows the result on your phone.
 - [x] Cursor and folding moved from `Tree` into the TUI's `TreeState`;
       `view.toml` stores folded containers and the selected node by ID, so
       the cursor comes back after a restart.
-- [ ] `udo edit` in the CLI (with the `cli.rs` cleanup); the CLI still
-      converts dates inline instead of `local_to_utc`.
+- [ ] `udo edit` in the CLI (with the `cli.rs` cleanup).
 - [ ] Edit dirs (move folders): its own operation (rename on disk, fix the
       parent's `children` / task row), not a plain patch field.
 - [x] Delete with folder: optionally remove the node's folder too (today `d`
