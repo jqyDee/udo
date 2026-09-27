@@ -1,9 +1,12 @@
 # udo TODO
 
-Priorities as of 2026-09-25, in order. Background and older plans:
+Priorities as of 2026-09-27, in order. Background and older plans:
 `roadmap.txt` (phase numbers below refer to it).
 
-## Now: creation flow
+**Next up:** editing settings in the TUI (section 1), then time tracking
+(section 2), starting with the SQLite session storage design.
+
+## Done: creation flow
 
 - [x] **Custom dirs when creating.** New `folder ‹ auto · custom · none ›`
       choice (←/→) above the dir row:
@@ -11,8 +14,7 @@ Priorities as of 2026-09-25, in order. Background and older plans:
       - custom: editable, pre-filled with the auto path, must be absolute
         (`/…` or `~/…`); existing folders are fine; created exactly as typed
       - none: tasks only, no folder
-      The task default comes from the parent (projects auto, others none)
-      until the `task_folders` setting (section 1) replaces that rule.
+      The task default comes from the `task_folders` setting (section 1).
       Custom text is kept while switching modes. CLI keeps resolving relative paths against
       the cwd; `add-project` gets `--dir`.
 - [x] **Folder names:** one shared `folder_name()` in `model`: spaces -> `_`
@@ -40,12 +42,21 @@ Priorities as of 2026-09-25, in order. Background and older plans:
       switched on. (roadmap 1.2 "fallback hierarchy")
 - [x] **Only set values are saved** in `.udo.toml`: a file shows exactly
       what that container overrides.
-- [x] **Root-only settings get their own type** (`RootSettings`: theme,
-      default workspace, first weekday, run config library, timetable),
-      instead of "Global only" comments.
-- [ ] **Edit settings** from the TUI (and the CLI). The editor shows where a
-      value comes from (`1h30 (from uni)`), can override and reset to
-      inherited.
+- [x] **Root-only settings get their own type** (`RootSettings`, `[root]`
+      table of the root's `.udo.toml`, never inherited). Today: `theme`;
+      later with their features: first weekday, run config library,
+      timetable.
+- [x] **Settings tab** in the details pane (Tab / Shift+Tab): every setting
+      with its effective value and where it comes from (`fri 22:00 (from
+      uni)`, `none (default)`). Built from one table, `SETTINGS`.
+- [x] **Root row** at the top of the tree: the root can be selected (its
+      settings, creating directly in it). Replaced the `C` / `T` keys.
+- [ ] **Edit settings** in the TUI: `e` on the settings tab opens a form
+      built from `SETTINGS` (each entry gets `set`: text -> value). Empty
+      field = inherit (placeholder shows the inherited value); saved with
+      `ContainerPatch.settings` (the form always sends all of them). Root
+      row: also the `[root]` settings.
+- [ ] Edit settings from the CLI (with the `cli.rs` cleanup).
 - [x] **Default deadline** for new tasks as a rule: `fri 22:00` (next
       Friday) or `+7d 23:59`. Nothing fancier for now.
 - [x] **`task_folders = auto | none`** replaces the "folders only in
@@ -54,13 +65,15 @@ Priorities as of 2026-09-25, in order. Background and older plans:
       folders). Containers always have their own folder either way.
 - [ ] Task-level exceptions (own estimate, left out of planning, own run
       config) are task fields, not settings.
-- [x] Durations are written like `1h30` / `90m`.
+- [x] Durations are written like `1h30` / `90m` (`model::time::Minutes`;
+      not used by a setting yet, the default estimate is the first).
 - [ ] CLI: create workspaces below other containers (e.g. `--parent uni/cs`).
 
 ## 2. Time tracking (the core feature)
 
 - [ ] **Default estimate** per workspace / project: how long a task takes,
-      as a first guess.
+      as a first guess. An inherited setting `estimate: Option<Minutes>`
+      plus one `SETTINGS` entry.
 - [ ] **Sessions, not totals:** every work session is stored with start and
       end (total = sum), plus its source (`manual`, `nvim`, `tmux`, `idea`,
       ...) and whether it was edited.
@@ -91,9 +104,9 @@ Priorities as of 2026-09-25, in order. Background and older plans:
       is an "at least"). Averages are calculated from the sessions, not
       stored as settings.
 - [ ] Show estimate vs. actual per task and container (roadmap 5.2).
-- [ ] **Time tab** in the TUI (next to the tree): running session, sessions
-      per task with corrections, 7-day view of the schedule. The details
-      pane shows estimate, time so far, remaining, number of sessions.
+- [ ] **Time tab** in the details pane (a third `DetailsTab`): running
+      session, sessions per task with corrections, 7-day view of the
+      schedule; estimate, time so far, remaining, number of sessions.
 - [ ] **Better local estimates, step by step** (each measured against the
       recorded actual times; build the next only if needed):
       robust stats (median, recency weighting, a range instead of one
@@ -196,7 +209,14 @@ around your calendar and shows the result on your phone.
 - [ ] `submit_form` clones the whole form on every Enter.
 - [ ] `cli.rs` cleanup.
 - [ ] `roadmap.txt` 6.1 status is out of date (event loop is async, TUI
-      writes: status, delete, create, edit).
+      writes: status, delete, create, edit; details tabs, root row).
+- [ ] `TaskPatch.dir` can't remove a task's folder: optional fields need
+      `Option<Option<T>>` in their patch, like `HeaderPatch.description`.
+- [ ] Maybe a "jump to the root" key (`g`) if walking up with `h` gets
+      tedious in deep trees.
+- [x] Cursor and folding moved from `Tree` into the TUI's `TreeState`;
+      `view.toml` stores folded containers and the selected node by ID, so
+      the cursor comes back after a restart.
 - [ ] `udo edit` in the CLI (with the `cli.rs` cleanup); the CLI still
       converts dates inline instead of `local_to_utc`.
 - [ ] Edit dirs (move folders): its own operation (rename on disk, fix the
