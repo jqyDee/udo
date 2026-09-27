@@ -1,18 +1,19 @@
 use std::{fmt, path::PathBuf};
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+
+use crate::model::time::Time;
 
 /// Task body of a `Node` (id and name live on the node).
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct Task {
     pub dir: Option<PathBuf>,
     pub status: TaskStatus,
-    pub due_date: DateTime<Utc>,
+    pub due_date: Time,
 }
 
 impl Task {
-    pub fn new(dir: Option<PathBuf>, due_date: DateTime<Utc>) -> Self {
+    pub fn new(dir: Option<PathBuf>, due_date: Time) -> Self {
         Self {
             dir,
             status: TaskStatus::Pending,
@@ -59,23 +60,24 @@ impl fmt::Display for TaskStatus {
 pub struct TaskPatch {
     pub dir: Option<PathBuf>,
     pub status: Option<TaskStatus>,
-    pub due_date: Option<DateTime<Utc>>,
+    pub due_date: Option<Time>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::time;
 
     #[test]
     fn new_task_is_pending() {
-        let t = Task::new(None, Utc::now());
+        let t = Task::new(None, time::now());
         assert_eq!(t.status, TaskStatus::Pending);
         assert!(t.dir.is_none());
     }
 
     #[test]
     fn update_changes_only_given_fields() {
-        let due = Utc::now();
+        let due = time::now();
         let mut t = Task::new(Some("/tmp/t".into()), due);
 
         t.update(TaskPatch {
@@ -90,8 +92,8 @@ mod tests {
 
     #[test]
     fn update_sets_all_fields() {
-        let mut t = Task::new(None, Utc::now());
-        let due = Utc::now();
+        let mut t = Task::new(None, time::now());
+        let due = time::now();
 
         t.update(TaskPatch {
             dir: Some("/tmp/new".into()),

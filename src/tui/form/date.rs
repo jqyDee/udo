@@ -2,22 +2,13 @@
 
 use std::ops::Range;
 
-use chrono::{DateTime, Local, Months, NaiveDateTime, TimeDelta, TimeZone, Utc};
+use chrono::{Local, Months, NaiveDateTime, TimeDelta};
 use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::{DATE_FMT, tui::keys::is_text_input};
 
-/// Local form time -> UTC for storing. None if that time doesn't exist
-/// (skipped by a DST switch).
-pub fn local_to_utc(local: NaiveDateTime) -> Option<DateTime<Utc>> {
-    Local
-        .from_local_datetime(&local)
-        .earliest()
-        .map(|t| t.with_timezone(&Utc))
-}
-
 /// Local date + time, edited one segment at a time (←/→ pick, ↑/↓ change).
-/// Local, not UTC: converted only on submit (`App::submit_form`).
+/// Naive local time: converted to `Time` only on submit (`App::submit_form`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DateInput {
     pub value: NaiveDateTime,

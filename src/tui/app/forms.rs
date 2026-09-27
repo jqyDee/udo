@@ -15,9 +15,10 @@ use crate::{
         node::{BodyPatch, HeaderPatch, Node, NodePatch},
         settings::{ContainerSettings, view::SettingInfo},
         task::{Task, TaskPatch},
+        time::local_to_fixed,
         tree::Tree,
     },
-    tui::form::{FolderMode, Form, FormAction, FormOutcome, TaskDefaults, local_to_utc},
+    tui::form::{FolderMode, Form, FormAction, FormOutcome, TaskDefaults},
 };
 
 impl App<'_> {
@@ -134,7 +135,7 @@ impl App<'_> {
         let v = form.values();
         let description = Some(v.description);
         // only task forms have a due date
-        let due = match v.due.map(local_to_utc) {
+        let due = match v.due.map(local_to_fixed) {
             Some(None) => {
                 self.error("that time doesn't exist (DST switch)");
                 return;

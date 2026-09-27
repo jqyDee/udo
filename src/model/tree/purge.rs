@@ -258,11 +258,9 @@ fn resolved(path: &Path) -> PathBuf {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use chrono::Utc;
-
     use crate::{
         Res,
-        model::{container::ContainerKind, id::NodeId, node::Node, task::Task, tree::Tree},
+        model::{container::ContainerKind, id::NodeId, node::Node, task::Task, time, tree::Tree},
         test_util::{container_at, task},
     };
 
@@ -276,7 +274,7 @@ mod tests {
     }
 
     fn task_at(name: &str, dir: &Path) -> Node {
-        Node::task(name.into(), Task::new(Some(dir.to_path_buf()), Utc::now()))
+        Node::task(name.into(), Task::new(Some(dir.to_path_buf()), time::now()))
     }
 
     /// In memory, every dir created under `tmp`:

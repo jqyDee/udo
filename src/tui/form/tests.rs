@@ -143,7 +143,7 @@ fn ids(form: &Form) -> Vec<FieldId> {
 #[test]
 fn edit_task_is_prefilled_without_folder_rows() {
     let due = dt(2026, 10, 15, 14, 30); // local, like the form shows it
-    let task = Task::new(Some("/uni/lab".into()), local_to_utc(due).unwrap());
+    let task = Task::new(Some("/uni/lab".into()), local_to_fixed(due).unwrap());
     let node = Node::task("lab 3".into(), task).with_description(Some("ex 1-4".into()));
 
     let form = Form::edit_node(vec![0, 1], &node);
@@ -157,7 +157,7 @@ fn edit_task_is_prefilled_without_folder_rows() {
     let v = form.values();
     assert_eq!(v.name, "lab 3");
     assert_eq!(v.description, "ex 1-4");
-    assert_eq!(v.due, Some(due)); // UTC -> local round trip
+    assert_eq!(v.due, Some(due)); // stored -> local round trip
     assert_eq!(v.kind, None);
     assert_eq!(form.chosen_dir(), Ok(None)); // no folder rows: dir untouched
 }
@@ -185,10 +185,7 @@ fn create_and_edit_forms_share_field_order() {
         folder: FolderMode::Auto,
     };
     let create = Form::new_task(vec![], "root", None, defaults);
-    let edit = Form::edit_node(
-        vec![0],
-        &Node::task("t".into(), Task::new(None, Utc::now())),
-    );
+    let edit = Form::edit_node(vec![0], &Node::task("t".into(), Task::new(None, now())));
     // edit = create without the folder rows
     let without_folder: Vec<_> = ids(&create)
         .into_iter()
@@ -199,10 +196,7 @@ fn create_and_edit_forms_share_field_order() {
 
 #[test]
 fn values_normalize_the_name_but_keep_the_description_raw() {
-    let mut form = Form::edit_node(
-        vec![0],
-        &Node::task("a".into(), Task::new(None, Utc::now())),
-    );
+    let mut form = Form::edit_node(vec![0], &Node::task("a".into(), Task::new(None, now())));
     focus(&mut form, FieldId::Name);
     for c in "  b   c ".chars() {
         form.handle_key(press(KeyCode::Char(c)));

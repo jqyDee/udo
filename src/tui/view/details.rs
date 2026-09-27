@@ -99,7 +99,7 @@ fn detail_lines(node: &Node) -> Vec<Line<'_>> {
         }
         NodeBody::Task(t) => lines.extend([
             field("status", t.status.to_string()),
-            // stored as UTC, shown local (same as entered in the form)
+            // shown in the current local time (same as entered in the form)
             field(
                 "due",
                 t.due_date

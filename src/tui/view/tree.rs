@@ -68,7 +68,7 @@ fn row_line<'a>(row: &Row<'a>, folded: bool) -> Line<'a> {
             indent,
             Span::raw(format!("{} ", status_icon(&t.status))),
             task_name(name, t),
-            // stored as UTC, shown local (same as entered in the form)
+            // shown in the current local time (same as entered in the form)
             Span::raw("  "),
             Span::raw(format!(
                 "{}",

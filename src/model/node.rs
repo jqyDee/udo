@@ -1,6 +1,5 @@
 use std::path::Path;
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -9,6 +8,7 @@ use crate::{
         container::{Container, ContainerPatch},
         id::NodeId,
         task::{Task, TaskPatch},
+        time::{self, Time},
     },
 };
 
@@ -25,7 +25,7 @@ pub struct Node {
 pub struct NodeHeader {
     pub id: NodeId,
     pub name: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Time,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
@@ -145,7 +145,7 @@ impl NodeHeader {
         Self {
             id: NodeId::new(),
             name,
-            created_at: Utc::now(),
+            created_at: time::now(),
             description: None,
         }
     }
@@ -193,11 +193,10 @@ pub fn clean_description(desc: String) -> Option<String> {
 mod tests {
     use super::*;
     use crate::model::container::ContainerKind;
-    use chrono::Utc;
     use std::path::PathBuf;
 
     fn task(name: &str, dir: Option<PathBuf>) -> Node {
-        Node::task(name.into(), Task::new(dir, Utc::now()))
+        Node::task(name.into(), Task::new(dir, time::now()))
     }
     fn container(name: &str, children: Vec<Node>) -> Node {
         let mut c = Container::new("/tmp/x".into(), ContainerKind::Workspace);

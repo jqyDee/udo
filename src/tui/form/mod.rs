@@ -18,29 +18,23 @@ mod text;
 
 use std::path::PathBuf;
 
-use chrono::{Local, NaiveDateTime, Utc};
+use chrono::{Local, NaiveDateTime};
 use crossterm::event::{KeyCode, KeyEvent};
 
 pub use choice::{
     CONTAINER_FOLDER_CHOICES, CONTAINER_KIND_CHOICES, ChoiceInput, FOLDER_CHOICES, FolderMode,
     kind_from_label,
 };
-pub use date::{DateInput, Segment, local_to_utc};
+pub use date::{DateInput, Segment};
 pub use text::TextInput;
 
 use crate::{
-    dir::parse_abs_dir,
-    model::{
-        NodePath,
-        container::{Container, ContainerKind},
-        node::{Node, NodeBody},
-        settings::{
+    dir::parse_abs_dir, model::{
+        NodePath, container::{Container, ContainerKind}, node::{Node, NodeBody}, settings::{
             ContainerSettings, RootSettings,
             view::{ROOT_SETTINGS, SETTINGS, SettingInfo},
-        },
-        task::Task,
-    },
-    naming::{folder_name, normalize_name},
+        }, task::Task, time::{local_to_fixed, now},
+    }, naming::{folder_name, normalize_name},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -219,8 +213,8 @@ impl Form {
         parent_dir: Option<PathBuf>,
         defaults: TaskDefaults,
     ) -> Self {
-        // template stores UTC like a real task; `for_node` shows it local again
-        let due = local_to_utc(defaults.due).unwrap_or_else(Utc::now);
+        // template stores a `Time` like a real task; `for_node` shows it local again
+        let due = local_to_fixed(defaults.due).unwrap_or_else(now);
         let template = Node::task(String::new(), Task::new(None, due));
         Self::for_node(
             format!("new task · in {parent_name}"),
@@ -333,7 +327,7 @@ impl Form {
                 if let Some(mode) = folder {
                     fields.extend(folder_rows(FOLDER_CHOICES, mode));
                 }
-                // stored as UTC, edited as local time
+                // stored with its offset, edited as current local time
                 let due = t.due_date.with_timezone(&Local).naive_local();
                 fields.push(FormField::date(FieldId::Due, due));
             }

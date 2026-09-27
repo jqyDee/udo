@@ -3,7 +3,6 @@
 
 use std::path::{Path, PathBuf};
 
-use chrono::Utc;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::{
@@ -11,6 +10,7 @@ use crate::{
         container::{Container, ContainerKind},
         node::Node,
         task::Task,
+        time,
         tree::Tree,
     },
     tui::tree_state::TreeState,
@@ -18,7 +18,7 @@ use crate::{
 
 /// Pending task without a dir, due now.
 pub fn task(name: &str) -> Node {
-    Node::task(name.into(), Task::new(None, Utc::now()))
+    Node::task(name.into(), Task::new(None, time::now()))
 }
 
 /// Workspace container at `/tmp/<name>` with the given children.

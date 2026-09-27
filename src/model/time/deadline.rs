@@ -22,7 +22,7 @@ impl DeadlineRule {
     pub const EXAMPLES: &str = "fri 22:00 · +7d 23:59";
 
     /// The due date this rule gives for a task created at `now` (local,
-    /// naive: the form turns it into UTC on submit).
+    /// naive: the form turns it into a `Time` on submit).
     pub fn next_after(self, now: NaiveDateTime) -> NaiveDateTime {
         match self {
             Self::InDays { days, time } => now

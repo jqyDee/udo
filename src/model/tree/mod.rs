@@ -89,10 +89,8 @@ impl Tree {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use chrono::Utc;
-
     use crate::{
-        model::{container::ContainerKind, node::Node, task::Task, tree::Tree},
+        model::{container::ContainerKind, node::Node, task::Task, time, tree::Tree},
         test_util::{container, container_at, task, tree_with},
     };
 
@@ -120,7 +118,7 @@ mod tests {
 
     /// Task node with an optional dir, due now (for `create`).
     pub(super) fn new_task(name: &str, dir: Option<PathBuf>) -> Node {
-        Node::task(name.into(), Task::new(dir, Utc::now()))
+        Node::task(name.into(), Task::new(dir, time::now()))
     }
 
     /// Empty container node at `dir` (for `create`).

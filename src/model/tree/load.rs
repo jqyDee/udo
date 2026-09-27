@@ -150,8 +150,6 @@ fn fix_ids(
 mod tests {
     use std::{collections::HashSet, path::PathBuf};
 
-    use chrono::Utc;
-
     use crate::{
         model::{
             container::ContainerKind,
@@ -160,6 +158,7 @@ mod tests {
             node::{Node, NodeHeader},
             settings::{ContainerSettings, RootSettings},
             task::Task,
+            time,
             tree::Tree,
         },
         test_util::{container_at, task},
@@ -250,7 +249,7 @@ mod tests {
         // `cp -r a b`: same container id and same task id in both files
         let row = TaskData {
             header: NodeHeader::new("t".into()),
-            task: Task::new(None, Utc::now()),
+            task: Task::new(None, time::now()),
         };
         let copied = container_data("ws", vec![row], vec![]);
         copied.save(&a).await.unwrap();

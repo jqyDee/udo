@@ -1,6 +1,6 @@
 use std::path::{PathBuf, absolute};
 
-use chrono::{Local, NaiveDateTime, TimeZone, Utc};
+use chrono::{Local, NaiveDateTime};
 use clap::{Parser, Subcommand};
 
 use crate::{
@@ -10,6 +10,7 @@ use crate::{
         container::{Container, ContainerKind},
         node::{Node, NodeBody},
         task::Task,
+        time::local_to_fixed,
         tree::Tree,
     },
     naming::{folder_name, normalize_name},
@@ -130,15 +131,12 @@ impl Cli {
                     no_auto_create_folder,
                     description,
                 } => {
-                    // typed as local time (like in the TUI), stored as UTC
+                    // typed as local time (like in the TUI), stored with its offset
                     let local = NaiveDateTime::parse_from_str(due, DATE_FMT)
                         .map_err(|_| format!("invalid --due {due:?}, use YYYY-MM-DD HH:MM"))?;
 
-                    let date = Local
-                        .from_local_datetime(&local)
-                        .earliest()
-                        .map(|t| t.with_timezone(&Utc))
-                        .ok_or("that time doesn't exist (DST switch)")?;
+                    let date =
+                        local_to_fixed(local).ok_or("that time doesn't exist (DST switch)")?;
 
                     let parent: NodePath = match (workspace, project) {
                         (None, None) => vec![], // root
