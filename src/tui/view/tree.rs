@@ -53,7 +53,7 @@ fn row_line<'a>(row: &Row<'a>, folded: bool) -> Line<'a> {
             Line::from(vec![
                 indent,
                 Span::raw(marker),
-                Span::raw(format!("{name}/")).bold().dark_gray(),
+                Span::raw(format!("{name}/")).bold(),
             ])
         }
         NodeBody::Task(t) => Line::from(vec![
@@ -61,8 +61,9 @@ fn row_line<'a>(row: &Row<'a>, folded: bool) -> Line<'a> {
             Span::raw(format!("{} ", status_icon(&t.status))),
             task_name(name, t),
             // stored as UTC, shown local (same as entered in the form)
+            Span::raw("  "),
             Span::raw(format!(
-                "  {}",
+                "{}",
                 t.due_date.with_timezone(&Local).format(DATE_FMT)
             ))
             .dim(),
