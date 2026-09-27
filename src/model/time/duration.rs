@@ -16,6 +16,10 @@ impl Minutes {
     pub fn get(self) -> u32 {
         self.0
     }
+
+    /// Ways to write a duration, `·`-separated, for hints in the UI. Each
+    /// one parses, and the error message (`FORMAT`) names them too (tested).
+    pub const EXAMPLES: &str = "1h30 · 2h · 45m";
 }
 
 const FORMAT: &str = "write durations like 1h30, 1h30m, 2h or 45m";
@@ -115,6 +119,14 @@ mod tests {
             "1h60", "1h30x", "1 h 30", "1h30mm", "30m1h",
         ] {
             assert!(parse(input).is_err(), "{input:?} was accepted");
+        }
+    }
+
+    #[test]
+    fn examples_parse_and_the_error_names_them() {
+        for example in Minutes::EXAMPLES.split(" · ") {
+            assert!(parse(example).is_ok(), "{example:?}");
+            assert!(FORMAT.contains(example), "{example:?} not in {FORMAT:?}");
         }
     }
 

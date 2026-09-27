@@ -2,7 +2,7 @@ use crate::{
     dir::parse_abs_dir,
     model::{
         settings::{ContainerSettings, Resolved, RootSettings, Source, TaskFolderSetting},
-        time::DeadlineRule,
+        time::{DeadlineRule, Minutes},
         tree::Tree,
     },
 };
@@ -61,6 +61,17 @@ pub const SETTINGS: &[SettingInfo<ContainerSettings>] = &[
         get: |s| s.archive_dir.as_ref().map(|p| p.display().to_string()),
         set: |s, text| {
             s.archive_dir = opt(text, parse_abs_dir)?;
+            Ok(())
+        },
+    },
+    SettingInfo {
+        key: "estimate",
+        label: "estimate",
+        choices: &[],
+        format: Some(Minutes::EXAMPLES),
+        get: |s| s.estimate.map(|e| e.to_string()),
+        set: |s, text| {
+            s.estimate = opt(text, str::parse)?;
             Ok(())
         },
     },
@@ -144,6 +155,7 @@ mod tests {
         model::{
             node::Node,
             settings::{Source, TaskFolderSetting},
+            time::Minutes,
         },
         test_util::{container, task, tree_with},
     };
@@ -154,6 +166,7 @@ mod tests {
             archive_dir: Some(PathBuf::from("/arch")),
             task_folders: Some(TaskFolderSetting::Auto),
             default_deadline: Some("fri 22:00".parse().unwrap()),
+            estimate: Some(Minutes::new(10)),
         }
     }
 
@@ -244,6 +257,7 @@ mod tests {
                 Some("auto".to_string()),
                 Some("fri 22:00".to_string()),
                 Some("/arch".to_string()),
+                Some("10m".to_string()),
             ]
         );
         let empty = ContainerSettings::default();

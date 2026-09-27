@@ -283,7 +283,7 @@ mod tests {
             root_file.contains("archive_dir = \"/arch\""),
             "got:\n{root_file}"
         );
-        for unset in ["task_folders", "default_deadline", "[root]"] {
+        for unset in ["task_folders", "default_deadline", "estimate", "[root]"] {
             assert!(!root_file.contains(unset), "{unset} in:\n{root_file}");
         }
         // uni inherits it, but its file doesn't repeat it

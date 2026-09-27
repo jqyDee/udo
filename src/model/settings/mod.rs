@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 pub use resolve::{Resolved, Source};
 
-use crate::model::time::DeadlineRule;
+use crate::model::time::{DeadlineRule, Minutes};
 
 /// Settings any container can set, flattened into its `.udo.toml`. Every
 /// field is optional: `None` = take it from the parent.
@@ -28,6 +28,9 @@ pub struct ContainerSettings {
     /// Due date of new tasks, e.g. `fri 22:00`. Inherited; built-in:
     /// `+1d 12:00` (tomorrow noon).
     pub default_deadline: Option<DeadlineRule>,
+    /// First guess of how long a task takes, e.g. `1h30`. Inherited; no
+    /// built-in default.
+    pub estimate: Option<Minutes>,
 }
 
 impl ContainerSettings {
