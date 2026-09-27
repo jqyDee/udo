@@ -23,8 +23,10 @@ pub enum Action {
     SetStatus(TaskStatus),
     Edit,
     Delete,
-    NewContainer { global: bool },
-    NewTask { global: bool },
+    NewContainer,
+    NewTask,
+    NextTab,
+    PrevTab,
 }
 
 /// One row of the keymap: all keys that trigger `action`, and its help text.
@@ -49,6 +51,10 @@ pub const KEYMAP: &[Section] = &[
         Binding { keys: &[KeyCode::Char('l'), KeyCode::Right], action: Action::In, help: "open / go in" },
         Binding { keys: &[KeyCode::Char('h'), KeyCode::Left], action: Action::Out, help: "go to parent" },
     ]},
+    Section { title: "view", bindings: &[
+        Binding { keys: &[KeyCode::Tab], action: Action::NextTab, help: "next details tab" },
+        Binding { keys: &[KeyCode::BackTab], action: Action::PrevTab, help: "previous details tab" },
+    ]},
     Section { title: "fold", bindings: &[
         Binding { keys: &[KeyCode::Char(' '), KeyCode::Enter], action: Action::Toggle, help: "fold / unfold" },
         Binding { keys: &[KeyCode::Char('z')], action: Action::CollapseAll, help: "fold all" },
@@ -63,10 +69,8 @@ pub const KEYMAP: &[Section] = &[
         Binding { keys: &[KeyCode::Char('d')], action: Action::Delete, help: "remove from udo" },
     ]},
     Section {title: "create", bindings: &[
-        Binding { keys: &[KeyCode::Char('c')], action: Action::NewContainer {global: false}, help: "new container here" },
-        Binding { keys: &[KeyCode::Char('C')], action: Action::NewContainer {global: true}, help: "new container global" },
-        Binding { keys: &[KeyCode::Char('t')], action: Action::NewTask {global: false}, help: "new task here" },
-        Binding { keys: &[KeyCode::Char('T')], action: Action::NewTask {global: true}, help: "new task global" },
+        Binding { keys: &[KeyCode::Char('c')], action: Action::NewContainer, help: "new container" },
+        Binding { keys: &[KeyCode::Char('t')], action: Action::NewTask, help: "new task" },
     ]},
     Section { title: "app", bindings: &[
         Binding { keys: &[KeyCode::Char('?')], action: Action::Help, help: "toggle this help" },
@@ -110,6 +114,8 @@ pub fn key_label(key: &KeyCode) -> String {
         KeyCode::Right => "→".into(),
         KeyCode::Enter => "enter".into(),
         KeyCode::Esc => "esc".into(),
+        KeyCode::Tab => "tab".into(),
+        KeyCode::BackTab => "shift + tab".into(),
         other => format!("{other:?}"),
     }
 }
@@ -184,20 +190,9 @@ mod tests {
     fn create_keys() {
         assert_eq!(
             action_for(press(KeyCode::Char('c'))),
-            Some(Action::NewContainer { global: false })
+            Some(Action::NewContainer)
         );
-        assert_eq!(
-            action_for(press(KeyCode::Char('C'))),
-            Some(Action::NewContainer { global: true })
-        );
-        assert_eq!(
-            action_for(press(KeyCode::Char('t'))),
-            Some(Action::NewTask { global: false })
-        );
-        assert_eq!(
-            action_for(press(KeyCode::Char('T'))),
-            Some(Action::NewTask { global: true })
-        );
+        assert_eq!(action_for(press(KeyCode::Char('t'))), Some(Action::NewTask));
     }
 
     #[test]

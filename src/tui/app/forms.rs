@@ -20,17 +20,14 @@ use crate::{
 impl App<'_> {
     /// Where a new node goes: the root if `global`, else the container at
     /// the cursor (or the task's container).
-    fn creation_parent(&self, global: bool) -> NodePath {
-        if global {
-            return vec![];
-        }
+    fn creation_parent(&self) -> NodePath {
         self.tree
             .nearest_file_owner(&self.tree_state.cursor)
             .unwrap_or_default()
     }
 
-    pub(super) fn open_container_form(&mut self, global: bool) {
-        let parent = self.creation_parent(global);
+    pub(super) fn open_container_form(&mut self) {
+        let parent = self.creation_parent();
         let parent_node = self.tree.get(&parent);
         let parent_name = parent_node.map_or("root", |n| n.name());
         let parent_dir = parent_node.and_then(|n| n.dir().map(|d| d.to_path_buf()));
@@ -49,8 +46,8 @@ impl App<'_> {
         )));
     }
 
-    pub(super) fn open_task_form(&mut self, global: bool) {
-        let parent = self.creation_parent(global);
+    pub(super) fn open_task_form(&mut self) {
+        let parent = self.creation_parent();
         let parent_node = self.tree.get(&parent);
         let parent_name = parent_node.map_or("root", |n| n.name());
         let parent_dir = parent_node.and_then(|n| n.dir().map(|d| d.to_path_buf()));
@@ -77,6 +74,9 @@ impl App<'_> {
 
     /// Edit form for the node at the cursor, prefilled with its values.
     pub(super) fn open_edit_form(&mut self) {
+        if self.tree_state.on_root() {
+            return self.error("the root cannot be edited");
+        }
         match self.tree_state.selected(self.tree) {
             Some(node) => {
                 let path = self.tree_state.cursor.clone();

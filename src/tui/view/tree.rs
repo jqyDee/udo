@@ -6,7 +6,7 @@ use ratatui::{
     layout::Rect,
     style::{Style, Stylize},
     text::{Line, Span},
-    widgets::{Block, List, ListItem, Paragraph},
+    widgets::{Block, List, ListItem},
 };
 
 use crate::{
@@ -25,24 +25,32 @@ pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree, state: &mut TreeState) {
         .list
         .select(rows.iter().position(|r| r.path == state.cursor));
 
-    let block = Block::bordered().title(" udo ");
-    if rows.is_empty() {
-        let hint = Paragraph::new("Nothing here yet. Add some with `udo create-workspace`.")
-            .block(block)
-            .dim();
-        frame.render_widget(hint, area);
-    } else {
-        let lines = rows.iter().map(|r| row_line(r, state.is_collapsed(r.node)));
-        let list_widget = List::new(lines.map(ListItem::new))
-            .block(block)
-            .highlight_style(Style::new().reversed());
-        frame.render_stateful_widget(list_widget, area, &mut state.list);
+    let mut lines: Vec<Line> = rows
+        .iter()
+        .map(|r| row_line(r, state.is_collapsed(r.node)))
+        .collect();
+    // only the root row: say how to start (after the rows, so list indexes
+    // still match `rows`)
+    if tree.root.children().is_empty() {
+        lines.push(Line::from("  Nothing here yet: c new container, t new task").dim());
     }
+    let list_widget = List::new(lines.into_iter().map(ListItem::new))
+        .block(Block::bordered().title(" udo "))
+        .highlight_style(Style::new().reversed());
+    frame.render_stateful_widget(list_widget, area, &mut state.list);
 }
 
 fn row_line<'a>(row: &Row<'a>, folded: bool) -> Line<'a> {
-    let indent = Span::raw("  ".repeat(row.depth));
     let name = row.node.name();
+    // the root: a header row, not a sibling of its children
+    if row.path.is_empty() {
+        let dir = row.node.dir().map(|d| d.display().to_string());
+        return Line::from(vec![
+            Span::raw(name).bold(),
+            Span::raw(format!("  {}", dir.unwrap_or_default())).dim(),
+        ]);
+    }
+    let indent = Span::raw("  ".repeat(row.depth));
     match &row.node.body {
         NodeBody::Container(c) => {
             let marker = match (c.children.is_empty(), folded) {

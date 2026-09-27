@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crossterm::event::{KeyCode, KeyEventState, KeyModifiers};
 
-use super::*;
+use super::{details::DetailsTab, *};
 use crate::{
     model::{container::ContainerKind, node::Node, settings::TaskFolderSetting},
     test_util::{container, container_at, press, state_at, task, tree_with},
@@ -76,10 +76,51 @@ async fn unknown_key_changes_nothing() {
 }
 
 #[test]
-fn new_selects_first_row() {
+fn new_keeps_the_given_cursor() {
     let mut t = tree();
     let app = App::new(&mut t, TreeState::default());
+    assert!(app.tree_state.on_root()); // `TreeState::load` picks the start
+}
+
+#[tokio::test]
+async fn h_from_the_top_level_reaches_the_root_and_j_leaves_it() {
+    let mut t = tree();
+    let mut app = App::new(&mut t, state_at(&[1]));
+
+    app.handle_key(key('h')).await;
+    assert!(app.tree_state.on_root());
+    app.handle_key(key('j')).await;
     assert_eq!(app.tree_state.cursor, vec![0]);
+}
+
+#[tokio::test]
+async fn edit_and_delete_refuse_the_root() {
+    for k in ['e', 'd'] {
+        let mut t = tree();
+        let mut app = App::new(&mut t, TreeState::default()); // root row
+
+        app.handle_key(key(k)).await;
+
+        assert_eq!(app.mode, Mode::Normal, "{k}: something opened");
+        let toast = app.toast.as_ref().expect("no toast");
+        assert_eq!(toast.kind, ToastKind::Error);
+        assert!(toast.msg.contains("root"), "{k}: {}", toast.msg);
+    }
+}
+
+#[tokio::test]
+async fn t_on_the_root_creates_in_the_root() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut t = Tree::load_from(tmp.path()).await.unwrap();
+    t.create(&[], task("first")).await.unwrap();
+    let mut app = App::new(&mut t, TreeState::default()); // root row
+
+    app.handle_key(key('t')).await;
+    type_into(&mut app, "second").await;
+    app.handle_key(press(KeyCode::Enter)).await;
+
+    assert_eq!(app.tree.get(&[1]).unwrap().name(), "second");
+    assert_eq!(app.tree_state.cursor, vec![1]); // the new task is selected
 }
 
 // ---------- actions ----------
@@ -98,9 +139,41 @@ async fn folding_hides_rows_without_touching_the_tree() {
     let mut t = tree();
     let mut app = App::new(&mut t, state_at(&[1])); // "ws"
     app.handle_key(key(' ')).await;
-    assert_eq!(app.tree_state.rows(app.tree).len(), 2); // "b" hidden
+    assert_eq!(app.tree_state.rows(app.tree).len(), 3); // root, a, ws; "b" hidden
     app.handle_key(key('j')).await;
     assert_eq!(app.tree_state.cursor, vec![1]); // nothing below "ws"
+}
+
+#[tokio::test]
+async fn tab_keys_switch_the_details_tab() {
+    let mut t = tree();
+    let mut app = App::new(&mut t, state_at(&[0]));
+    assert_eq!(app.details_tab, DetailsTab::Info);
+
+    app.handle_key(press(KeyCode::Tab)).await;
+    assert_eq!(app.details_tab, DetailsTab::Settings);
+    app.handle_key(press(KeyCode::Tab)).await;
+    assert_eq!(app.details_tab, DetailsTab::Info); // wraps
+    app.handle_key(press(KeyCode::BackTab)).await;
+    assert_eq!(app.details_tab, DetailsTab::Settings);
+
+    assert_eq!(app.tree_state.cursor, vec![0]); // the tree is untouched
+    assert!(app.toast.is_none());
+}
+
+#[tokio::test]
+async fn tab_in_a_form_moves_between_fields_not_tabs() {
+    let mut t = tree();
+    let mut app = App::new(&mut t, state_at(&[0]));
+    app.handle_key(key('t')).await;
+
+    app.handle_key(press(KeyCode::Tab)).await;
+
+    assert_eq!(app.details_tab, DetailsTab::Info);
+    let Mode::Form(form) = &app.mode else {
+        panic!("no form open");
+    };
+    assert_eq!(form.active_field, 1);
 }
 
 #[tokio::test]

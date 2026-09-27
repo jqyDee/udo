@@ -32,15 +32,25 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
     tree::draw(frame, left, app.tree, &mut app.tree_state);
 
+    // node at the cursor path; `[]` (empty tree) is the root, so both tabs
+    // show the root then
+    let node = app.tree.get(&app.tree_state.cursor);
+    let settings = app.tree.effective_settings(&app.tree_state.cursor);
     // Split right pane when form is active
-    let selected = app.tree_state.selected(app.tree);
     if let Mode::Form(form) = &app.mode {
         let [top_details, bottom_form] =
             Layout::vertical([Constraint::Percentage(40), Constraint::Percentage(60)]).areas(right);
-        details::draw(frame, top_details, selected);
+        details::draw(
+            frame,
+            top_details,
+            app.tree,
+            node,
+            app.details_tab,
+            &settings,
+        );
         form::draw(frame, bottom_form, form);
     } else {
-        details::draw(frame, right, selected);
+        details::draw(frame, right, app.tree, node, app.details_tab, &settings);
     }
 
     frame.render_widget(Line::from(HINT).dim(), bottom);

@@ -12,30 +12,58 @@ use ratatui::{
 
 use crate::{
     DATE_FMT,
-    model::node::{Node, NodeBody},
-    tui::view::LABEL_WIDTH,
+    model::{
+        node::{Node, NodeBody},
+        settings::{Source, view::EffectiveSetting},
+        tree::Tree,
+    },
+    tui::{app::details::DetailsTab, view::LABEL_WIDTH},
 };
 
-/// `selected`: the node at the cursor, None if nothing is selected.
-pub fn draw(frame: &mut Frame, area: Rect, selected: Option<&Node>) {
-    let lines = match selected {
-        Some(node) => detail_lines(node),
-        None => vec![Line::from("nothing selected").dim()],
-    };
+/// Every tab starts with the same header (`header_lines`), then its own
+/// lines. `node`: the node at the cursor, the root if the cursor is empty
+/// (empty tree); None only for a cursor that points nowhere.
+pub fn draw(
+    frame: &mut Frame,
+    area: Rect,
+    tree: &Tree,
+    node: Option<&Node>,
+    tab: DetailsTab,
+    settings: &[EffectiveSetting],
+) {
+    let mut lines = header_lines(node);
+    lines.extend(match tab {
+        DetailsTab::Info => node.map(detail_lines).unwrap_or_default(),
+        DetailsTab::Settings => setting_lines(tree, settings),
+    });
+    let titles: Vec<Span> = DetailsTab::ALL
+        .iter()
+        .map(|t| {
+            let s = Span::raw(format!(" {} ", t.title()));
+            if *t == tab { s.reversed() } else { s.dim() }
+        })
+        .collect();
     frame.render_widget(
-        Paragraph::new(lines).block(Block::bordered().title(" details ")),
+        Paragraph::new(lines).block(Block::bordered().title(Line::from(titles))),
         area,
     );
 }
 
+/// Top of every tab: the node's name, then a blank line.
+fn header_lines(node: Option<&Node>) -> Vec<Line<'_>> {
+    match node {
+        Some(node) => vec![Line::from(node.name()).bold(), Line::default()],
+        None => vec![Line::from("nothing selected").dim(), Line::default()],
+    }
+}
+
+/// Info tab: the node's own fields (below the shared header).
 fn detail_lines(node: &Node) -> Vec<Line<'_>> {
     let kind = match node.body {
         NodeBody::Container(_) => "container",
         NodeBody::Task(_) => "task",
     };
     let mut lines = vec![
-        Line::from(node.name()).bold(),
-        Line::default(),
         field("type", kind.into()),
         field("id", node.id().to_string()),
         field(
@@ -65,9 +93,6 @@ fn detail_lines(node: &Node) -> Vec<Line<'_>> {
                 field("tasks", tasks.to_string()),
                 field("children", (c.children.len() - tasks).to_string()),
             ]);
-            if let Some(a) = &c.settings.archive_dir {
-                lines.push(field("archive", a.display().to_string()));
-            }
             if !c.unloaded.is_empty() {
                 lines.push(field("missing", c.unloaded.len().to_string()).red());
             }
@@ -99,4 +124,30 @@ fn field(key: &str, value: String) -> Line<'_> {
         Span::raw(format!("{key:<LABEL_WIDTH$}")).dim(),
         Span::raw(value),
     ])
+}
+
+/// One line per setting: label, effective value, where it came from.
+fn setting_lines(tree: &Tree, settings: &[EffectiveSetting]) -> Vec<Line<'static>> {
+    settings
+        .iter()
+        .map(|s| match &s.value {
+            None => field(s.label, "-".into()),
+            Some(r) => {
+                let mut line = field(s.label, r.value.clone());
+                line.push_span(Span::raw(format!(" ({})", source_text(tree, &r.source))).dim());
+                line
+            }
+        })
+        .collect()
+}
+
+/// `own`, `from uni`, `default`.
+fn source_text(tree: &Tree, source: &Source) -> String {
+    match source {
+        Source::Own => "own".into(),
+        Source::Inherited(path) => {
+            format!("from {}", tree.get(path).map_or("?", |n| n.name()))
+        }
+        Source::Default => "default".into(),
+    }
 }

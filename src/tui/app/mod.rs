@@ -3,9 +3,11 @@
 //!
 //! One file per mode that needs more than a line or two:
 //! - `confirm`: "remove?" prompt (`d`) and full delete (`D`)
+//! - `details`: `DetailsTab`, which tab the right pane shows (Tab / Shift+Tab)
 //! - `forms`:   create forms (`t` `T` `c` `C`) and the edit form (`e`)
 
 mod confirm;
+pub mod details;
 mod forms;
 #[cfg(test)]
 mod tests;
@@ -22,6 +24,7 @@ use crate::{
         tree::{TrashFn, Tree, system_trash},
     },
     tui::{
+        app::details::DetailsTab,
         form::Form,
         keys::{Action, action_for},
         toast::Toast,
@@ -31,9 +34,10 @@ use crate::{
 
 /// What the keys currently do. One mode at a time, so e.g. "help open and a
 /// confirm prompt open" can't happen. New prompts = new variants here.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub enum Mode {
     /// Keys go through `KEYMAP`.
+    #[default]
     Normal,
     /// Key help overlay open; any key closes it.
     Help,
@@ -55,6 +59,8 @@ pub struct App<'a> {
     pub tree: &'a mut Tree,
     /// Cursor, folding and scroll of the tree pane.
     pub tree_state: TreeState,
+    /// Which tab the right pane shows (Tab / Shift+Tab).
+    pub details_tab: DetailsTab,
     pub mode: Mode,
     pub toast: Option<Toast>,
     /// How a full delete moves folders away: `system_trash`; tests swap in
@@ -63,15 +69,14 @@ pub struct App<'a> {
 }
 
 impl<'a> App<'a> {
-    /// Selects the first row if nothing is selected yet (fresh load).
-    pub fn new(tree: &'a mut Tree, mut tree_state: TreeState) -> Self {
-        if tree_state.cursor.is_empty() {
-            tree_state.move_down(tree);
-        }
+    /// Starts on `tree_state`'s cursor (`[]` = the root row).
+    /// `TreeState::load` picks where a fresh start begins.
+    pub fn new(tree: &'a mut Tree, tree_state: TreeState) -> Self {
         Self {
             tree,
             tree_state,
-            mode: Mode::Normal,
+            mode: Mode::default(),
+            details_tab: DetailsTab::default(),
             toast: None,
             trash: system_trash,
         }
@@ -112,8 +117,10 @@ impl<'a> App<'a> {
             Action::SetStatus(status) => self.set_status(status).await,
             Action::Edit => self.open_edit_form(),
             Action::Delete => self.ask_delete(),
-            Action::NewContainer { global } => self.open_container_form(global),
-            Action::NewTask { global } => self.open_task_form(global),
+            Action::NewContainer => self.open_container_form(),
+            Action::NewTask => self.open_task_form(),
+            Action::NextTab => self.details_tab.next(),
+            Action::PrevTab => self.details_tab.prev(),
         }
         Flow::Continue
     }

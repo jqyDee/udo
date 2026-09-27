@@ -6,11 +6,12 @@ use super::*;
 use crate::{
     model::{
         id::NodeId,
+        node::Node,
         tree::{PurgePlan, Tree},
     },
     test_util::{container, state_at, task, tree_with},
     tui::{
-        app::{Confirm, ConfirmStage, PurgeOption},
+        app::{Confirm, ConfirmStage, PurgeOption, details::DetailsTab},
         form::TextInput,
         keys::{KEYMAP, bindings},
         toast::Toast,
@@ -62,6 +63,87 @@ fn renders_rows_details_and_hint() {
     assert!(screen.contains("? help"));
 }
 
+// ---------- details tabs ----------
+
+/// root: [uni: [cs: [lab]]], uni sets the deadline, cursor on task "lab".
+fn tabs_tree() -> Tree {
+    let mut t = tree_with(vec![container(
+        "uni",
+        vec![container("cs", vec![task("lab")])],
+    )]);
+    let uni = t.get_mut(&[0]).and_then(Node::as_container_mut).unwrap();
+    uni.settings.default_deadline = Some("fri 22:00".parse().unwrap());
+    t
+}
+
+#[test]
+fn details_title_names_both_tabs() {
+    let mut t = tabs_tree();
+    let screen = render(&mut App::new(&mut t, state_at(&[0, 0, 0])));
+    for tab in DetailsTab::ALL {
+        assert!(screen.contains(tab.title()), "{} missing", tab.title());
+    }
+}
+
+#[test]
+fn info_tab_is_the_default() {
+    let mut t = tabs_tree();
+    let screen = render(&mut App::new(&mut t, state_at(&[0, 0, 0])));
+    assert!(screen.contains("to do")); // task status: info tab
+    assert!(!screen.contains("fri 22:00")); // no settings
+}
+
+#[test]
+fn settings_tab_shows_values_and_sources() {
+    let mut t = tabs_tree();
+    let mut app = App::new(&mut t, state_at(&[0, 0, 0]));
+    app.details_tab = DetailsTab::Settings;
+
+    let rows = render_rows(&mut app);
+    let screen = rows.concat();
+
+    assert!(
+        screen.contains("fri 22:00 (from uni)"),
+        "got:\n{}",
+        rows.join("\n")
+    );
+    assert!(screen.contains("none (default)")); // task folders
+    assert!(!screen.contains("to do")); // no info lines
+    let archive = rows
+        .iter()
+        .find(|r| r.contains("archive"))
+        .expect("no archive row");
+    assert!(
+        archive.contains('-'),
+        "unset archive should show -: {archive}"
+    );
+}
+
+#[test]
+fn both_tabs_start_with_the_name() {
+    for tab in DetailsTab::ALL {
+        let mut t = tabs_tree();
+        let mut app = App::new(&mut t, state_at(&[0, 0])); // "cs"
+        app.details_tab = tab;
+
+        let rows = render_rows(&mut app);
+
+        // right pane only (the tree pane on the left also says "cs/"; the
+        // right one starts at 35% of 80 columns), without its borders;
+        // first line with text = the name
+        let right: Vec<String> = rows
+            .iter()
+            .map(|r| r.chars().skip(28).collect::<String>())
+            .map(|r| r.trim_matches(|c| c == '│' || c == ' ').to_string())
+            .collect();
+        let first = right[1..]
+            .iter()
+            .find(|r| !r.is_empty())
+            .expect("empty pane");
+        assert_eq!(first, "cs", "{tab:?}:\n{}", right.join("\n"));
+    }
+}
+
 #[test]
 fn renders_hint_on_empty_tree() {
     let mut t = empty_tree();
@@ -89,7 +171,30 @@ fn list_selection_follows_the_cursor_row() {
 
     render(&mut app);
 
-    assert_eq!(app.tree_state.list.selected(), Some(2)); // a, uni, exam
+    assert_eq!(app.tree_state.list.selected(), Some(3)); // root, a, uni, exam
+}
+
+#[test]
+fn root_row_comes_first_with_its_dir() {
+    let mut t = tree_with(vec![container("uni", vec![task("exam")])]);
+    let rows = render_rows(&mut App::new(&mut t, state_at(&[0])));
+
+    let (root_row, _) = find(&rows, "root").expect("no root row");
+    let (uni_row, _) = find(&rows, "uni/").expect("no uni row");
+    assert!(root_row < uni_row);
+    assert!(rows[root_row].contains("/tmp/root"));
+    assert!(!rows[root_row].contains('▾')); // the root doesn't fold
+}
+
+#[test]
+fn root_row_on_an_empty_tree_is_selected_with_a_hint() {
+    let mut t = empty_tree();
+    let mut app = App::new(&mut t, TreeState::default());
+
+    let screen = render(&mut app);
+
+    assert!(screen.contains("root"));
+    assert_eq!(app.tree_state.list.selected(), Some(0));
 }
 
 // ---------- popups ----------

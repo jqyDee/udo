@@ -45,6 +45,9 @@ impl App<'_> {
     /// Open the confirm prompt for the selected node, with its full delete
     /// plan. Nothing selected (the root, e.g. empty tree) -> error toast.
     pub(super) fn ask_delete(&mut self) {
+        if self.tree_state.on_root() {
+            return self.error("the root cannot be removed");
+        }
         let Some(node) = self.tree_state.selected(self.tree) else {
             return self.error("nothing selected");
         };

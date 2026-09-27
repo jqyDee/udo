@@ -65,11 +65,22 @@ impl TreeState {
             Err(_) => ViewFile::default(),
         };
 
-        let cursor = file
-            .selected
-            .and_then(|id| tree.rows().into_iter().find(|r| r.node.header.id == id))
-            .map(|r| r.path)
-            .unwrap_or_default();
+        let saved = file.selected.and_then(|id| {
+            if id == tree.root.header.id {
+                return Some(vec![]);
+            }
+            let row = tree.rows().into_iter().find(|r| r.node.header.id == id)?;
+            Some(row.path)
+        });
+        // nothing saved (first start) or the node is gone: the first node
+        // below the root, that's where the work is; the root is one `k` away
+        let cursor = saved.unwrap_or_else(|| {
+            if tree.root.children().is_empty() {
+                vec![]
+            } else {
+                vec![0]
+            }
+        });
         Self {
             cursor,
             collapsed: file.collapsed,
@@ -93,32 +104,44 @@ impl TreeState {
 
     // ---------- reading ----------
 
-    /// Visible rows: like `Tree::rows`, but not inside folded containers.
+    /// Visible rows: the root first (path `[]`, so its settings and tasks
+    /// can be selected like any container), then like `Tree::rows`, but not
+    /// inside folded containers. The root's children stay at depth 0.
     pub fn rows<'t>(&self, tree: &'t Tree) -> Vec<Row<'t>> {
-        tree.rows_where(|n| !self.is_collapsed(n))
+        let root = Row {
+            depth: 0,
+            path: vec![],
+            node: &tree.root,
+        };
+        let mut rows = vec![root];
+        rows.extend(tree.rows_where(|n| !self.is_collapsed(n)));
+        rows
     }
 
     pub fn is_collapsed(&self, node: &Node) -> bool {
         self.collapsed.contains(&node.header.id)
     }
 
-    /// Node at the cursor. None on the root (= nothing selected).
+    /// Node at the cursor; `[]` is the root. None only for a cursor that
+    /// points nowhere.
     pub fn selected<'t>(&self, tree: &'t Tree) -> Option<&'t Node> {
-        if self.cursor.is_empty() {
-            return None;
-        }
         tree.get(&self.cursor)
+    }
+
+    /// The cursor is on the root row.
+    pub fn on_root(&self) -> bool {
+        self.cursor.is_empty()
     }
 
     // ---------- moving ----------
 
     /// Select the next row. Stays on the last row.
-    /// Cursor not on any row (e.g. `[]` after load) -> first row.
+    /// Cursor not on any row (e.g. a stale path) -> first row (the root).
     pub fn move_down(&mut self, tree: &Tree) {
         self.step(tree, true);
     }
 
-    /// Select the previous row. Stays on the first row.
+    /// Select the previous row. Stays on the first row (the root).
     /// Cursor not on any row -> first row.
     pub fn move_up(&mut self, tree: &Tree) {
         self.step(tree, false);
@@ -133,11 +156,9 @@ impl TreeState {
         }
     }
 
-    /// Go to the parent. Never above the root's children (depth 0).
+    /// Go to the parent; from the top level that is the root row.
     pub fn move_out(&mut self) {
-        if self.cursor.len() > 1 {
-            self.cursor.pop();
-        }
+        self.cursor.pop();
     }
 
     /// Put the cursor on `path` and unfold every container above it, so the
@@ -211,8 +232,12 @@ impl TreeState {
         self.collapsed.clear();
     }
 
-    /// Fold or unfold the node at the cursor, if it is a container.
+    /// Fold or unfold the node at the cursor, if it is a container. Never the
+    /// root: folding it would hide everything.
     fn set_collapsed(&mut self, tree: &Tree, collapsed: bool) {
+        if self.on_root() {
+            return;
+        }
         let Some(id) = self
             .selected(tree)
             .filter(|n| n.as_container().is_some())
@@ -303,8 +328,9 @@ mod tests {
         ]
     }
 
+    /// Names of the visible rows below the root row.
     fn names<'t>(s: &TreeState, t: &'t Tree) -> Vec<&'t str> {
-        s.rows(t).iter().map(|r| r.node.name()).collect()
+        s.rows(t).iter().skip(1).map(|r| r.node.name()).collect()
     }
 
     const ALL: [&str; 7] = ["a", "inner", "b", "deep", "c", "z", "empty"];
@@ -313,7 +339,7 @@ mod tests {
 
     #[test]
     fn move_down_walks_all_rows_then_stays() {
-        let (t, mut s) = setup(&[]); // after load: not on a row
+        let (t, mut s) = setup(&[]); // on the root row
         for expected in all_paths() {
             s.move_down(&t);
             assert_eq!(s.cursor, expected);
@@ -323,38 +349,49 @@ mod tests {
     }
 
     #[test]
-    fn move_up_walks_back_then_stays() {
+    fn move_up_walks_back_to_the_root_then_stays() {
         let (t, mut s) = setup(&[3]);
         for expected in all_paths().into_iter().rev().skip(1) {
             s.move_up(&t);
             assert_eq!(s.cursor, expected);
         }
         s.move_up(&t);
-        assert_eq!(s.cursor, vec![0]); // stays on first
-    }
-
-    #[test]
-    fn move_up_from_no_row_selects_first() {
-        let (t, mut s) = setup(&[]);
+        assert!(s.on_root()); // above the first node: the root row
         s.move_up(&t);
-        assert_eq!(s.cursor, vec![0]);
+        assert!(s.on_root()); // stays there
     }
 
     #[test]
-    fn move_from_stale_cursor_selects_first() {
+    fn move_from_stale_cursor_selects_the_first_row() {
         let (t, mut s) = setup(&[9, 9]); // e.g. node deleted elsewhere
         s.move_down(&t);
-        assert_eq!(s.cursor, vec![0]);
+        assert!(s.on_root());
     }
 
     #[test]
-    fn moves_on_empty_tree_keep_cursor_empty() {
+    fn moves_on_empty_tree_stay_on_the_root() {
         let (t, mut s) = empty();
         s.move_down(&t);
         s.move_up(&t);
         s.move_in(&t);
         s.move_out();
-        assert!(s.cursor.is_empty());
+        assert!(s.on_root());
+    }
+
+    #[test]
+    fn rows_start_with_the_root() {
+        let (t, s) = setup(&[]);
+        let rows = s.rows(&t);
+        assert!(rows[0].path.is_empty());
+        assert_eq!(rows[0].node.name(), "root");
+        assert_eq!(rows[1].path, vec![0]);
+        assert_eq!(rows[1].depth, 0); // top-level nodes aren't indented
+    }
+
+    #[test]
+    fn selected_on_the_root_row_is_the_root() {
+        let (t, s) = setup(&[]);
+        assert_eq!(s.selected(&t).unwrap().name(), "root");
     }
 
     // ---------- move_in / move_out ----------
@@ -391,14 +428,28 @@ mod tests {
     }
 
     #[test]
-    fn move_out_stops_at_top_level() {
+    fn move_out_from_top_level_goes_to_the_root() {
         let mut s = state_at(&[1]);
         s.move_out();
-        assert_eq!(s.cursor, vec![1]); // never to the root itself
-
-        let mut s = TreeState::default();
+        assert!(s.on_root());
         s.move_out();
-        assert!(s.cursor.is_empty());
+        assert!(s.on_root()); // nothing above the root
+    }
+
+    #[test]
+    fn move_in_from_the_root_enters_the_first_node() {
+        let (t, mut s) = setup(&[]);
+        s.move_in(&t);
+        assert_eq!(s.cursor, vec![0]);
+    }
+
+    #[test]
+    fn the_root_never_folds() {
+        let (t, mut s) = setup(&[]);
+        s.toggle_collapse(&t);
+        s.collapse(&t);
+        assert!(s.collapsed.is_empty());
+        assert_eq!(names(&s, &t), ALL);
     }
 
     // ---------- collapse / expand ----------
@@ -506,8 +557,8 @@ mod tests {
         s.toggle_collapse(&t);
         s.collapse_all(&t);
         s.expand_all();
-        assert!(s.cursor.is_empty());
-        assert!(s.rows(&t).is_empty());
+        assert!(s.on_root());
+        assert_eq!(s.rows(&t).len(), 1); // just the root row
     }
 
     #[test]
@@ -609,20 +660,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn load_missing_file_is_empty() {
+    async fn first_start_selects_the_first_node() {
         let dir = tempfile::tempdir().unwrap();
         let s = TreeState::load(&root_at(dir.path(), vec![task("a")])).await;
         assert!(s.collapsed.is_empty());
-        assert!(s.cursor.is_empty());
+        assert_eq!(s.cursor, vec![0]); // not the root row
     }
 
     #[tokio::test]
-    async fn load_broken_file_is_empty() {
+    async fn first_start_on_an_empty_tree_selects_the_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = TreeState::load(&root_at(dir.path(), vec![])).await;
+        assert!(s.on_root());
+    }
+
+    #[tokio::test]
+    async fn load_broken_file_is_like_a_first_start() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(VIEW_FILE_NAME), "collapsed = 42").unwrap();
         let s = TreeState::load(&root_at(dir.path(), vec![task("a")])).await;
         assert!(s.collapsed.is_empty());
-        assert!(s.cursor.is_empty());
+        assert_eq!(s.cursor, vec![0]);
     }
 
     #[tokio::test]
@@ -671,7 +729,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn deleted_node_leaves_the_cursor_empty() {
+    async fn deleted_node_falls_back_to_the_first_node() {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = root_at(tmp.path(), vec![task("a"), task("b")]);
         let mut s = state_at(&[1]);
@@ -682,15 +740,27 @@ mod tests {
             .unwrap()
             .remove(1);
 
-        assert!(TreeState::load(&t).await.cursor.is_empty()); // App picks row 1
+        assert_eq!(TreeState::load(&t).await.cursor, vec![0]);
     }
 
     #[tokio::test]
-    async fn nothing_selected_writes_no_line() {
+    async fn root_row_survives_a_restart() {
         let tmp = tempfile::tempdir().unwrap();
         let t = root_at(tmp.path(), vec![task("a")]);
 
-        TreeState::default().save(&t).await.unwrap();
+        TreeState::default().save(&t).await.unwrap(); // cursor on the root
+
+        let text = std::fs::read_to_string(tmp.path().join(VIEW_FILE_NAME)).unwrap();
+        assert!(text.contains(&t.root.header.id.to_string()), "got:\n{text}");
+        assert!(TreeState::load(&t).await.on_root()); // not the first node
+    }
+
+    #[tokio::test]
+    async fn stale_cursor_writes_no_line() {
+        let tmp = tempfile::tempdir().unwrap();
+        let t = root_at(tmp.path(), vec![task("a")]);
+
+        state_at(&[9]).save(&t).await.unwrap(); // points nowhere
 
         let text = std::fs::read_to_string(tmp.path().join(VIEW_FILE_NAME)).unwrap();
         assert!(!text.contains("selected"), "got:\n{text}");

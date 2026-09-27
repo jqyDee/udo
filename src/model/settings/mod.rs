@@ -3,10 +3,13 @@
 //! only set values are saved.
 //!
 //! - `resolve`: `Tree::setting`, `Resolved`, `Source`
+//! - `view`:    `SETTINGS` (every setting as text, for the UI) and
+//!   `Tree::effective_settings`
 
 mod resolve;
+pub mod view;
 
-use std::path::PathBuf;
+use std::{fmt, path::PathBuf};
 
 use chrono::NaiveTime;
 use serde::{Deserialize, Serialize};
@@ -50,6 +53,15 @@ impl ContainerSettings {
 pub enum TaskFolderSetting {
     Auto,
     None,
+}
+
+impl fmt::Display for TaskFolderSetting {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self {
+            Self::Auto => write!(f, "auto"),
+            Self::None => write!(f, "none"),
+        }
+    }
 }
 
 /// Settings that only exist once, on the root (`[root]` table of the root's
@@ -151,6 +163,18 @@ mod tests {
 
         let back: ContainerSettings = toml::from_str("task_folders = \"auto\"").unwrap();
         assert_eq!(back.task_folders, Some(TaskFolderSetting::Auto));
+    }
+
+    #[test]
+    fn task_folders_displays_like_the_file() {
+        for v in [TaskFolderSetting::Auto, TaskFolderSetting::None] {
+            let s = ContainerSettings {
+                task_folders: Some(v),
+                ..Default::default()
+            };
+            let file = toml::to_string(&s).unwrap();
+            assert_eq!(file.trim(), format!("task_folders = \"{v}\""));
+        }
     }
 
     #[test]
