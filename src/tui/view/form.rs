@@ -61,6 +61,14 @@ pub fn draw(frame: &mut Frame, area: Rect, form: &Form) {
     if choice_active {
         lines.push(Line::from(" ←→ choose ").dim());
     }
+    // settings: how values are written, e.g. `fri 22:00 · +7d 23:59`
+    let format = form
+        .fields
+        .get(form.active_field)
+        .and_then(|f| f.id.format_hint());
+    if let Some(format) = format {
+        lines.push(Line::from(format!(" e.g. {format} ")).dim());
+    }
     lines.push(Line::from(" tab switch · enter confirm · esc cancel ").dim());
 
     let title = format!(" {} ", form.title);
@@ -196,6 +204,10 @@ fn choice_spans(c: &ChoiceInput, is_active: bool) -> Vec<Span<'static>> {
         spans.push(Span::styled(option, style));
     }
     spans.push(Span::raw(" ›").dim());
+    // what "not set" means here, e.g. the inherited value
+    if let Some(hint) = c.hint.as_ref().filter(|_| c.is_unset()) {
+        spans.push(Span::raw(format!("  {hint}")).dim());
+    }
     spans
 }
 
@@ -286,8 +298,8 @@ mod tests {
 
     fn choice(selected: usize) -> ChoiceInput {
         ChoiceInput {
-            options: FOLDER_CHOICES,
             selected,
+            ..ChoiceInput::new(FOLDER_CHOICES, "")
         }
     }
 
@@ -325,6 +337,18 @@ mod tests {
             assert!(!style.add_modifier.contains(Modifier::REVERSED), "{other}");
             assert!(style.add_modifier.contains(Modifier::DIM), "{other}");
         }
+    }
+
+    #[test]
+    fn hint_shows_only_while_unset() {
+        let mut c =
+            ChoiceInput::unsettable("inherit", &["auto", "none"], None).with_hint("none (default)");
+        assert_eq!(
+            choice_text(&c, false),
+            "‹ inherit · auto · none ›  none (default)"
+        );
+        c.selected = 1; // auto
+        assert_eq!(choice_text(&c, false), "‹ inherit · auto · none ›");
     }
 
     #[test]

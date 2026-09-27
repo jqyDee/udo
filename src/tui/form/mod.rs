@@ -79,6 +79,16 @@ impl FieldId {
             Self::RootSetting(idx) => ROOT_SETTINGS[idx].label,
         }
     }
+
+    /// How a setting's values are written (`SettingInfo::format`), for the
+    /// help below the form. None for every other field.
+    pub fn format_hint(self) -> Option<&'static str> {
+        match self {
+            Self::Setting(idx) => SETTINGS[idx].format,
+            Self::RootSetting(idx) => ROOT_SETTINGS[idx].format,
+            _ => None,
+        }
+    }
 }
 
 /// What kind of value a field holds, and so which keys edit it.
@@ -137,6 +147,27 @@ fn folder_rows(choices: &'static [&'static str], mode: FolderMode) -> [FormField
             input: FieldInput::Text(TextInput::new("").with_placeholder("/… or ~/…")),
         },
     ]
+}
+
+/// Input for one setting: a choice if it has fixed `choices` (the unset
+/// option first, labelled `unset_label`), else free text. `value`: set in
+/// this file (None = unset). `hint`: what applies when unset (the
+/// placeholder of a text field, shown next to a choice).
+fn setting_input(
+    choices: &'static [&'static str],
+    value: Option<String>,
+    unset_label: &'static str,
+    hint: Option<String>,
+) -> FieldInput {
+    if choices.is_empty() {
+        let placeholder = hint.unwrap_or_else(|| unset_label.into());
+        return FieldInput::Text(
+            TextInput::new(value.unwrap_or_default()).with_placeholder(placeholder),
+        );
+    }
+    let mut c = ChoiceInput::unsettable(unset_label, choices, value.as_deref());
+    c.hint = hint;
+    FieldInput::Choice(c)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -248,21 +279,24 @@ impl Form {
         inherited: impl Fn(&SettingInfo<ContainerSettings>) -> String,
         root: Option<&RootSettings>,
     ) -> Self {
-        let field = |id, value: Option<String>, placeholder: String| FormField {
-            id,
-            input: FieldInput::Text(
-                TextInput::new(value.unwrap_or_default()).with_placeholder(placeholder),
-            ),
-        };
         let mut fields: Vec<_> = SETTINGS
             .iter()
             .enumerate()
-            .map(|(i, info)| field(FieldId::Setting(i), (info.get)(own), inherited(info)))
+            .map(|(i, info)| FormField {
+                id: FieldId::Setting(i),
+                input: setting_input(
+                    info.choices,
+                    (info.get)(own),
+                    "inherit",
+                    Some(inherited(info)),
+                ),
+            })
             .collect();
         if let Some(root) = root {
-            // not inherited: nothing applies when empty
-            fields.extend(ROOT_SETTINGS.iter().enumerate().map(|(i, info)| {
-                field(FieldId::RootSetting(i), (info.get)(root), "not set".into())
+            // not inherited: nothing applies when unset
+            fields.extend(ROOT_SETTINGS.iter().enumerate().map(|(i, info)| FormField {
+                id: FieldId::RootSetting(i),
+                input: setting_input(info.choices, (info.get)(root), "not set", None),
             }));
         }
         Self {
@@ -346,18 +380,20 @@ impl Form {
         let mut settings = ContainerSettings::default();
         let mut root: Option<RootSettings> = None;
         for field in &self.fields {
-            let FieldInput::Text(t) = &field.input else {
-                continue;
+            // as text for `set`: the unset option of a choice is blank
+            let text = match &field.input {
+                FieldInput::Text(t) => t.value.as_str(),
+                FieldInput::Choice(c) => c.value().unwrap_or(""),
+                FieldInput::Date(_) => continue,
             };
             match field.id {
                 FieldId::Setting(i) => {
                     let info = &SETTINGS[i];
-                    (info.set)(&mut settings, &t.value)
-                        .map_err(|e| format!("{}: {e}", info.label))?;
+                    (info.set)(&mut settings, text).map_err(|e| format!("{}: {e}", info.label))?;
                 }
                 FieldId::RootSetting(i) => {
                     let info = &ROOT_SETTINGS[i];
-                    (info.set)(root.get_or_insert_default(), &t.value)
+                    (info.set)(root.get_or_insert_default(), text)
                         .map_err(|e| format!("{}: {e}", info.label))?;
                 }
                 _ => {}

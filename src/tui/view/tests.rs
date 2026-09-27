@@ -7,12 +7,14 @@ use crate::{
     model::{
         id::NodeId,
         node::Node,
+        settings::{ContainerSettings, view::SETTINGS},
+        time::DeadlineRule,
         tree::{PurgePlan, Tree},
     },
     test_util::{container, state_at, task, tree_with},
     tui::{
         app::{Confirm, ConfirmStage, PurgeOption, details::DetailsTab},
-        form::TextInput,
+        form::{Form, TextInput},
         keys::{KEYMAP, bindings},
         toast::Toast,
         tree_state::TreeState,
@@ -117,6 +119,38 @@ fn settings_tab_shows_values_and_sources() {
         archive.contains('-'),
         "unset archive should show -: {archive}"
     );
+}
+
+/// Settings form of "uni" open, with the field of `SETTINGS` entry `key`
+/// active.
+fn settings_form_on(app: &mut App, key: &str) {
+    let mut form = Form::edit_settings(
+        vec![0],
+        "uni",
+        &ContainerSettings::default(),
+        |_| String::new(),
+        None,
+    );
+    form.active_field = SETTINGS.iter().position(|i| i.key == key).unwrap();
+    app.mode = Mode::Form(Box::new(form));
+}
+
+#[test]
+fn settings_form_shows_the_format_of_the_active_field() {
+    let mut t = tabs_tree();
+    let mut app = App::new(&mut t, state_at(&[0]));
+
+    settings_form_on(&mut app, "default_deadline");
+    let rows = render_rows(&mut app);
+    let expected = format!("e.g. {}", DeadlineRule::EXAMPLES);
+    assert!(
+        rows.concat().contains(&expected),
+        "got:\n{}",
+        rows.join("\n")
+    );
+
+    settings_form_on(&mut app, "task_folders"); // a choice: no format
+    assert!(!render(&mut app).contains("e.g."));
 }
 
 #[test]

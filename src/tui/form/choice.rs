@@ -22,10 +22,15 @@ pub const CONTAINER_KIND_CHOICES: &[&str] = &[
     ContainerKind::CREATABLE[1].label(),
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChoiceInput {
-    pub options: &'static [&'static str],
+    pub options: Vec<&'static str>,
     pub selected: usize,
+    /// The first option means "not set" (`unsettable`).
+    pub unset: bool,
+    /// Shown dim after the options while "not set" is chosen: what applies
+    /// then (e.g. the inherited value).
+    pub hint: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,14 +45,53 @@ impl ChoiceInput {
     /// `selected` isn't among them).
     pub fn new(options: &'static [&'static str], selected: &str) -> Self {
         Self {
-            options,
+            options: options.to_vec(),
             selected: options.iter().position(|o| *o == selected).unwrap_or(0),
+            unset: false,
+            hint: None,
         }
+    }
+
+    /// `unset_label` (e.g. `inherit`) first, then `options`. `selected`:
+    /// None or not among `options` -> the unset option.
+    pub fn unsettable(
+        unset_label: &'static str,
+        options: &'static [&'static str],
+        selected: Option<&str>,
+    ) -> Self {
+        let selected = selected
+            .and_then(|s| options.iter().position(|o| *o == s))
+            .map_or(0, |i| i + 1);
+        Self {
+            options: [&[unset_label], options].concat(),
+            selected,
+            unset: true,
+            hint: None,
+        }
+    }
+
+    pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = Some(hint.into());
+        self
     }
 
     /// Label of the chosen option.
     pub fn selected_label(&self) -> Option<&'static str> {
         self.options.get(self.selected).copied()
+    }
+
+    /// The chosen value: None for the unset option.
+    pub fn value(&self) -> Option<&'static str> {
+        if self.is_unset() {
+            None
+        } else {
+            self.selected_label()
+        }
+    }
+
+    /// The unset option is chosen.
+    pub fn is_unset(&self) -> bool {
+        self.unset && self.selected == 0
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
@@ -150,10 +194,34 @@ mod tests {
         assert_eq!(c.selected_label(), Some("auto"));
     }
 
+    #[test]
+    fn unsettable_puts_the_unset_option_first() {
+        let c = ChoiceInput::unsettable("inherit", CONTAINER_FOLDER_CHOICES, None);
+        assert_eq!(c.options, ["inherit", "auto", "custom"]);
+        assert!(c.is_unset());
+        assert_eq!(c.value(), None);
+
+        let c = ChoiceInput::unsettable("inherit", CONTAINER_FOLDER_CHOICES, Some("custom"));
+        assert_eq!(c.selected_label(), Some("custom"));
+        assert!(!c.is_unset());
+        assert_eq!(c.value(), Some("custom"));
+
+        // not offered: unset, not some other value
+        let c = ChoiceInput::unsettable("inherit", CONTAINER_FOLDER_CHOICES, Some("none"));
+        assert!(c.is_unset());
+    }
+
+    #[test]
+    fn plain_choice_is_never_unset() {
+        let c = ChoiceInput::new(FOLDER_CHOICES, "none"); // first option
+        assert!(!c.is_unset());
+        assert_eq!(c.value(), Some("none"));
+    }
+
     fn choice(selected: usize) -> ChoiceInput {
         ChoiceInput {
-            options: FOLDER_CHOICES,
             selected,
+            ..ChoiceInput::new(FOLDER_CHOICES, "")
         }
     }
 

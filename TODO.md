@@ -3,8 +3,8 @@
 Priorities as of 2026-09-27, in order. Background and older plans:
 `roadmap.txt` (phase numbers below refer to it).
 
-**Next up:** editing settings in the TUI (section 1), then time tracking
-(section 2), starting with the SQLite session storage design.
+**Next up:** time tracking (section 2), starting with the SQLite session
+storage design.
 
 ## Done: creation flow
 
@@ -51,11 +51,15 @@ Priorities as of 2026-09-27, in order. Background and older plans:
       uni)`, `none (default)`). Built from one table, `SETTINGS`.
 - [x] **Root row** at the top of the tree: the root can be selected (its
       settings, creating directly in it). Replaced the `C` / `T` keys.
-- [ ] **Edit settings** in the TUI: `e` on the settings tab opens a form
-      built from `SETTINGS` (each entry gets `set`: text -> value). Empty
-      field = inherit (placeholder shows the inherited value); saved with
-      `ContainerPatch.settings` (the form always sends all of them). Root
-      row: also the `[root]` settings.
+- [x] **Edit settings** in the TUI: `e` on the settings tab opens a form
+      for the container at the cursor (a task: its container), built from
+      `SETTINGS` (each entry has `set`: text -> value). Empty field =
+      inherit (placeholder shows the inherited value,
+      `Tree::inherited_setting`); settings with fixed values (`choices`)
+      are a choice with `inherit` first; `format` examples are shown below
+      the form. Saved with `Tree::set_settings` (the form always sends all
+      of them). Root row: also the `[root]` settings (`ROOT_SETTINGS`, same
+      table shape), in the form and in the settings tab.
 - [ ] Edit settings from the CLI (with the `cli.rs` cleanup).
 - [x] **Default deadline** for new tasks as a rule: `fri 22:00` (next
       Friday) or `+7d 23:59`. Nothing fancier for now.
@@ -209,7 +213,8 @@ around your calendar and shows the result on your phone.
 - [ ] `submit_form` clones the whole form on every Enter.
 - [ ] `cli.rs` cleanup.
 - [ ] `roadmap.txt` 6.1 status is out of date (event loop is async, TUI
-      writes: status, delete, create, edit; details tabs, root row).
+      writes: status, delete, create, edit, settings; details tabs, root
+      row).
 - [ ] `TaskPatch.dir` can't remove a task's folder: optional fields need
       `Option<Option<T>>` in their patch, like `HeaderPatch.description`.
 - [ ] Maybe a "jump to the root" key (`g`) if walking up with `h` gets

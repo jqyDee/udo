@@ -442,11 +442,27 @@ fn settings_form(root: Option<&RootSettings>) -> Form {
     )
 }
 
-fn placeholder(form: &Form, id: FieldId) -> Option<&str> {
+/// What a setting field says applies when unset: the placeholder of a text
+/// field, the hint of a choice.
+fn unset_hint(form: &Form, id: FieldId) -> Option<&str> {
     match &form.fields.iter().find(|f| f.id == id)?.input {
         FieldInput::Text(t) => t.placeholder.as_deref(),
-        _ => None,
+        FieldInput::Choice(c) => c.hint.as_deref(),
+        FieldInput::Date(_) => None,
     }
+}
+
+/// A setting field's value as `set` gets it ("" = unset).
+fn setting_text(form: &Form, id: FieldId) -> &str {
+    match &form.fields.iter().find(|f| f.id == id).unwrap().input {
+        FieldInput::Text(t) => &t.value,
+        FieldInput::Choice(c) => c.value().unwrap_or(""),
+        FieldInput::Date(_) => panic!("{id:?} is a date"),
+    }
+}
+
+fn setting_id(key: &str) -> FieldId {
+    FieldId::Setting(SETTINGS.iter().position(|i| i.key == key).unwrap())
 }
 
 /// Replace the text of field `id` by typing, like a user would.
@@ -480,8 +496,8 @@ fn settings_form_shows_own_values_and_inherited_placeholders() {
         let id = FieldId::Setting(i);
         assert_eq!(id.label(), info.label);
         let expected = format!("{} (inherited)", info.label);
-        assert_eq!(placeholder(&form, id), Some(expected.as_str()));
-        let text = form.text_value(id).unwrap();
+        assert_eq!(unset_hint(&form, id), Some(expected.as_str()));
+        let text = setting_text(&form, id);
         match info.key {
             "default_deadline" => assert_eq!(text, "fri 22:00"),
             _ => assert_eq!(text, "", "{}", info.key), // not set: inherit
@@ -506,25 +522,67 @@ fn settings_form_unchanged_gives_the_same_settings() {
 #[test]
 fn settings_form_typed_and_cleared_values() {
     let mut form = settings_form(None);
-    let idx = |key| FieldId::Setting(SETTINGS.iter().position(|i| i.key == key).unwrap());
 
-    retype(&mut form, idx("default_deadline"), ""); // cleared: inherit again
-    retype(&mut form, idx("task_folders"), "auto");
+    retype(&mut form, setting_id("default_deadline"), ""); // cleared: inherit again
+    retype(&mut form, setting_id("archive_dir"), "/arch");
 
     let (settings, _) = form.settings().unwrap();
     assert_eq!(settings.default_deadline, None);
-    assert_eq!(settings.task_folders, Some(TaskFolderSetting::Auto));
+    assert_eq!(settings.archive_dir, Some(PathBuf::from("/arch")));
+}
+
+#[test]
+fn settings_with_choices_get_a_choice_with_inherit_first() {
+    let form = settings_form(None);
+
+    for (i, info) in SETTINGS.iter().enumerate() {
+        let input = &form.fields[i].input;
+        if info.choices.is_empty() {
+            assert!(matches!(input, FieldInput::Text(_)), "{}", info.key);
+            continue;
+        }
+        let FieldInput::Choice(c) = input else {
+            panic!("{} has choices but no choice field", info.key);
+        };
+        assert_eq!(c.options[0], "inherit");
+        assert_eq!(&c.options[1..], info.choices);
+    }
+}
+
+#[test]
+fn task_folders_choice_starts_on_the_own_value_or_inherit() {
+    let id = setting_id("task_folders");
+    let unset = settings_form(None);
+    assert_eq!(setting_text(&unset, id), ""); // inherit
+
+    let own = ContainerSettings {
+        task_folders: Some(TaskFolderSetting::None),
+        ..Default::default()
+    };
+    let set = Form::edit_settings(vec![0], "uni", &own, |_| String::new(), None);
+    assert_eq!(setting_text(&set, id), "none");
+}
+
+#[test]
+fn task_folders_choice_is_read_back() {
+    let mut form = settings_form(None);
+    focus(&mut form, setting_id("task_folders"));
+
+    form.handle_key(press(KeyCode::Right)); // inherit -> auto
+    assert_eq!(
+        form.settings().unwrap().0.task_folders,
+        Some(TaskFolderSetting::Auto)
+    );
+
+    form.handle_key(press(KeyCode::Left)); // back to inherit
+    assert_eq!(form.settings().unwrap().0.task_folders, None);
 }
 
 #[test]
 fn settings_form_bad_input_names_the_setting() {
     let mut form = settings_form(None);
-    let i = SETTINGS
-        .iter()
-        .position(|i| i.key == "default_deadline")
-        .unwrap();
 
-    retype(&mut form, FieldId::Setting(i), "someday");
+    retype(&mut form, setting_id("default_deadline"), "someday");
 
     let err = form.settings().unwrap_err();
     assert!(err.starts_with("deadline: "), "got: {err}");
@@ -550,7 +608,7 @@ fn settings_form_on_the_root_adds_root_settings() {
 
     let theme = FieldId::RootSetting(0);
     assert_eq!(form.text_value(theme), Some("dark"));
-    assert_eq!(placeholder(&form, theme), Some("not set"));
+    assert_eq!(unset_hint(&form, theme), Some("not set"));
     assert_eq!(form.settings().unwrap().1, Some(root));
 
     retype(&mut form, theme, ""); // cleared: still sent, as unset
