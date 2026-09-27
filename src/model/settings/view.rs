@@ -1,7 +1,8 @@
 use crate::{
     dir::parse_abs_dir,
     model::{
-        settings::{ContainerSettings, Resolved, RootSettings, Source},
+        settings::{ContainerSettings, Resolved, RootSettings, Source, TaskFolderSetting},
+        time::DeadlineRule,
         tree::Tree,
     },
 };
@@ -19,6 +20,13 @@ pub struct SettingInfo<S> {
     /// (container settings: inherit). Err: message for a toast, the
     /// settings stay unchanged.
     pub set: fn(&mut S, &str) -> Result<(), String>,
+    /// Fixed values (as `get` shows them): the form offers a choice instead
+    /// of free text. Empty: free text.
+    pub choices: &'static [&'static str],
+    /// Examples of how values are written, `·`-separated (each one is
+    /// accepted by `set`, tested). Shown below the form while the field is
+    /// active. None: obvious (e.g. a choice).
+    pub format: Option<&'static str>,
 }
 
 /// Every container setting, in the order the UI shows them.
@@ -26,6 +34,8 @@ pub const SETTINGS: &[SettingInfo<ContainerSettings>] = &[
     SettingInfo {
         key: "task_folders",
         label: "task folders",
+        choices: TaskFolderSetting::LABELS,
+        format: None,
         get: |s| s.task_folders.map(|v| v.to_string()),
         set: |s, text| {
             s.task_folders = opt(text, str::parse)?;
@@ -35,6 +45,8 @@ pub const SETTINGS: &[SettingInfo<ContainerSettings>] = &[
     SettingInfo {
         key: "default_deadline",
         label: "deadline",
+        choices: &[],
+        format: Some(DeadlineRule::EXAMPLES),
         get: |s| s.default_deadline.map(|v| v.to_string()),
         set: |s, text| {
             s.default_deadline = opt(text, str::parse)?;
@@ -44,6 +56,8 @@ pub const SETTINGS: &[SettingInfo<ContainerSettings>] = &[
     SettingInfo {
         key: "archive_dir",
         label: "archive",
+        choices: &[],
+        format: Some("/path/to/dir · ~/dir"),
         get: |s| s.archive_dir.as_ref().map(|p| p.display().to_string()),
         set: |s, text| {
             s.archive_dir = opt(text, parse_abs_dir)?;
@@ -56,6 +70,8 @@ pub const SETTINGS: &[SettingInfo<ContainerSettings>] = &[
 pub const ROOT_SETTINGS: &[SettingInfo<RootSettings>] = &[SettingInfo {
     key: "theme",
     label: "theme",
+    choices: &[],
+    format: None,
     get: |s| s.theme.clone(),
     set: |s, text| {
         s.theme = opt(text, |t| Ok(t.to_string()))?;
@@ -82,15 +98,27 @@ pub struct EffectiveSetting {
 
 impl Tree {
     /// Every setting in `SETTINGS` for the node at `path` (task: its
-    /// container), resolved like `setting`.
+    /// container), resolved like `setting`. If that container is the root,
+    /// then every `ROOT_SETTINGS` entry too (own or unset, never inherited):
+    /// the same fields its settings form shows.
     pub fn effective_settings(&self, path: &[usize]) -> Vec<EffectiveSetting> {
-        SETTINGS
+        let mut rows: Vec<_> = SETTINGS
             .iter()
             .map(|info| EffectiveSetting {
                 label: info.label,
                 value: self.setting(path, info.get),
             })
-            .collect()
+            .collect();
+        if self.nearest_file_owner(path).is_some_and(|p| p.is_empty()) {
+            rows.extend(ROOT_SETTINGS.iter().map(|info| EffectiveSetting {
+                label: info.label,
+                value: (info.get)(self.root_settings()).map(|value| Resolved {
+                    value,
+                    source: Source::Own,
+                }),
+            }));
+        }
+        rows
     }
 
     /// Where a value came from, for the UI: `own`, `from uni`, `default`.
@@ -165,6 +193,39 @@ mod tests {
             (info.set)(&mut full, "  ").unwrap();
             assert_eq!((info.get)(&full), None, "{}", info.key);
         }
+    }
+
+    fn check_choices_read_back<S: Default>(table: &[SettingInfo<S>]) {
+        for info in table {
+            for &choice in info.choices {
+                let mut s = S::default();
+                (info.set)(&mut s, choice).unwrap();
+                assert_eq!((info.get)(&s).as_deref(), Some(choice), "{}", info.key);
+            }
+        }
+    }
+
+    #[test]
+    fn every_choice_is_a_valid_value() {
+        check_choices_read_back(SETTINGS);
+        check_choices_read_back(ROOT_SETTINGS);
+    }
+
+    fn check_format_examples_are_accepted<S: Default>(table: &[SettingInfo<S>]) {
+        for info in table {
+            for example in info.format.iter().flat_map(|f| f.split(" · ")) {
+                let mut s = S::default();
+                let r = (info.set)(&mut s, example);
+                assert!(r.is_ok(), "{} = {example:?}: {r:?}", info.key);
+                assert!((info.get)(&s).is_some(), "{} = {example:?}", info.key);
+            }
+        }
+    }
+
+    #[test]
+    fn every_format_example_is_accepted() {
+        check_format_examples_are_accepted(SETTINGS);
+        check_format_examples_are_accepted(ROOT_SETTINGS);
     }
 
     #[test]
@@ -264,5 +325,65 @@ mod tests {
             Source::Default
         );
         assert_eq!(by_label("archive").value, None); // no default
+    }
+
+    // ---------- root settings in the rows ----------
+
+    fn labels(rows: &[EffectiveSetting]) -> Vec<&'static str> {
+        rows.iter().map(|r| r.label).collect()
+    }
+
+    fn all_labels() -> Vec<&'static str> {
+        SETTINGS
+            .iter()
+            .map(|i| i.label)
+            .chain(ROOT_SETTINGS.iter().map(|i| i.label))
+            .collect()
+    }
+
+    /// root: [top (task), uni: [lab (task)]], theme = "dark".
+    fn root_tree() -> Tree {
+        let mut t = tree_with(vec![task("top"), container("uni", vec![task("lab")])]);
+        let root = t.get_mut(&[]).and_then(Node::as_container_mut).unwrap();
+        root.root_settings.theme = Some("dark".into());
+        t
+    }
+
+    #[test]
+    fn root_row_lists_root_settings_after_the_others() {
+        let t = root_tree();
+        let rows = t.effective_settings(&[]);
+
+        assert_eq!(labels(&rows), all_labels());
+        let theme = rows.iter().find(|r| r.label == "theme").unwrap();
+        assert_eq!(
+            theme.value,
+            Some(Resolved {
+                value: "dark".into(),
+                source: Source::Own,
+            })
+        );
+    }
+
+    #[test]
+    fn task_in_the_root_lists_root_settings_too() {
+        // its settings form is the root's, so the tab matches it
+        assert_eq!(labels(&root_tree().effective_settings(&[0])), all_labels());
+    }
+
+    #[test]
+    fn below_the_root_no_root_settings() {
+        let t = root_tree();
+        let expected: Vec<_> = SETTINGS.iter().map(|i| i.label).collect();
+        assert_eq!(labels(&t.effective_settings(&[1])), expected); // uni
+        assert_eq!(labels(&t.effective_settings(&[1, 0])), expected); // lab
+    }
+
+    #[test]
+    fn unset_root_setting_has_no_value() {
+        let t = tree_with(vec![]);
+        let rows = t.effective_settings(&[]);
+        let theme = rows.iter().find(|r| r.label == "theme").unwrap();
+        assert_eq!(theme.value, None);
     }
 }

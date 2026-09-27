@@ -55,12 +55,25 @@ pub enum TaskFolderSetting {
     None,
 }
 
+impl TaskFolderSetting {
+    /// Every value, in the order the UI offers them.
+    pub const ALL: [Self; 2] = [Self::Auto, Self::None];
+
+    /// Labels of `ALL`, same order (the choices of the settings form).
+    pub const LABELS: &[&str] = &[Self::ALL[0].label(), Self::ALL[1].label()];
+
+    /// As written in the file; also what `Display` prints.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::None => "none",
+        }
+    }
+}
+
 impl fmt::Display for TaskFolderSetting {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self {
-            Self::Auto => write!(f, "auto"),
-            Self::None => write!(f, "none"),
-        }
+        f.write_str(self.label())
     }
 }
 
@@ -68,11 +81,11 @@ impl FromStr for TaskFolderSetting {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim() {
-            "auto" => Ok(Self::Auto),
-            "none" => Ok(Self::None),
-            other => Err(format!("{other:?}: expected auto or none")),
-        }
+        let s = s.trim();
+        Self::ALL
+            .into_iter()
+            .find(|v| v.label() == s)
+            .ok_or_else(|| format!("{s:?}: expected {}", Self::LABELS.join(" or ")))
     }
 }
 
@@ -198,9 +211,15 @@ mod tests {
 
     #[test]
     fn task_folders_parses_what_it_displays() {
-        for v in [TaskFolderSetting::Auto, TaskFolderSetting::None] {
+        for v in TaskFolderSetting::ALL {
             assert_eq!(v.to_string().parse(), Ok(v));
         }
+    }
+
+    #[test]
+    fn task_folders_labels_match_all() {
+        let labels: Vec<_> = TaskFolderSetting::ALL.iter().map(|v| v.label()).collect();
+        assert_eq!(labels, TaskFolderSetting::LABELS);
     }
 
     // ---------- default_deadline ----------
