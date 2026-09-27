@@ -150,7 +150,10 @@ fn edit_task_is_prefilled_without_folder_rows() {
 
     assert_eq!(form.title, "edit task · lab 3");
     assert_eq!(form.action, FormAction::EditNode { path: vec![0, 1] });
-    assert_eq!(ids(&form), [FieldId::Name, FieldId::Description, FieldId::Due]);
+    assert_eq!(
+        ids(&form),
+        [FieldId::Name, FieldId::Description, FieldId::Due]
+    );
     let v = form.values();
     assert_eq!(v.name, "lab 3");
     assert_eq!(v.description, "ex 1-4");
@@ -165,7 +168,10 @@ fn edit_container_is_prefilled_with_its_kind() {
     let form = Form::edit_node(vec![0], &Node::container("uni".into(), c));
 
     assert_eq!(form.title, "edit container · uni");
-    assert_eq!(ids(&form), [FieldId::Name, FieldId::Description, FieldId::Kind]);
+    assert_eq!(
+        ids(&form),
+        [FieldId::Name, FieldId::Description, FieldId::Kind]
+    );
     let v = form.values();
     assert_eq!(v.description, ""); // none set
     assert_eq!(v.kind, Some(ContainerKind::Project));
@@ -179,7 +185,10 @@ fn create_and_edit_forms_share_field_order() {
         folder: FolderMode::Auto,
     };
     let create = Form::new_task(vec![], "root", None, defaults);
-    let edit = Form::edit_node(vec![0], &Node::task("t".into(), Task::new(None, Utc::now())));
+    let edit = Form::edit_node(
+        vec![0],
+        &Node::task("t".into(), Task::new(None, Utc::now())),
+    );
     // edit = create without the folder rows
     let without_folder: Vec<_> = ids(&create)
         .into_iter()
@@ -190,7 +199,10 @@ fn create_and_edit_forms_share_field_order() {
 
 #[test]
 fn values_normalize_the_name_but_keep_the_description_raw() {
-    let mut form = Form::edit_node(vec![0], &Node::task("a".into(), Task::new(None, Utc::now())));
+    let mut form = Form::edit_node(
+        vec![0],
+        &Node::task("a".into(), Task::new(None, Utc::now())),
+    );
     focus(&mut form, FieldId::Name);
     for c in "  b   c ".chars() {
         form.handle_key(press(KeyCode::Char(c)));
@@ -344,7 +356,11 @@ fn chosen_dir_checks_custom_text() {
 
     // replace the text with a relative path
     let dir = form.fields.iter_mut().find(|f| f.id == FieldId::Dir);
-    let Some(FormField { input: FieldInput::Text(t), .. }) = dir else {
+    let Some(FormField {
+        input: FieldInput::Text(t),
+        ..
+    }) = dir
+    else {
         panic!("dir is not a text field");
     };
     *t = TextInput::new("relative/dir");

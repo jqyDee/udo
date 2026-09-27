@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent};
 
-use crate::model::container::ContainerKind;
+use crate::model::{container::ContainerKind, settings::TaskFolderSetting};
 
 /// Options of the `folder` field, taken from `FolderMode` so the order can't
 /// drift.
@@ -91,6 +91,15 @@ impl FolderMode {
     /// Mode shown as `label`.
     pub fn from_label(label: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|m| m.label() == label)
+    }
+}
+
+impl From<TaskFolderSetting> for FolderMode {
+    fn from(value: TaskFolderSetting) -> Self {
+        match value {
+            TaskFolderSetting::Auto => FolderMode::Auto,
+            TaskFolderSetting::None => FolderMode::None,
+        }
     }
 }
 

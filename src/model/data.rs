@@ -4,8 +4,9 @@ use tokio::fs;
 use crate::{
     Res, UDO_FILE_NAME,
     model::{
-        container::{ContainerKind, ContainerSettings},
+        container::ContainerKind,
         node::{Node, NodeBody, NodeHeader},
+        settings::{ContainerSettings, RootSettings},
         task::Task,
     },
     persist::write_toml_atomic,
@@ -47,6 +48,8 @@ pub struct ContainerData {
     pub children: Vec<PathBuf>, // child container dirs
     #[serde(flatten)]
     pub settings: ContainerSettings,
+    #[serde(default, skip_serializing_if = "RootSettings::is_empty")]
+    pub root: RootSettings,
 }
 
 impl ContainerData {
@@ -92,6 +95,7 @@ impl TryFrom<&Node> for ContainerData {
                 .chain(c.unloaded.iter().cloned())
                 .collect(),
             settings: c.settings.clone(),
+            root: c.root_settings.clone(),
         })
     }
 }
@@ -116,6 +120,7 @@ mod tests {
                 archive_dir: Some(PathBuf::from("/tmp/arch")),
                 ..Default::default()
             },
+            root: RootSettings::default(),
         };
         data.save(dir.path()).await.unwrap();
 
@@ -197,5 +202,54 @@ mod tests {
         assert!(!text.contains("[header]") && !text.contains("[tasks.header]"));
         assert!(!text.contains("[tasks.task]"));
         assert!(!text.contains("description")); // None -> no line
+    }
+
+    // ---------- [root] table ----------
+
+    #[tokio::test]
+    async fn root_table_roundtrips() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = ContainerData {
+            header: NodeHeader::new("root".into()),
+            kind: ContainerKind::Root,
+            tasks: vec![],
+            children: vec![],
+            settings: ContainerSettings {
+                archive_dir: Some(PathBuf::from("/arch")),
+                ..Default::default()
+            },
+            root: RootSettings {
+                theme: Some("dark".into()),
+            },
+        };
+        data.save(dir.path()).await.unwrap();
+
+        let text = std::fs::read_to_string(dir.path().join(UDO_FILE_NAME)).unwrap();
+        let loaded = ContainerData::load(dir.path()).await.unwrap();
+
+        assert_eq!(loaded.root, data.root);
+        // own table, not flattened like `settings`
+        let (flat, table) = text.split_once("[root]").expect("no [root] table");
+        assert!(table.contains("theme = \"dark\""), "got:\n{text}");
+        assert!(!flat.contains("theme"), "theme outside [root]:\n{text}");
+        assert_eq!(loaded.settings.archive_dir, Some(PathBuf::from("/arch")));
+    }
+
+    #[test]
+    fn empty_root_settings_leave_no_table() {
+        let node = container("w", vec![task("t")]);
+        let text = toml::to_string(&ContainerData::try_from(&node).unwrap()).unwrap();
+        assert!(!text.contains("[root]"), "got:\n{text}");
+    }
+
+    #[test]
+    fn try_from_takes_the_root_settings_along() {
+        let mut node = container("root", vec![]);
+        let c = node.as_container_mut().unwrap();
+        c.root_settings.theme = Some("dark".into());
+
+        let data = ContainerData::try_from(&node).unwrap();
+
+        assert_eq!(data.root.theme.as_deref(), Some("dark"));
     }
 }

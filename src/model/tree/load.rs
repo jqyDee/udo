@@ -15,6 +15,7 @@ use crate::{
         data::{ContainerData, TaskData},
         id::NodeId,
         node::{Node, NodeBody},
+        settings::RootSettings,
         tree::Tree,
     },
 };
@@ -67,6 +68,14 @@ impl Tree {
 
         let mut children: Vec<Node> = data.tasks.into_iter().map(TaskData::into_node).collect();
         let mut unloaded = vec![];
+        let root_settings = if data.kind == ContainerKind::Root {
+            data.root
+        } else {
+            if !data.root.is_empty() {
+                eprintln!("warning: ignoring [root] settings in {dir:?}: only the root has them.")
+            }
+            RootSettings::default()
+        };
 
         for child_path in data.children {
             if !child_path.join(UDO_FILE_NAME).exists() {
@@ -94,6 +103,7 @@ impl Tree {
                 settings: data.settings,
                 children,
                 unloaded,
+                root_settings,
             }),
         })
     }
@@ -142,10 +152,11 @@ mod tests {
 
     use crate::{
         model::{
-            container::{ContainerKind, ContainerSettings},
+            container::ContainerKind,
             data::{ContainerData, TaskData},
             id::NodeId,
             node::{Node, NodeHeader},
+            settings::{ContainerSettings, RootSettings},
             task::Task,
             tree::Tree,
         },
@@ -220,6 +231,7 @@ mod tests {
             tasks,
             children,
             settings: ContainerSettings::default(),
+            root: RootSettings::default(),
         }
     }
 
@@ -299,6 +311,7 @@ mod tests {
             tasks: vec![],
             children: vec![root_dir.join("gone")], // never created
             settings: ContainerSettings::default(),
+            root: RootSettings::default(),
         }
         .save(&root_dir)
         .await
@@ -307,5 +320,46 @@ mod tests {
         let loaded = Tree::load_from(&root_dir).await.unwrap();
 
         assert!(loaded.get(&[]).unwrap().children().is_empty());
+    }
+
+    // ---------- root settings ----------
+
+    #[tokio::test]
+    async fn root_settings_survive_reload() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = Tree::load_from(tmp.path()).await.unwrap();
+        assert!(t.root_settings().is_empty()); // fresh root: nothing set
+
+        let root = t.get_mut(&[]).and_then(Node::as_container_mut).unwrap();
+        root.root_settings.theme = Some("dark".into());
+        t.save(&[]).await.unwrap();
+
+        let loaded = Tree::load_from(tmp.path()).await.unwrap();
+        assert_eq!(loaded.root_settings().theme.as_deref(), Some("dark"));
+    }
+
+    #[tokio::test]
+    async fn root_table_in_a_workspace_is_ignored() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root_dir = tmp.path().to_path_buf();
+        let ws_dir = root_dir.join("ws");
+        std::fs::create_dir_all(&ws_dir).unwrap();
+        let mut root = container_data("root", vec![], vec![ws_dir.clone()]);
+        root.kind = ContainerKind::Root;
+        root.save(&root_dir).await.unwrap();
+        // e.g. a copied root folder registered as a workspace
+        let mut ws = container_data("ws", vec![], vec![]);
+        ws.root.theme = Some("x".into());
+        ws.save(&ws_dir).await.unwrap();
+
+        let loaded = Tree::load_from(&root_dir).await.unwrap();
+
+        let ws = loaded.get(&[0]).and_then(Node::as_container).unwrap();
+        assert!(ws.root_settings.is_empty());
+        assert!(loaded.root_settings().is_empty()); // doesn't leak to the root
+        // gone from the file on the next save
+        loaded.save(&[0]).await.unwrap();
+        let text = std::fs::read_to_string(ws_dir.join(crate::UDO_FILE_NAME)).unwrap();
+        assert!(!text.contains("[root]"), "got:\n{text}");
     }
 }

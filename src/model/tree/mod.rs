@@ -1,4 +1,4 @@
-use crate::model::{NodePath, node::Node};
+use crate::model::{NodePath, node::Node, settings::RootSettings};
 
 mod edit;
 mod folders;
@@ -74,6 +74,15 @@ impl Tree {
         }
         Some(path)
     }
+
+    /// Root-only settings (theme, default workspace, ...).
+    pub fn root_settings(&self) -> &RootSettings {
+        &self
+            .root
+            .as_container()
+            .expect("the root is a container")
+            .root_settings
+    }
 }
 
 #[cfg(test)]
@@ -83,12 +92,7 @@ mod tests {
     use chrono::Utc;
 
     use crate::{
-        model::{
-            container::ContainerKind,
-            node::Node,
-            task::Task,
-            tree::Tree,
-        },
+        model::{container::ContainerKind, node::Node, task::Task, tree::Tree},
         test_util::{container, container_at, task, tree_with},
     };
 

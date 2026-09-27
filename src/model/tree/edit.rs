@@ -174,9 +174,10 @@ mod tests {
 
     use crate::{
         model::{
-            container::{ContainerKind, ContainerSettings},
+            container::ContainerKind,
             data::ContainerData,
             node::{BodyPatch, HeaderPatch, NodeHeader, NodePatch},
+            settings::{ContainerSettings, RootSettings},
             task::{TaskPatch, TaskStatus},
             tree::{
                 Tree,
@@ -609,6 +610,7 @@ mod tests {
             tasks: vec![],
             children: vec![gone.clone()],
             settings: ContainerSettings::default(),
+            root: RootSettings::default(),
         }
         .save(&root_dir)
         .await

@@ -3,7 +3,7 @@
 //! (`Form::handle_key`), submit calls the tree (which checks names and
 //! creates dirs).
 
-use chrono::{Local, NaiveTime, TimeDelta};
+use chrono::Local;
 use crossterm::event::KeyEvent;
 
 use super::{App, Flow, Mode};
@@ -14,7 +14,7 @@ use crate::{
         node::{BodyPatch, HeaderPatch, Node, NodePatch},
         task::{Task, TaskPatch},
     },
-    tui::form::{Form, FormAction, FormOutcome, TaskDefaults, FolderMode, local_to_utc},
+    tui::form::{FolderMode, Form, FormAction, FormOutcome, TaskDefaults, local_to_utc},
 };
 
 impl App<'_> {
@@ -55,23 +55,17 @@ impl App<'_> {
         let parent_name = parent_node.map_or("root", |n| n.name());
         let parent_dir = parent_node.and_then(|n| n.dir().map(|d| d.to_path_buf()));
 
-        // folders only in projects, until the `task_folders` setting
-        let in_project = parent_node
-            .and_then(Node::as_container)
-            .is_some_and(|c| c.kind == ContainerKind::Project);
-        let folder = if in_project {
-            FolderMode::Auto
-        } else {
-            FolderMode::None
+        let folder = match self.tree.setting(&parent, |s| s.task_folders) {
+            Some(r) => FolderMode::from(r.value),
+            None => FolderMode::None,
         };
 
-        // this has to move into the tree at some point I believe
-        let tomorrow_noon = (Local::now().date_naive() + TimeDelta::days(1))
-            .and_time(NaiveTime::from_hms_opt(12, 0, 0).unwrap());
-        let defaults = TaskDefaults {
-            due: tomorrow_noon,
-            folder,
-        };
+        let now = Local::now().naive_local();
+        let due = self
+            .tree
+            .setting(&parent, |s| s.default_deadline)
+            .map_or(now, |r| r.value.next_after(now));
+        let defaults = TaskDefaults { due, folder };
 
         self.mode = Mode::Form(Box::new(Form::new_task(
             parent,
@@ -138,8 +132,8 @@ impl App<'_> {
                 let Some(due) = due else {
                     return;
                 };
-                let node = Node::task(v.name.clone(), Task::new(dir, due))
-                    .with_description(description);
+                let node =
+                    Node::task(v.name.clone(), Task::new(dir, due)).with_description(description);
                 self.tree
                     .create(parent, node)
                     .await

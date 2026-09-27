@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::{
     Res,
-    model::{NodePath, container::ContainerKind, node::Node, tree::Tree},
+    model::{NodePath, node::Node, settings::TaskFolderSetting, tree::Tree},
     naming::folder_name,
 };
 
@@ -23,11 +23,11 @@ impl Tree {
         Some(c.dir.join(folder_name(name)?))
     }
 
-    /// Automatic dir for a new task: `<project dir>/<name>` if `parent` is a
-    /// Project, None elsewhere (tasks in workspaces / root get no folder).
+    /// Automatic dir for a new task: `<parent dir>/<name>`, unless the
+    /// `task_folders` setting says `none` for `parent`.
     pub fn auto_task_dir(&self, parent: &[usize], name: &str) -> Option<PathBuf> {
         let c = self.get(parent)?.as_container()?;
-        if c.kind != ContainerKind::Project {
+        if self.setting(parent, |s| s.task_folders)?.value == TaskFolderSetting::None {
             return None;
         }
         Some(c.dir.join(folder_name(name)?))
@@ -79,7 +79,18 @@ impl Tree {
 mod tests {
     use std::path::PathBuf;
 
-    use crate::model::{container::ContainerKind, node::Node, tree::tests::tree};
+    use crate::model::{
+        container::ContainerKind,
+        node::Node,
+        settings::TaskFolderSetting,
+        tree::{Tree, tests::tree},
+    };
+
+    /// Set `task_folders` on the container at `path`.
+    fn set_folders(t: &mut Tree, path: &[usize], value: TaskFolderSetting) {
+        let c = t.get_mut(path).and_then(Node::as_container_mut).unwrap();
+        c.settings.task_folders = Some(value);
+    }
 
     #[test]
     fn default_child_dir_is_parent_dir_plus_name() {
@@ -96,17 +107,59 @@ mod tests {
         assert_eq!(t.default_child_dir(&[9], "new"), None); // missing
     }
 
-    #[test]
-    fn auto_task_dir_only_inside_projects() {
-        let mut t = tree(); // "inner" is a Workspace
-        assert_eq!(t.auto_task_dir(&[1], "c"), None);
-        assert_eq!(t.auto_task_dir(&[], "c"), None); // root
+    // tree() = root (/tmp/root): [a, inner (/tmp/inner, Workspace): [b]]
 
-        t.get_mut(&[1]).and_then(Node::as_container_mut).unwrap().kind = ContainerKind::Project;
+    #[test]
+    fn auto_task_dir_follows_the_setting() {
+        let mut t = tree();
+        set_folders(&mut t, &[], TaskFolderSetting::Auto);
+        assert_eq!(
+            t.auto_task_dir(&[], "c"),
+            Some(PathBuf::from("/tmp/root/c"))
+        );
+        assert_eq!(
+            t.auto_task_dir(&[1], "c"),
+            Some(PathBuf::from("/tmp/inner/c")) // inherited from the root
+        );
+
+        set_folders(&mut t, &[1], TaskFolderSetting::None);
+        assert_eq!(t.auto_task_dir(&[1], "c"), None);
+        assert!(t.auto_task_dir(&[], "c").is_some()); // the root is unaffected
+    }
+
+    #[test]
+    fn a_child_can_switch_folders_back_on() {
+        let mut t = tree();
+        set_folders(&mut t, &[], TaskFolderSetting::None);
+        set_folders(&mut t, &[1], TaskFolderSetting::Auto);
+
+        assert_eq!(t.auto_task_dir(&[], "c"), None);
         assert_eq!(
             t.auto_task_dir(&[1], "c"),
             Some(PathBuf::from("/tmp/inner/c"))
         );
+    }
+
+    #[test]
+    fn auto_task_dir_ignores_the_kind() {
+        let mut t = tree();
+        let inner = t.get_mut(&[1]).and_then(Node::as_container_mut).unwrap();
+        inner.kind = ContainerKind::Project;
+        set_folders(&mut t, &[1], TaskFolderSetting::None);
+        assert_eq!(t.auto_task_dir(&[1], "c"), None); // a project, but "none"
+
+        let inner = t.get_mut(&[1]).and_then(Node::as_container_mut).unwrap();
+        inner.kind = ContainerKind::Workspace;
+        set_folders(&mut t, &[1], TaskFolderSetting::Auto);
+        assert!(t.auto_task_dir(&[1], "c").is_some()); // a workspace, but "auto"
+    }
+
+    #[test]
+    fn auto_task_dir_none_without_a_container_or_a_name() {
+        let mut t = tree();
+        set_folders(&mut t, &[], TaskFolderSetting::Auto);
         assert_eq!(t.auto_task_dir(&[0], "c"), None); // task parent
+        assert_eq!(t.auto_task_dir(&[9], "c"), None); // missing
+        assert_eq!(t.auto_task_dir(&[1], "  "), None); // no folder name
     }
 }

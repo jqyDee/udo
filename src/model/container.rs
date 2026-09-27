@@ -2,17 +2,24 @@ use std::{fmt, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::node::{Node, NodeBody};
+use crate::model::{
+    node::{Node, NodeBody},
+    settings::{ContainerSettings, RootSettings},
+};
 
 /// Container body of a `Node` (id and name live on the node).
 pub struct Container {
     pub dir: PathBuf,
     pub kind: ContainerKind,
-    pub settings: ContainerSettings,
+
     pub children: Vec<Node>,
     /// Child dirs listed in the file but not loadable (e.g. drive unmounted).
     /// Not shown in the tree, but written back on save so they stay registered.
     pub unloaded: Vec<PathBuf>,
+
+    pub settings: ContainerSettings,
+    /// Root only (see `RootSettings`); empty everywhere else.
+    pub root_settings: RootSettings,
 }
 
 impl Container {
@@ -22,6 +29,7 @@ impl Container {
             dir,
             kind,
             settings: ContainerSettings::default(),
+            root_settings: RootSettings::default(),
             unloaded: vec![],
             children: vec![],
         }
@@ -91,14 +99,6 @@ impl fmt::Display for ContainerKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.pad(self.label())
     }
-}
-
-#[derive(Default, Clone, Serialize, Deserialize)]
-pub struct ContainerSettings {
-    pub archive_dir: Option<PathBuf>,
-    pub default_script: Option<PathBuf>,
-    pub theme: Option<String>,                        // Global only
-    pub default_workspace: Option<(String, PathBuf)>, // Global only
 }
 
 #[derive(Default)]

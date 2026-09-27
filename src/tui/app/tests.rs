@@ -4,10 +4,10 @@ use crossterm::event::{KeyCode, KeyEventState, KeyModifiers};
 
 use super::*;
 use crate::{
-    model::{container::ContainerKind, node::Node},
+    model::{container::ContainerKind, node::Node, settings::TaskFolderSetting},
     test_util::{container, container_at, press, state_at, task, tree_with},
     tui::{
-        form::{FormAction, TextInput},
+        form::{FieldId, FolderMode, FormAction, TextInput},
         toast::ToastKind,
     },
 };
@@ -391,6 +391,49 @@ fn toast_deadline_and_expiry() {
 
 fn type_str(s: &str) -> Vec<KeyEvent> {
     s.chars().map(key).collect()
+}
+
+#[tokio::test]
+async fn task_form_starts_in_the_inherited_folder_mode() {
+    for (setting, mode) in [
+        (TaskFolderSetting::Auto, FolderMode::Auto),
+        (TaskFolderSetting::None, FolderMode::None),
+    ] {
+        let mut t = tree(); // in memory: the form is only opened, never saved
+        let root = t.get_mut(&[]).and_then(Node::as_container_mut).unwrap();
+        root.settings.task_folders = Some(setting);
+        let mut app = App::new(&mut t, state_at(&[1])); // "ws": inherits from the root
+
+        app.handle_key(key('t')).await;
+
+        let Mode::Form(form) = &app.mode else {
+            panic!("no form open");
+        };
+        assert_eq!(form.folder_mode(), Some(mode), "{setting:?}");
+    }
+}
+
+#[tokio::test]
+async fn task_form_due_date_comes_from_the_deadline_setting() {
+    let mut t = tree();
+    let root = t.get_mut(&[]).and_then(Node::as_container_mut).unwrap();
+    root.settings.default_deadline = Some("+3d 18:00".parse().unwrap());
+    let before = chrono::Local::now().date_naive();
+    let mut app = App::new(&mut t, state_at(&[1])); // "ws": inherits from the root
+
+    app.handle_key(key('t')).await;
+
+    let Mode::Form(form) = &app.mode else {
+        panic!("no form open");
+    };
+    let due = form.date_value(FieldId::Due).expect("no due field");
+    assert_eq!(
+        due.time(),
+        chrono::NaiveTime::from_hms_opt(18, 0, 0).unwrap()
+    );
+    // `now` is read inside: allow for the date changing while the test runs
+    let days = (due.date() - before).num_days();
+    assert!(days == 3 || days == 4, "due {due} is {days} days away");
 }
 
 #[tokio::test]

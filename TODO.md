@@ -34,25 +34,27 @@ Priorities as of 2026-09-25, in order. Background and older plans:
 
 ## 1. Container settings (foundation for everything below)
 
-- [ ] **Inheritance:** a setting not set on a container comes from its parent
+- [x] **Inheritance:** a setting not set on a container comes from its parent
       (project -> workspace -> root -> built-in default). Every setting is
       optional, yes/no included, so a child can switch off what its parent
       switched on. (roadmap 1.2 "fallback hierarchy")
-- [ ] **Only set values are saved** in `.udo.toml`: a file shows exactly
+- [x] **Only set values are saved** in `.udo.toml`: a file shows exactly
       what that container overrides.
-- [ ] **Root-only settings get their own type** (`RootSettings`: theme,
+- [x] **Root-only settings get their own type** (`RootSettings`: theme,
       default workspace, first weekday, run config library, timetable),
       instead of "Global only" comments.
 - [ ] **Edit settings** from the TUI (and the CLI). The editor shows where a
       value comes from (`1h30 (from uni)`), can override and reset to
       inherited.
-- [ ] **Default deadline** for new tasks as a rule: `fri 22:00` (next
+- [x] **Default deadline** for new tasks as a rule: `fri 22:00` (next
       Friday) or `+7d 23:59`. Nothing fancier for now.
-- [ ] **`task_folders = auto | none`** replaces the "folders only in
-      projects" rule. Kinds become plain labels. Built-in default: `auto`.
+- [x] **`task_folders = auto | none`** replaces the "folders only in
+      projects" rule. Kinds become plain labels. Built-in default: `none`
+      (opt-in: set `auto` on a container and everything below it gets task
+      folders). Containers always have their own folder either way.
 - [ ] Task-level exceptions (own estimate, left out of planning, own run
       config) are task fields, not settings.
-- [ ] Durations are written like `1h30` / `90m`.
+- [x] Durations are written like `1h30` / `90m`.
 - [ ] CLI: create workspaces below other containers (e.g. `--parent uni/cs`).
 
 ## 2. Time tracking (the core feature)

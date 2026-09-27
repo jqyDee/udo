@@ -8,7 +8,10 @@ use ratatui::{
     widgets::{Block, Paragraph},
 };
 
-use crate::tui::{form::{ChoiceInput, DateInput, FieldId, FieldInput, FolderMode, Form, TextInput}, view::LABEL_WIDTH};
+use crate::tui::{
+    form::{ChoiceInput, DateInput, FieldId, FieldInput, FolderMode, Form, TextInput},
+    view::LABEL_WIDTH,
+};
 
 /// Width of the `" ▸ "` / `"   "` column in front of each field.
 const PREFIX_W: usize = 3;
