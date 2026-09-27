@@ -1,4 +1,5 @@
-//! Forms: `t` / `T` new task, `c` / `C` new container, `e` edit. Opening
+//! Forms: `t` / `T` new task, `c` / `C` new container, `e` edit (on the
+//! settings tab: the container's settings). Opening
 //! picks the parent (or the node), the form edits itself
 //! (`Form::handle_key`), submit calls the tree (which checks names and
 //! creates dirs).
@@ -12,7 +13,9 @@ use crate::{
         NodePath,
         container::{Container, ContainerKind, ContainerPatch},
         node::{BodyPatch, HeaderPatch, Node, NodePatch},
+        settings::{ContainerSettings, view::SettingInfo},
         task::{Task, TaskPatch},
+        tree::Tree,
     },
     tui::form::{FolderMode, Form, FormAction, FormOutcome, TaskDefaults, local_to_utc},
 };
@@ -84,6 +87,27 @@ impl App<'_> {
             }
             None => self.error("nothing selected"),
         }
+    }
+
+    /// Settings form for the container at the cursor (a task: its
+    /// container). Placeholders show what applies when a field is empty;
+    /// the root row also gets the `[root]` settings.
+    pub(super) fn open_settings_form(&mut self) {
+        let tree: &Tree = self.tree;
+        let Some(path) = tree.nearest_file_owner(&self.tree_state.cursor) else {
+            return self.error("nothing selected");
+        };
+        let Some((node, c)) = tree.get(&path).and_then(|n| Some((n, n.as_container()?))) else {
+            return self.error("nothing selected");
+        };
+        let inherited =
+            |info: &SettingInfo<ContainerSettings>| match tree.inherited_setting(&path, info.get) {
+                Some(r) => format!("{} ({})", r.value, tree.source_text(&r.source)),
+                None => "not set".into(),
+            };
+        let root = path.is_empty().then_some(&c.root_settings);
+        let form = Form::edit_settings(path.clone(), node.name(), &c.settings, inherited, root);
+        self.mode = Mode::Form(Box::new(form));
     }
 
     pub(super) async fn handle_form_key(&mut self, key: KeyEvent) -> Flow {
@@ -181,6 +205,21 @@ impl App<'_> {
                     .edit(path, patch)
                     .await
                     .map(|()| (path.clone(), format!("saved {}", v.name)))
+            }
+            FormAction::EditSettings { path } => {
+                let (settings, root) = match form.settings() {
+                    Ok(s) => s,
+                    Err(e) => {
+                        self.error(e);
+                        return;
+                    }
+                };
+                // opened from a task: the cursor stays on the task
+                let cursor = self.tree_state.cursor.clone();
+                self.tree
+                    .set_settings(path, settings, root)
+                    .await
+                    .map(|()| (cursor, "saved settings".to_string()))
             }
         };
 

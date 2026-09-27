@@ -4,8 +4,10 @@ use crate::{
     Res, UDO_FILE_NAME,
     model::{
         NodePath,
+        container::ContainerPatch,
         data::ContainerData,
         node::{BodyPatch, Node, NodePatch, clean_description},
+        settings::{ContainerSettings, RootSettings},
         task::{TaskPatch, TaskStatus},
         tree::Tree,
     },
@@ -95,6 +97,36 @@ impl Tree {
         }
 
         self.update(path, patch)?;
+        self.save(path).await
+    }
+
+    /// Replace the own settings of the container at `path` (the root too) and
+    /// save its file. `root`: the `[root]` settings, only for the root.
+    /// Errors, before anything changes, for a task, a missing path, or
+    /// `root` given for another container.
+    pub async fn set_settings(
+        &mut self,
+        path: &[usize],
+        settings: ContainerSettings,
+        root: Option<RootSettings>,
+    ) -> Res<()> {
+        if self.get(path).and_then(Node::as_container).is_none() {
+            return Err("only containers have settings".into());
+        }
+        if root.is_some() && !path.is_empty() {
+            return Err("root settings only exist on the root".into());
+        }
+        self.update(
+            path,
+            NodePatch {
+                body: Some(BodyPatch::Container(ContainerPatch {
+                    settings: Some(settings),
+                    root_settings: root,
+                    ..Default::default()
+                })),
+                ..Default::default()
+            },
+        )?;
         self.save(path).await
     }
 
@@ -656,6 +688,110 @@ mod tests {
     async fn set_task_status_rejects_missing_path() {
         let mut t = tree();
         assert!(t.set_task_status(&[9], TaskStatus::Finished).await.is_err());
+    }
+
+    // ---------- set_settings (disk_tree: root: [a, ws: [b]]) ----------
+
+    fn deadline(rule: &str) -> ContainerSettings {
+        ContainerSettings {
+            default_deadline: Some(rule.parse().unwrap()),
+            ..Default::default()
+        }
+    }
+
+    fn theme(name: &str) -> RootSettings {
+        RootSettings {
+            theme: Some(name.into()),
+        }
+    }
+
+    #[tokio::test]
+    async fn set_settings_saves_the_containers_own_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path()).await;
+
+        t.set_settings(&[1], deadline("fri 22:00"), None)
+            .await
+            .unwrap();
+
+        let ws = ContainerData::load(&tmp.path().join("ws")).await.unwrap();
+        assert_eq!(
+            ws.settings.default_deadline,
+            Some("fri 22:00".parse().unwrap())
+        );
+        let root = ContainerData::load(tmp.path()).await.unwrap();
+        assert_eq!(root.settings.default_deadline, None); // parent untouched
+    }
+
+    #[tokio::test]
+    async fn set_settings_replaces_all_so_unset_fields_are_removed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path()).await;
+        t.set_settings(&[1], deadline("fri 22:00"), None)
+            .await
+            .unwrap();
+
+        t.set_settings(&[1], ContainerSettings::default(), None)
+            .await
+            .unwrap();
+
+        let ws = ContainerData::load(&tmp.path().join("ws")).await.unwrap();
+        assert_eq!(ws.settings.default_deadline, None);
+    }
+
+    #[tokio::test]
+    async fn set_settings_on_the_root_with_root_settings_survives_reload() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path()).await;
+
+        t.set_settings(&[], deadline("+7d 23:59"), Some(theme("dark")))
+            .await
+            .unwrap();
+
+        let loaded = Tree::load_from(tmp.path()).await.unwrap();
+        assert_eq!(loaded.root_settings(), &theme("dark"));
+        let root = loaded.get(&[]).unwrap().as_container().unwrap();
+        assert_eq!(
+            root.settings.default_deadline,
+            Some("+7d 23:59".parse().unwrap())
+        );
+    }
+
+    #[tokio::test]
+    async fn set_settings_without_root_settings_keeps_them() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree(tmp.path()).await;
+        t.set_settings(&[], ContainerSettings::default(), Some(theme("dark")))
+            .await
+            .unwrap();
+
+        t.set_settings(&[], deadline("fri 22:00"), None)
+            .await
+            .unwrap();
+
+        assert_eq!(t.root_settings(), &theme("dark"));
+    }
+
+    #[tokio::test]
+    async fn set_settings_rejects_tasks_missing_paths_and_root_settings_elsewhere() {
+        // all fail before any save, so the /tmp dirs of tree() are never written
+        let mut t = tree(); // root: [a, inner: [b]]
+
+        assert!(
+            t.set_settings(&[0], deadline("fri 22:00"), None)
+                .await
+                .is_err()
+        ); // task
+        assert!(
+            t.set_settings(&[9], deadline("fri 22:00"), None)
+                .await
+                .is_err()
+        );
+        let r = t.set_settings(&[1], deadline("fri 22:00"), Some(theme("x")));
+        assert!(r.await.is_err());
+        let inner = t.get(&[1]).unwrap().as_container().unwrap();
+        assert_eq!(inner.settings.default_deadline, None); // unchanged
+        assert_eq!(inner.root_settings, RootSettings::default());
     }
 
     // ---------- name rules ----------

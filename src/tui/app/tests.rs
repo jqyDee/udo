@@ -4,10 +4,15 @@ use crossterm::event::{KeyCode, KeyEventState, KeyModifiers};
 
 use super::{details::DetailsTab, *};
 use crate::{
-    model::{container::ContainerKind, node::Node, settings::TaskFolderSetting},
+    model::{
+        container::ContainerKind,
+        node::Node,
+        settings::{TaskFolderSetting, view::SETTINGS},
+        time::DeadlineRule,
+    },
     test_util::{container, container_at, press, state_at, task, tree_with},
     tui::{
-        form::{FieldId, FolderMode, FormAction, TextInput},
+        form::{FieldId, FieldInput, FolderMode, FormAction, TextInput},
         toast::ToastKind,
     },
 };
@@ -711,4 +716,151 @@ async fn esc_closes_edit_form_without_changes() {
 
     assert_eq!(app.mode, Mode::Normal);
     assert_eq!(app.tree.get(&[0]).unwrap().name(), "a");
+}
+
+// ---------- settings form (`e` on the settings tab) ----------
+
+/// Real root with container "uni" ([0]) holding task "lab" ([0, 0]).
+async fn uni_tree(tmp: &Path) -> Tree {
+    let mut t = Tree::load_from(tmp).await.unwrap();
+    let uni = container_at("uni", &tmp.join("uni"), ContainerKind::Workspace, vec![]);
+    t.create(&[], uni).await.unwrap();
+    t.create(&[0], task("lab")).await.unwrap();
+    t
+}
+
+/// Settings tab, then `e`.
+async fn open_settings(app: &mut App<'_>) {
+    app.handle_key(press(KeyCode::Tab)).await;
+    app.handle_key(key('e')).await;
+}
+
+/// Tab from the first field to the field of `SETTINGS` entry `key`.
+async fn focus_setting(app: &mut App<'_>, key: &str) {
+    let idx = SETTINGS.iter().position(|i| i.key == key).unwrap();
+    for _ in 0..idx {
+        app.handle_key(press(KeyCode::Tab)).await;
+    }
+}
+
+fn open_form<'m>(app: &'m App<'_>) -> &'m Form {
+    match &app.mode {
+        Mode::Form(form) => form,
+        other => panic!("no form open: {other:?}"),
+    }
+}
+
+fn uni_deadline(t: &Tree) -> Option<DeadlineRule> {
+    let uni = t.get(&[0]).and_then(Node::as_container).unwrap();
+    uni.settings.default_deadline
+}
+
+#[tokio::test]
+async fn e_on_the_settings_tab_edits_the_tasks_container() {
+    let mut t = tree(); // in memory: root: [a, ws: [b]]
+    let root = t.get_mut(&[]).and_then(Node::as_container_mut).unwrap();
+    root.settings.default_deadline = Some("fri 22:00".parse().unwrap());
+    let mut app = App::new(&mut t, state_at(&[1, 0])); // task "b"
+
+    open_settings(&mut app).await;
+
+    let form = open_form(&app);
+    assert_eq!(form.action, FormAction::EditSettings { path: vec![1] });
+    let deadline = SETTINGS
+        .iter()
+        .position(|i| i.key == "default_deadline")
+        .unwrap();
+    let FieldInput::Text(t) = &form.fields[deadline].input else {
+        panic!("deadline is not a text field");
+    };
+    assert_eq!(t.value, ""); // not set on ws
+    assert_eq!(t.placeholder.as_deref(), Some("fri 22:00 (from root)"));
+    // not the root: no root settings
+    assert!(
+        !form
+            .fields
+            .iter()
+            .any(|f| matches!(f.id, FieldId::RootSetting(_)))
+    );
+}
+
+#[tokio::test]
+async fn settings_form_saves_and_keeps_the_cursor() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut t = uni_tree(tmp.path()).await;
+    let mut app = App::new(&mut t, state_at(&[0, 0])); // task "lab"
+
+    open_settings(&mut app).await;
+    focus_setting(&mut app, "default_deadline").await;
+    type_into(&mut app, "fri 22:00").await;
+    app.handle_key(press(KeyCode::Enter)).await;
+
+    assert_eq!(app.mode, Mode::Normal);
+    assert_eq!(app.toast.as_ref().unwrap().kind, ToastKind::Info);
+    assert_eq!(app.tree_state.cursor, vec![0, 0]); // still on the task
+    let reloaded = Tree::load_from(tmp.path()).await.unwrap();
+    assert_eq!(uni_deadline(&reloaded), Some("fri 22:00".parse().unwrap()));
+}
+
+#[tokio::test]
+async fn clearing_a_setting_inherits_it_again() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut t = uni_tree(tmp.path()).await;
+    let uni = t.get_mut(&[0]).and_then(Node::as_container_mut).unwrap();
+    uni.settings.default_deadline = Some("fri 22:00".parse().unwrap());
+    t.save(&[0]).await.unwrap();
+    let mut app = App::new(&mut t, state_at(&[0]));
+
+    open_settings(&mut app).await;
+    focus_setting(&mut app, "default_deadline").await;
+    app.handle_key(clear()).await;
+    app.handle_key(press(KeyCode::Enter)).await;
+
+    assert_eq!(app.mode, Mode::Normal);
+    let reloaded = Tree::load_from(tmp.path()).await.unwrap();
+    assert_eq!(uni_deadline(&reloaded), None);
+}
+
+#[tokio::test]
+async fn bad_setting_keeps_the_form_open_with_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut t = uni_tree(tmp.path()).await;
+    let mut app = App::new(&mut t, state_at(&[0]));
+
+    open_settings(&mut app).await;
+    focus_setting(&mut app, "default_deadline").await;
+    type_into(&mut app, "someday").await;
+    app.handle_key(press(KeyCode::Enter)).await;
+
+    assert!(matches!(app.mode, Mode::Form(_)), "form closed on error");
+    let toast = app.toast.as_ref().unwrap();
+    assert_eq!(toast.kind, ToastKind::Error);
+    assert!(toast.msg.starts_with("deadline: "), "got: {}", toast.msg);
+    assert_eq!(uni_deadline(app.tree), None);
+}
+
+#[tokio::test]
+async fn settings_form_on_the_root_row_saves_root_settings() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut t = uni_tree(tmp.path()).await;
+    let mut app = App::new(&mut t, state_at(&[])); // root row
+
+    open_settings(&mut app).await;
+    let form = open_form(&app);
+    assert_eq!(form.action, FormAction::EditSettings { path: vec![] });
+    let theme = form
+        .fields
+        .iter()
+        .position(|f| f.id == FieldId::RootSetting(0))
+        .expect("no root settings on the root");
+    for _ in 0..theme {
+        app.handle_key(press(KeyCode::Tab)).await;
+    }
+    type_into(&mut app, "dark").await;
+    app.handle_key(press(KeyCode::Enter)).await;
+
+    assert_eq!(app.mode, Mode::Normal);
+    assert_eq!(app.tree_state.cursor, Vec::<usize>::new());
+    let reloaded = Tree::load_from(tmp.path()).await.unwrap();
+    assert_eq!(reloaded.root_settings().theme.as_deref(), Some("dark"));
 }

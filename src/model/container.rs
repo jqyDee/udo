@@ -57,6 +57,9 @@ impl Container {
         if let Some(settings) = patch.settings {
             self.settings = settings
         }
+        if let Some(root_settings) = patch.root_settings {
+            self.root_settings = root_settings
+        }
     }
 }
 
@@ -106,6 +109,8 @@ pub struct ContainerPatch {
     pub dir: Option<PathBuf>,
     pub kind: Option<ContainerKind>,
     pub settings: Option<ContainerSettings>,
+    /// Root only; `Tree::set_settings` checks that.
+    pub root_settings: Option<RootSettings>,
 }
 
 #[cfg(test)]

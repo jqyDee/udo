@@ -14,7 +14,7 @@ use crate::{
     DATE_FMT,
     model::{
         node::{Node, NodeBody},
-        settings::{Source, view::EffectiveSetting},
+        settings::view::EffectiveSetting,
         tree::Tree,
     },
     tui::{app::details::DetailsTab, view::LABEL_WIDTH},
@@ -134,20 +134,9 @@ fn setting_lines(tree: &Tree, settings: &[EffectiveSetting]) -> Vec<Line<'static
             None => field(s.label, "-".into()),
             Some(r) => {
                 let mut line = field(s.label, r.value.clone());
-                line.push_span(Span::raw(format!(" ({})", source_text(tree, &r.source))).dim());
+                line.push_span(Span::raw(format!(" ({})", tree.source_text(&r.source))).dim());
                 line
             }
         })
         .collect()
-}
-
-/// `own`, `from uni`, `default`.
-fn source_text(tree: &Tree, source: &Source) -> String {
-    match source {
-        Source::Own => "own".into(),
-        Source::Inherited(path) => {
-            format!("from {}", tree.get(path).map_or("?", |n| n.name()))
-        }
-        Source::Default => "default".into(),
-    }
 }

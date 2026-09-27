@@ -3,7 +3,8 @@
 //!
 //! Both are filled the same way (`Form::for_node`): editing starts from the
 //! node, creating from a template node with the defaults. Both are read the
-//! same way (`Form::values`).
+//! same way (`Form::values`). Settings have their own form
+//! (`Form::edit_settings`, read with `Form::settings`).
 //!
 //! - `text`: `TextInput`, free text with a cursor
 //! - `date`: `DateInput`, local date + time edited by segment
@@ -33,6 +34,10 @@ use crate::{
         NodePath,
         container::{Container, ContainerKind},
         node::{Node, NodeBody},
+        settings::{
+            ContainerSettings, RootSettings,
+            view::{ROOT_SETTINGS, SETTINGS, SettingInfo},
+        },
         task::Task,
     },
     naming::{folder_name, normalize_name},
@@ -54,6 +59,10 @@ pub enum FieldId {
     Folder,
     Kind,
     Description,
+    /// Index into `SETTINGS`.
+    Setting(usize),
+    /// Index into `ROOT_SETTINGS`.
+    RootSetting(usize),
 }
 
 impl FieldId {
@@ -66,6 +75,8 @@ impl FieldId {
             Self::Folder => "folder",
             Self::Kind => "kind",
             Self::Description => "description",
+            Self::Setting(idx) => SETTINGS[idx].label,
+            Self::RootSetting(idx) => ROOT_SETTINGS[idx].label,
         }
     }
 }
@@ -88,6 +99,10 @@ pub enum FormAction {
         parent: NodePath,
     },
     EditNode {
+        path: NodePath,
+    },
+    /// Own settings of the container at `path` (`Form::settings`).
+    EditSettings {
         path: NodePath,
     },
 }
@@ -221,6 +236,44 @@ impl Form {
         )
     }
 
+    /// Settings form for the container at `path` (called `name`): one text
+    /// field per `SETTINGS` entry with the own value (empty = inherit), the
+    /// placeholder from `inherited` (what applies when it's empty). `root`:
+    /// the root's `[root]` settings, one more field per `ROOT_SETTINGS`
+    /// entry; None for every other container.
+    pub fn edit_settings(
+        path: NodePath,
+        name: &str,
+        own: &ContainerSettings,
+        inherited: impl Fn(&SettingInfo<ContainerSettings>) -> String,
+        root: Option<&RootSettings>,
+    ) -> Self {
+        let field = |id, value: Option<String>, placeholder: String| FormField {
+            id,
+            input: FieldInput::Text(
+                TextInput::new(value.unwrap_or_default()).with_placeholder(placeholder),
+            ),
+        };
+        let mut fields: Vec<_> = SETTINGS
+            .iter()
+            .enumerate()
+            .map(|(i, info)| field(FieldId::Setting(i), (info.get)(own), inherited(info)))
+            .collect();
+        if let Some(root) = root {
+            // not inherited: nothing applies when empty
+            fields.extend(ROOT_SETTINGS.iter().enumerate().map(|(i, info)| {
+                field(FieldId::RootSetting(i), (info.get)(root), "not set".into())
+            }));
+        }
+        Self {
+            title: format!("settings · {name}"),
+            fields,
+            parent_dir: None,
+            active_field: 0,
+            action: FormAction::EditSettings { path },
+        }
+    }
+
     /// Fields for `node`, prefilled with its values. Same fields in the same
     /// order for creating and editing: task = name, description, [folder,
     /// dir], due; container = name, description, kind, [folder, dir].
@@ -284,6 +337,33 @@ impl Form {
             due: self.date_value(FieldId::Due),
             kind: self.container_kind(),
         }
+    }
+
+    /// What a settings form says right now, parsed by the `set` of each
+    /// entry, for `Tree::set_settings`. Root settings: Some only if the form
+    /// has their fields (root). Err: `"deadline: <why>"`, for a toast.
+    pub fn settings(&self) -> Result<(ContainerSettings, Option<RootSettings>), String> {
+        let mut settings = ContainerSettings::default();
+        let mut root: Option<RootSettings> = None;
+        for field in &self.fields {
+            let FieldInput::Text(t) = &field.input else {
+                continue;
+            };
+            match field.id {
+                FieldId::Setting(i) => {
+                    let info = &SETTINGS[i];
+                    (info.set)(&mut settings, &t.value)
+                        .map_err(|e| format!("{}: {e}", info.label))?;
+                }
+                FieldId::RootSetting(i) => {
+                    let info = &ROOT_SETTINGS[i];
+                    (info.set)(root.get_or_insert_default(), &t.value)
+                        .map_err(|e| format!("{}: {e}", info.label))?;
+                }
+                _ => {}
+            }
+        }
+        Ok((settings, root))
     }
 
     pub fn active_field_mut(&mut self) -> Option<&mut FormField> {

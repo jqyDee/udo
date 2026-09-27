@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use chrono::NaiveDate;
 
 use super::*;
-use crate::test_util::press;
+use crate::{model::settings::TaskFolderSetting, test_util::press};
 
 fn dt(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> NaiveDateTime {
     NaiveDate::from_ymd_opt(y, mo, d)
@@ -423,4 +423,136 @@ fn tab_reaches_the_dir_row_in_custom() {
     assert_eq!(active_id(&form), FieldId::Dir);
     form.handle_key(press(KeyCode::Tab));
     assert_eq!(active_id(&form), FieldId::Due);
+}
+
+// --------------- Settings Form Tests ---------------
+
+/// Own: deadline only. Placeholder: `<label> (inherited)`.
+fn settings_form(root: Option<&RootSettings>) -> Form {
+    let own = ContainerSettings {
+        default_deadline: Some("fri 22:00".parse().unwrap()),
+        ..Default::default()
+    };
+    Form::edit_settings(
+        vec![0],
+        "uni",
+        &own,
+        |info| format!("{} (inherited)", info.label),
+        root,
+    )
+}
+
+fn placeholder(form: &Form, id: FieldId) -> Option<&str> {
+    match &form.fields.iter().find(|f| f.id == id)?.input {
+        FieldInput::Text(t) => t.placeholder.as_deref(),
+        _ => None,
+    }
+}
+
+/// Replace the text of field `id` by typing, like a user would.
+fn retype(form: &mut Form, id: FieldId, text: &str) {
+    focus(form, id);
+    let old = form.text_value(id).unwrap().chars().count();
+    for _ in 0..old {
+        form.handle_key(press(KeyCode::Backspace));
+    }
+    for c in text.chars() {
+        form.handle_key(press(KeyCode::Char(c)));
+    }
+}
+
+#[test]
+fn settings_form_has_one_field_per_setting_in_order() {
+    let form = settings_form(None);
+
+    let ids: Vec<_> = form.fields.iter().map(|f| f.id).collect();
+    let expected: Vec<_> = (0..SETTINGS.len()).map(FieldId::Setting).collect();
+    assert_eq!(ids, expected);
+    assert_eq!(form.title, "settings · uni");
+    assert_eq!(form.action, FormAction::EditSettings { path: vec![0] });
+}
+
+#[test]
+fn settings_form_shows_own_values_and_inherited_placeholders() {
+    let form = settings_form(None);
+
+    for (i, info) in SETTINGS.iter().enumerate() {
+        let id = FieldId::Setting(i);
+        assert_eq!(id.label(), info.label);
+        let expected = format!("{} (inherited)", info.label);
+        assert_eq!(placeholder(&form, id), Some(expected.as_str()));
+        let text = form.text_value(id).unwrap();
+        match info.key {
+            "default_deadline" => assert_eq!(text, "fri 22:00"),
+            _ => assert_eq!(text, "", "{}", info.key), // not set: inherit
+        }
+    }
+}
+
+#[test]
+fn settings_form_unchanged_gives_the_same_settings() {
+    let (settings, root) = settings_form(None).settings().unwrap();
+
+    assert_eq!(
+        settings,
+        ContainerSettings {
+            default_deadline: Some("fri 22:00".parse().unwrap()),
+            ..Default::default()
+        }
+    );
+    assert_eq!(root, None); // not the root: no root settings sent
+}
+
+#[test]
+fn settings_form_typed_and_cleared_values() {
+    let mut form = settings_form(None);
+    let idx = |key| FieldId::Setting(SETTINGS.iter().position(|i| i.key == key).unwrap());
+
+    retype(&mut form, idx("default_deadline"), ""); // cleared: inherit again
+    retype(&mut form, idx("task_folders"), "auto");
+
+    let (settings, _) = form.settings().unwrap();
+    assert_eq!(settings.default_deadline, None);
+    assert_eq!(settings.task_folders, Some(TaskFolderSetting::Auto));
+}
+
+#[test]
+fn settings_form_bad_input_names_the_setting() {
+    let mut form = settings_form(None);
+    let i = SETTINGS
+        .iter()
+        .position(|i| i.key == "default_deadline")
+        .unwrap();
+
+    retype(&mut form, FieldId::Setting(i), "someday");
+
+    let err = form.settings().unwrap_err();
+    assert!(err.starts_with("deadline: "), "got: {err}");
+}
+
+#[test]
+fn settings_form_on_the_root_adds_root_settings() {
+    let root = RootSettings {
+        theme: Some("dark".into()),
+    };
+    let mut form = settings_form(Some(&root));
+
+    let root_ids: Vec<_> = form
+        .fields
+        .iter()
+        .map(|f| f.id)
+        .filter(|id| matches!(id, FieldId::RootSetting(_)))
+        .collect();
+    let expected: Vec<_> = (0..ROOT_SETTINGS.len()).map(FieldId::RootSetting).collect();
+    assert_eq!(root_ids, expected);
+    // after the container settings
+    assert_eq!(form.fields[SETTINGS.len()].id, FieldId::RootSetting(0));
+
+    let theme = FieldId::RootSetting(0);
+    assert_eq!(form.text_value(theme), Some("dark"));
+    assert_eq!(placeholder(&form, theme), Some("not set"));
+    assert_eq!(form.settings().unwrap().1, Some(root));
+
+    retype(&mut form, theme, ""); // cleared: still sent, as unset
+    assert_eq!(form.settings().unwrap().1, Some(RootSettings::default()));
 }

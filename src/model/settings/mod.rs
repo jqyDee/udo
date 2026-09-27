@@ -9,7 +9,7 @@
 mod resolve;
 pub mod view;
 
-use std::{fmt, path::PathBuf};
+use std::{fmt, path::PathBuf, str::FromStr};
 
 use chrono::NaiveTime;
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,7 @@ use crate::model::time::DeadlineRule;
 
 /// Settings any container can set, flattened into its `.udo.toml`. Every
 /// field is optional: `None` = take it from the parent.
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContainerSettings {
     pub archive_dir: Option<PathBuf>,
     /// New tasks get a folder. Inherited; built-in: `none` (opt-in).
@@ -60,6 +60,18 @@ impl fmt::Display for TaskFolderSetting {
         match &self {
             Self::Auto => write!(f, "auto"),
             Self::None => write!(f, "none"),
+        }
+    }
+}
+
+impl FromStr for TaskFolderSetting {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim() {
+            "auto" => Ok(Self::Auto),
+            "none" => Ok(Self::None),
+            other => Err(format!("{other:?}: expected auto or none")),
         }
     }
 }
@@ -181,6 +193,14 @@ mod tests {
     fn task_folders_rejects_custom() {
         // `custom` is a form choice (one task, typed path), never a setting
         assert!(toml::from_str::<ContainerSettings>("task_folders = \"custom\"").is_err());
+        assert!("custom".parse::<TaskFolderSetting>().is_err());
+    }
+
+    #[test]
+    fn task_folders_parses_what_it_displays() {
+        for v in [TaskFolderSetting::Auto, TaskFolderSetting::None] {
+            assert_eq!(v.to_string().parse(), Ok(v));
+        }
     }
 
     // ---------- default_deadline ----------

@@ -4,7 +4,8 @@
 //! One file per mode that needs more than a line or two:
 //! - `confirm`: "remove?" prompt (`d`) and full delete (`D`)
 //! - `details`: `DetailsTab`, which tab the right pane shows (Tab / Shift+Tab)
-//! - `forms`:   create forms (`t` `T` `c` `C`) and the edit form (`e`)
+//! - `forms`:   create forms (`t` `T` `c` `C`), the edit form (`e`) and the
+//!   settings form (`e` on the settings tab)
 
 mod confirm;
 pub mod details;
@@ -115,7 +116,10 @@ impl<'a> App<'a> {
             Action::CollapseAll => self.tree_state.collapse_all(self.tree),
             Action::ExpandAll => self.tree_state.expand_all(),
             Action::SetStatus(status) => self.set_status(status).await,
-            Action::Edit => self.open_edit_form(),
+            Action::Edit => match self.details_tab {
+                DetailsTab::Info => self.open_edit_form(),
+                DetailsTab::Settings => self.open_settings_form(),
+            },
             Action::Delete => self.ask_delete(),
             Action::NewContainer => self.open_container_form(),
             Action::NewTask => self.open_task_form(),

@@ -72,7 +72,9 @@ impl Tree {
             data.root
         } else {
             if !data.root.is_empty() {
-                eprintln!("warning: ignoring [root] settings in {dir:?}: only root has a global config.")
+                eprintln!(
+                    "warning: ignoring [root] settings in {dir:?}: only root has a global config."
+                )
             }
             RootSettings::default()
         };

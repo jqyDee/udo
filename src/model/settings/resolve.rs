@@ -50,11 +50,37 @@ impl Tree {
             };
         }
 
-        get(&ContainerSettings::builtin()).map(|value| Resolved {
-            value,
-            source: Source::Default,
-        })
+        builtin_setting(get)
     }
+
+    /// What the container at `path` would get if it didn't set the value
+    /// itself: its parent's value (root: the built-in default). For the
+    /// placeholders of the settings form. None: not a container, or set
+    /// nowhere above and no default.
+    pub fn inherited_setting<T>(
+        &self,
+        path: &[usize],
+        get: impl Fn(&ContainerSettings) -> Option<T>,
+    ) -> Option<Resolved<T>> {
+        self.get(path).and_then(Node::as_container)?;
+        let Some((_, parent)) = path.split_last() else {
+            return builtin_setting(get); // root: nothing above it
+        };
+        let mut found = self.setting(parent, get)?;
+        // the parent's own value is inherited from the child's point of view
+        if found.source == Source::Own {
+            found.source = Source::Inherited(parent.to_vec());
+        }
+        Some(found)
+    }
+}
+
+/// The built-in default of one setting, if it has one.
+fn builtin_setting<T>(get: impl Fn(&ContainerSettings) -> Option<T>) -> Option<Resolved<T>> {
+    get(&ContainerSettings::builtin()).map(|value| Resolved {
+        value,
+        source: Source::Default,
+    })
 }
 
 #[cfg(test)]
@@ -64,7 +90,7 @@ mod tests {
     use super::*;
     use crate::{
         UDO_FILE_NAME,
-        model::container::ContainerKind,
+        model::{container::ContainerKind, settings::TaskFolderSetting},
         test_util::{container, container_at, task, tree_with},
     };
 
@@ -178,6 +204,64 @@ mod tests {
 
         assert_eq!(archive(&t, &[9]), None);
         assert_eq!(archive(&t, &[0, 9, 9]), None);
+    }
+
+    // ---------- inherited_setting ----------
+
+    fn inherited_archive(t: &Tree, path: &[usize]) -> Option<Resolved<PathBuf>> {
+        t.inherited_setting(path, |s| s.archive_dir.clone())
+    }
+
+    #[test]
+    fn inherited_skips_the_own_value() {
+        let mut t = tree();
+        set_archive(&mut t, &[0], "/uni");
+        set_archive(&mut t, &[0, 0], "/cs");
+
+        // the parent's own value, seen from the child: inherited, not Own
+        assert_eq!(
+            inherited_archive(&t, &[0, 0]),
+            resolved("/uni", Source::Inherited(vec![0]))
+        );
+    }
+
+    #[test]
+    fn inherited_comes_from_further_up() {
+        let mut t = tree();
+        set_archive(&mut t, &[], "/root");
+        set_archive(&mut t, &[0, 0], "/cs");
+
+        assert_eq!(
+            inherited_archive(&t, &[0, 0]),
+            resolved("/root", Source::Inherited(vec![]))
+        );
+    }
+
+    #[test]
+    fn inherited_on_the_root_is_the_builtin() {
+        let mut t = tree();
+        set_archive(&mut t, &[], "/root");
+        let root = t.get_mut(&[]).and_then(Node::as_container_mut).unwrap();
+        root.settings.task_folders = Some(TaskFolderSetting::Auto);
+
+        // its own values don't count
+        assert_eq!(
+            t.inherited_setting(&[], |s| s.task_folders),
+            Some(Resolved {
+                value: TaskFolderSetting::None,
+                source: Source::Default,
+            })
+        );
+        assert_eq!(inherited_archive(&t, &[]), None); // archive has no default
+    }
+
+    #[test]
+    fn inherited_of_a_task_or_a_missing_path_is_none() {
+        let mut t = tree();
+        set_archive(&mut t, &[], "/root");
+
+        assert_eq!(inherited_archive(&t, &[0, 0, 0]), None); // task "lab"
+        assert_eq!(inherited_archive(&t, &[9]), None);
     }
 
     // ---------- files ----------
