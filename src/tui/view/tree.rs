@@ -53,7 +53,7 @@ fn row_line<'a>(row: &Row<'a>, folded: bool) -> Line<'a> {
             Line::from(vec![
                 indent,
                 Span::raw(marker),
-                Span::raw(format!("{name}/")).bold().blue(),
+                Span::raw(format!("{name}/")).bold().dark_gray(),
             ])
         }
         NodeBody::Task(t) => Line::from(vec![

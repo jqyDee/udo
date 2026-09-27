@@ -28,7 +28,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     let [main, bottom] =
         Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(frame.area());
     let [left, right] =
-        Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)]).areas(main);
+        Layout::horizontal([Constraint::Percentage(35), Constraint::Percentage(65)]).areas(main);
 
     tree::draw(frame, left, app.tree, &mut app.tree_state);
 
