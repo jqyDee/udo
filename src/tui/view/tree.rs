@@ -12,10 +12,9 @@ use ratatui::{
 use crate::{
     DATE_FMT,
     model::{
-        nav::Row,
         node::NodeBody,
         task::{Task, TaskStatus},
-        tree::Tree,
+        tree::{Row, Tree},
     },
     tui::tree_state::TreeState,
 };
@@ -33,9 +32,7 @@ pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree, state: &mut TreeState) {
             .dim();
         frame.render_widget(hint, area);
     } else {
-        let lines = rows
-            .iter()
-            .map(|r| row_line(r, state.is_collapsed(r.node)));
+        let lines = rows.iter().map(|r| row_line(r, state.is_collapsed(r.node)));
         let list_widget = List::new(lines.map(ListItem::new))
             .block(block)
             .highlight_style(Style::new().reversed());

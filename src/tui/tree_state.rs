@@ -13,7 +13,12 @@ use tokio::fs;
 
 use crate::{
     Res,
-    model::{NodePath, id::NodeId, nav::Row, node::Node, tree::Tree},
+    model::{
+        NodePath,
+        id::NodeId,
+        node::Node,
+        tree::{Row, Tree},
+    },
     persist::write_toml_atomic,
 };
 
@@ -52,11 +57,7 @@ impl TreeState {
     /// `tree` are dropped first, so the file doesn't grow forever.
     pub async fn save(&mut self, tree: &Tree) -> Res<()> {
         let root_dir = tree.root.dir().ok_or("root has no dir")?;
-        let alive: HashSet<NodeId> = tree
-            .rows()
-            .iter()
-            .map(|r| r.node.header.id)
-            .collect();
+        let alive: HashSet<NodeId> = tree.rows().iter().map(|r| r.node.header.id).collect();
         self.collapsed.retain(|id| alive.contains(id));
         write_toml_atomic(&root_dir.join(VIEW_FILE_NAME), &*self).await
     }

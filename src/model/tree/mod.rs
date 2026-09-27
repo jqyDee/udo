@@ -4,9 +4,11 @@ mod edit;
 mod folders;
 mod load;
 mod purge;
+mod rows;
 
 pub use folders::DirOwner;
 pub use purge::{PurgePlan, PurgeReport, TrashFn, system_trash};
+pub use rows::Row;
 
 /// In-memory tree node. Not serialized directly - Persistence goes through DTOs.
 pub struct Tree {
