@@ -73,7 +73,7 @@ pub fn draw(frame: &mut Frame, area: Rect, form: &Form) {
 /// inactive values and placeholders show their end (`…` + tail; for paths
 /// the end is the interesting part). Counts chars as cells: fine for
 /// umlauts, off for double-width chars (CJK, emoji).
-fn text_spans(t: &TextInput, is_active: bool, width: usize) -> Vec<Span<'static>> {
+pub(super) fn text_spans(t: &TextInput, is_active: bool, width: usize) -> Vec<Span<'static>> {
     // >= 2: once scrolled, `…` and the cursor cell each need one
     let width = width.max(2);
     let placeholder = t.placeholder.as_deref().unwrap_or("(empty)");

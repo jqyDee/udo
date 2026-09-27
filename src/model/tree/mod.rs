@@ -4,8 +4,10 @@ mod cursor;
 mod edit;
 mod folders;
 mod load;
+mod purge;
 
 pub use folders::DirOwner;
+pub use purge::{PurgePlan, PurgeReport, TrashFn, system_trash};
 
 /// In-memory tree node. Not serialized directly - Persistence goes through DTOs.
 pub struct Tree {

@@ -1,5 +1,6 @@
-//! Overlays drawn on top of the panes: toast (top right), key help and
-//! confirm prompt (center), plus the geometry/text helpers they share.
+//! Overlays drawn on top of the panes: toast (top right), key help, confirm
+//! prompt and full delete (center), plus the geometry/text helpers they
+//! share.
 
 use ratatui::{
     Frame,
@@ -9,15 +10,33 @@ use ratatui::{
     widgets::{Block, Clear, Padding, Paragraph},
 };
 
-use crate::tui::{
-    app::Confirm,
-    keys::{Binding, KEYMAP, Section, bindings, key_label},
-    toast::{Toast, ToastKind},
+use crate::{
+    model::tree::PurgePlan,
+    tui::{
+        app::{Confirm, ConfirmStage, PurgeOption},
+        form::TextInput,
+        keys::{Binding, KEYMAP, Section, bindings, key_label},
+        toast::{Toast, ToastKind},
+    },
 };
 
-/// Centered "remove?" prompt for `c`. Only y / n / esc do anything (see
-/// `App::answer_confirm`), so the title must not promise "any key".
+use super::form::text_spans;
+
+/// Width of the `folder:` / `also:` column in the full delete popup.
+const LABEL_W: usize = 9;
+
+/// Centered prompt for `d`: the question (Ask stage) or the full delete
+/// with its path input (Purge stage).
 pub fn draw_confirm(frame: &mut Frame, c: &Confirm) {
+    match (&c.stage, &c.purge) {
+        (ConfirmStage::Purge { input }, PurgeOption::Ready(plan)) => draw_purge(frame, plan, input),
+        _ => draw_ask(frame, c),
+    }
+}
+
+/// "Remove?" question. Only y / n / D / esc do anything (see
+/// `App::answer_confirm`), so the title must not promise "any key".
+fn draw_ask(frame: &mut Frame, c: &Confirm) {
     let area = frame.area();
     // keep 1 cell of screen margin: - 2 margin - 2 border - 2 padding
     let max_text_w = (area.width as usize).saturating_sub(6).max(10);
@@ -28,22 +47,118 @@ pub fn draw_confirm(frame: &mut Frame, c: &Confirm) {
         .map(|l| Line::from(l).bold())
         .collect();
     lines.push(Line::from("Files and folders stay on disk.").dim());
+    if let PurgeOption::Refused(reason) = &c.purge {
+        let why = format!("full delete not possible: {reason}");
+        lines.extend(
+            wrap_text(&why, max_text_w)
+                .into_iter()
+                .map(|l| Line::from(l).dim()),
+        );
+    }
     lines.push(Line::default());
-    lines.push(Line::from("y yes · n/esc no"));
+    lines.push(Line::from(match c.purge {
+        PurgeOption::Ready(_) => "y remove from udo · D delete with files · n/esc cancel",
+        _ => "y remove from udo · n/esc cancel",
+    }));
 
+    draw_box(frame, " remove? ", lines);
+}
+
+/// Full delete: what goes to the Trash, then the path to type. Paths are
+/// cut by chars, never at spaces: they must look exactly as typed.
+fn draw_purge(frame: &mut Frame, plan: &PurgePlan, input: &TextInput) {
+    const MAX_OUTSIDE: usize = 5;
+    let area = frame.area();
+    let max_text_w = (area.width as usize).saturating_sub(6).max(LABEL_W + 10);
+    let path_w = max_text_w - LABEL_W;
+
+    let question = format!("delete {} and everything in it?", plan.name);
+    let mut lines: Vec<Line> = wrap_text(&question, max_text_w)
+        .into_iter()
+        .map(|l| Line::from(l).bold())
+        .collect();
+    let dir = plan.dir.display().to_string();
+    lines.extend(labeled("folder:", &dir, path_w));
+    for (i, other) in plan.outside.iter().take(MAX_OUTSIDE).enumerate() {
+        let label = if i == 0 { "also:" } else { "" };
+        lines.extend(labeled(label, &other.display().to_string(), path_w));
+    }
+    if plan.outside.len() > MAX_OUTSIDE {
+        let more = format!(
+            "{:LABEL_W$}and {} more",
+            "",
+            plan.outside.len() - MAX_OUTSIDE
+        );
+        lines.push(Line::from(more).dim());
+    }
+    lines.push(Line::from(contains_text(plan.containers, plan.tasks)));
+    lines.push(Line::from("everything is moved to the Trash").dim());
+    lines.push(Line::from("type the folder path to confirm:"));
+    // room for the whole path + cursor cell, if the screen allows
+    let input_w = (dir.chars().count() + 1).min(max_text_w - 2);
+    let mut input_line = vec![Span::raw("> ")];
+    input_line.extend(text_spans(input, true, input_w));
+    lines.push(Line::from(input_line));
+    lines.push(Line::default());
+    lines.push(Line::from("enter delete · esc cancel"));
+
+    draw_box(frame, " delete with files ", lines);
+}
+
+/// Red bordered box around `lines`, centered, as small as they allow.
+fn draw_box(frame: &mut Frame, title: &str, lines: Vec<Line>) {
     // display width (not bytes: `·`, umlauts), + 2 border + 2 padding
     let text_w = lines.iter().map(Line::width).max().unwrap_or(0);
-    let rect = centered(area, text_w as u16 + 4, lines.len() as u16 + 2);
+    let rect = centered(frame.area(), text_w as u16 + 4, lines.len() as u16 + 2);
     frame.render_widget(Clear, rect); // wipe what's underneath
     frame.render_widget(
         Paragraph::new(lines).block(
             Block::bordered()
-                .title(" remove? ")
+                .title(title)
                 .border_style(Style::new().fg(Color::Red))
                 .padding(Padding::horizontal(1)),
         ),
         rect,
     );
+}
+
+/// `label` padded to `LABEL_W`, then `path` in `width`-char pieces;
+/// following pieces are indented under the first.
+fn labeled(label: &str, path: &str, width: usize) -> Vec<Line<'static>> {
+    chunks(path, width)
+        .into_iter()
+        .enumerate()
+        .map(|(i, part)| {
+            let label = if i == 0 { label } else { "" };
+            Line::from(vec![
+                Span::raw(format!("{label:<LABEL_W$}")).dim(),
+                Span::raw(part),
+            ])
+        })
+        .collect()
+}
+
+/// `s` cut into pieces of at most `width` chars. Unlike `wrap_text` every
+/// space is kept: for paths that have to be typed exactly.
+fn chunks(s: &str, width: usize) -> Vec<String> {
+    let chars: Vec<char> = s.chars().collect();
+    chars
+        .chunks(width.max(1))
+        .map(|c| c.iter().collect())
+        .collect()
+}
+
+/// `contains 2 containers, 1 task`; nothing below -> `contains no other nodes`.
+fn contains_text(containers: usize, tasks: usize) -> String {
+    let count = |n: usize, word: &str| format!("{n} {word}{}", if n == 1 { "" } else { "s" });
+    if containers == 0 && tasks == 0 {
+        return "contains no other nodes".into();
+    }
+    format!(
+        "contains {}, {}",
+        count(containers, "container"),
+        count(tasks, "task")
+    )
 }
 
 /// Small bordered message box in the top right (green info / red error).
@@ -259,5 +374,17 @@ mod tests {
     #[test]
     fn wrap_text_empty_is_one_empty_line() {
         assert_eq!(wrap_text("", 10), vec![""]);
+    }
+
+    #[test]
+    fn chunks_keep_every_space() {
+        assert_eq!(chunks("a  b c", 3), vec!["a  ", "b c"]);
+        assert_eq!(chunks("äöü", 2), vec!["äö", "ü"]);
+    }
+
+    #[test]
+    fn contains_text_counts_and_plurals() {
+        assert_eq!(contains_text(2, 1), "contains 2 containers, 1 task");
+        assert_eq!(contains_text(0, 0), "contains no other nodes");
     }
 }
