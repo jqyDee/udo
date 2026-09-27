@@ -199,7 +199,7 @@ around your calendar and shows the result on your phone.
       converts dates inline instead of `local_to_utc`.
 - [ ] Edit dirs (move folders): its own operation (rename on disk, fix the
       parent's `children` / task row), not a plain patch field.
-- [ ] Delete with folder: optionally remove the node's folder too (today `d`
+- [x] Delete with folder: optionally remove the node's folder too (today `d`
       only unregisters, files stay). Separate, clearly worded confirm
       (`also delete /…/lab_3 and its files?`); containers take their whole
       subtree. Maybe to the trash instead of deleting for good.
