@@ -29,12 +29,19 @@ pub use date::{DateInput, Segment};
 pub use text::TextInput;
 
 use crate::{
-    dir::parse_abs_dir, model::{
-        NodePath, container::{Container, ContainerKind}, node::{Node, NodeBody}, settings::{
+    dir::parse_abs_dir,
+    model::{
+        NodePath,
+        container::{Container, ContainerKind},
+        node::{Node, NodeBody},
+        settings::{
             ContainerSettings, RootSettings,
             view::{ROOT_SETTINGS, SETTINGS, SettingInfo},
-        }, task::Task, time::{local_to_fixed, now},
-    }, naming::{folder_name, normalize_name},
+        },
+        task::Task,
+        time::{local_to_fixed, now},
+    },
+    naming::{folder_name, normalize_name},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
