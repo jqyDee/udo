@@ -19,9 +19,9 @@ use crate::{
 #[derive(Parser)]
 #[command(
     name = "udo",
-    about = "University task and script manager",
+    about = "udo\n---------------------\ntask, time and workflow manager.",
     version,
-    after_help = "Environment:\n  UDO_ROOT=<dir>  use <dir> as data root instead of ~/.config/udo"
+    after_help = "environment:\n  UDO_ROOT=<dir>  use <dir> as data root instead of ~/.config/udo"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -93,7 +93,8 @@ impl Cli {
                     let mut ws = Container::new(dir.clone(), ContainerKind::Workspace);
                     ws.settings.archive_dir = archive_dir.as_deref().map(absolute).transpose()?;
 
-                    let node = Node::container(name.clone(), ws).with_description(description.clone());
+                    let node =
+                        Node::container(name.clone(), ws).with_description(description.clone());
                     tree.create(&[], node).await?;
                     println!("Created workspace {name:?} at {dir:?}");
                 }

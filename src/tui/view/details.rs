@@ -12,17 +12,15 @@ use ratatui::{
 
 use crate::{
     DATE_FMT,
-    model::{
-        node::{Node, NodeBody},
-        tree::Tree,
-    },
+    model::node::{Node, NodeBody},
     tui::view::LABEL_WIDTH,
 };
 
-pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree) {
-    let lines = match tree.get(&tree.cursor) {
-        Some(node) if !tree.cursor.is_empty() => detail_lines(node),
-        _ => vec![Line::from("nothing selected").dim()],
+/// `selected`: the node at the cursor, None if nothing is selected.
+pub fn draw(frame: &mut Frame, area: Rect, selected: Option<&Node>) {
+    let lines = match selected {
+        Some(node) => detail_lines(node),
+        None => vec![Line::from("nothing selected").dim()],
     };
     frame.render_widget(
         Paragraph::new(lines).block(Block::bordered().title(" details ")),

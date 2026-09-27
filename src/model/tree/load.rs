@@ -16,7 +16,6 @@ use crate::{
         id::NodeId,
         node::{Node, NodeBody},
         tree::Tree,
-        view::ViewState,
     },
 };
 
@@ -52,7 +51,6 @@ impl Tree {
             tree.save(owner).await?;
         }
 
-        tree.apply_view(&ViewState::load(root_dir).await);
         Ok(tree)
     }
 
@@ -96,7 +94,6 @@ impl Tree {
                 settings: data.settings,
                 children,
                 unloaded,
-                collapsed: false,
             }),
         })
     }

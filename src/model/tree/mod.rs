@@ -1,6 +1,5 @@
 use crate::model::{NodePath, node::Node};
 
-mod cursor;
 mod edit;
 mod folders;
 mod load;
@@ -12,16 +11,11 @@ pub use purge::{PurgePlan, PurgeReport, TrashFn, system_trash};
 /// In-memory tree node. Not serialized directly - Persistence goes through DTOs.
 pub struct Tree {
     pub root: Node,
-    pub cursor: NodePath,
 }
 
 impl Tree {
-    /// Tree with `root`, cursor on nothing (`[]`).
     pub fn new(root: Node) -> Self {
-        Self {
-            root,
-            cursor: vec![],
-        }
+        Self { root }
     }
 
     /// Get the node at a given path:
@@ -97,7 +91,7 @@ mod tests {
     };
 
     pub(super) fn tree() -> Tree {
-        tree_with(vec![task("a"), container("inner", vec![task("b")])], &[])
+        tree_with(vec![task("a"), container("inner", vec![task("b")])])
     }
 
     /// root (tmp) -> [task "a", ws (tmp/ws) -> [task "b"]], both files saved.

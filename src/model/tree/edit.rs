@@ -109,7 +109,8 @@ impl Tree {
     /// Unregister the node at `path` and re-save its parent.
     ///
     /// Files on disk are left untouched (a container's dir and `.udo.toml`
-    /// stay). Sibling indices shift after removal, so `self.cursor` is fixed up.
+    /// stay). Sibling indices shift after removal: callers holding paths fix
+    /// them up (e.g. `TreeState::after_remove`).
     pub async fn delete(&mut self, path: &[usize]) -> Res<()> {
         let (&idx, parent_path) = path.split_last().ok_or("Root is not deletable!")?;
         let children = self
@@ -122,7 +123,6 @@ impl Tree {
         }
 
         children.remove(idx);
-        self.fix_cursor_after_remove(parent_path, idx);
         self.save(parent_path).await
     }
 

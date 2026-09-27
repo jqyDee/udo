@@ -6,7 +6,7 @@ use ratatui::{
     layout::Rect,
     style::{Style, Stylize},
     text::{Line, Span},
-    widgets::{Block, List, ListItem, ListState, Paragraph},
+    widgets::{Block, List, ListItem, Paragraph},
 };
 
 use crate::{
@@ -17,11 +17,14 @@ use crate::{
         task::{Task, TaskStatus},
         tree::Tree,
     },
+    tui::tree_state::TreeState,
 };
 
-pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree, list: &mut ListState) {
-    let rows = tree.rows();
-    list.select(rows.iter().position(|r| r.path == tree.cursor));
+pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree, state: &mut TreeState) {
+    let rows = state.rows(tree);
+    state
+        .list
+        .select(rows.iter().position(|r| r.path == state.cursor));
 
     let block = Block::bordered().title(" udo ");
     if rows.is_empty() {
@@ -30,19 +33,22 @@ pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree, list: &mut ListState) {
             .dim();
         frame.render_widget(hint, area);
     } else {
-        let list_widget = List::new(rows.iter().map(row_line).map(ListItem::new))
+        let lines = rows
+            .iter()
+            .map(|r| row_line(r, state.is_collapsed(r.node)));
+        let list_widget = List::new(lines.map(ListItem::new))
             .block(block)
             .highlight_style(Style::new().reversed());
-        frame.render_stateful_widget(list_widget, area, list);
+        frame.render_stateful_widget(list_widget, area, &mut state.list);
     }
 }
 
-fn row_line<'a>(row: &Row<'a>) -> Line<'a> {
+fn row_line<'a>(row: &Row<'a>, folded: bool) -> Line<'a> {
     let indent = Span::raw("  ".repeat(row.depth));
     let name = row.node.name();
     match &row.node.body {
         NodeBody::Container(c) => {
-            let marker = match (c.children.is_empty(), c.collapsed) {
+            let marker = match (c.children.is_empty(), folded) {
                 (true, _) => "  ",
                 (false, true) => "▸ ",
                 (false, false) => "▾ ",

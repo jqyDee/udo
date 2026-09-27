@@ -3,6 +3,7 @@
 //! - `app`:   state + key handling (tested without a terminal)
 //! - `keys`:  key -> action table
 //! - `toast`: expiring messages
+//! - `tree_state`: cursor + folding of the tree pane
 //! - `view`:  drawing
 //!
 //! This file only does terminal I/O: draw, wait, hand keys to `App`.
@@ -11,6 +12,7 @@ pub mod app;
 pub mod form;
 pub mod keys;
 pub mod toast;
+pub mod tree_state;
 pub mod view;
 
 use std::{io, time::Instant};
@@ -22,17 +24,22 @@ use ratatui::DefaultTerminal;
 use crate::{
     Res,
     model::tree::Tree,
-    tui::app::{App, Flow},
+    tui::{
+        app::{App, Flow},
+        tree_state::TreeState,
+    },
 };
 
-/// Run the TUI until the user quits, then save the view (collapsed state).
+/// Run the TUI until the user quits, then save the folded containers.
 pub async fn run(tree: &mut Tree) -> Res<()> {
-    let mut app = App::new(tree);
+    let root_dir = tree.root.dir().ok_or("root has no dir")?;
+    let tree_state = TreeState::load(root_dir).await;
+    let mut app = App::new(tree, tree_state);
     let mut terminal = ratatui::init();
     let result = event_loop(&mut terminal, &mut app).await;
     ratatui::restore(); // always, even if the loop failed
     result?;
-    app.tree.save_view().await
+    app.tree_state.save(app.tree).await
 }
 
 /// Draw, wait, react, repeat. Only terminal errors end the loop.

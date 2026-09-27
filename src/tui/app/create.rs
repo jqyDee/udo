@@ -25,7 +25,7 @@ impl App<'_> {
             return vec![];
         }
         self.tree
-            .nearest_file_owner(&self.tree.cursor)
+            .nearest_file_owner(&self.tree_state.cursor)
             .unwrap_or_default()
     }
 
@@ -83,12 +83,12 @@ impl App<'_> {
 
     /// Edit form for the node at the cursor, prefilled with its values.
     pub(super) fn open_edit_form(&mut self) {
-        let path = self.tree.cursor.clone();
-        match self.tree.get(&path) {
-            Some(node) if !path.is_empty() => {
+        match self.tree_state.selected(self.tree) {
+            Some(node) => {
+                let path = self.tree_state.cursor.clone();
                 self.mode = Mode::Form(Box::new(Form::edit_node(path, node)));
             }
-            _ => self.error("nothing selected"),
+            None => self.error("nothing selected"),
         }
     }
 
@@ -192,7 +192,7 @@ impl App<'_> {
 
         match saved {
             Ok((path, msg)) => {
-                self.tree.reveal(path);
+                self.tree_state.reveal(self.tree, path);
                 self.mode = Mode::Normal;
                 self.info(msg);
             }

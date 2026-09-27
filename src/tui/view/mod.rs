@@ -27,16 +27,17 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     let [left, right] =
         Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)]).areas(main);
 
-    tree::draw(frame, left, app.tree, &mut app.list);
+    tree::draw(frame, left, app.tree, &mut app.tree_state);
 
     // Split right pane when form is active
+    let selected = app.tree_state.selected(app.tree);
     if let Mode::Form(form) = &app.mode {
         let [top_details, bottom_form] =
             Layout::vertical([Constraint::Percentage(40), Constraint::Percentage(60)]).areas(right);
-        details::draw(frame, top_details, app.tree);
+        details::draw(frame, top_details, selected);
         form::draw(frame, bottom_form, form);
     } else {
-        details::draw(frame, right, app.tree);
+        details::draw(frame, right, selected);
     }
 
     frame.render_widget(Line::from(HINT).dim(), bottom);
@@ -65,12 +66,13 @@ mod tests {
             id::NodeId,
             tree::{PurgePlan, Tree},
         },
-        test_util::{container, task, tree_with},
+        test_util::{container, state_at, task, tree_with},
         tui::{
             app::{Confirm, ConfirmStage, PurgeOption},
             form::TextInput,
             keys::{KEYMAP, bindings},
             toast::Toast,
+            tree_state::TreeState,
         },
     };
 
@@ -105,13 +107,13 @@ mod tests {
     }
 
     fn empty_tree() -> Tree {
-        tree_with(vec![], &[])
+        tree_with(vec![])
     }
 
     #[test]
     fn renders_rows_details_and_hint() {
-        let mut t = tree_with(vec![container("uni", vec![task("exam")])], &[0, 0]);
-        let screen = render(&mut App::new(&mut t));
+        let mut t = tree_with(vec![container("uni", vec![task("exam")])]);
+        let screen = render(&mut App::new(&mut t, state_at(&[0, 0])));
         assert!(screen.contains("▾ uni/"));
         assert!(screen.contains("○ exam"));
         assert!(screen.contains("to do")); // details pane of the selected task
@@ -121,13 +123,13 @@ mod tests {
     #[test]
     fn renders_hint_on_empty_tree() {
         let mut t = empty_tree();
-        assert!(render(&mut App::new(&mut t)).contains("Nothing here yet"));
+        assert!(render(&mut App::new(&mut t, TreeState::default())).contains("Nothing here yet"));
     }
 
     #[test]
     fn error_toast_top_right_and_hint_stays() {
         let mut t = empty_tree();
-        let mut app = App::new(&mut t);
+        let mut app = App::new(&mut t, TreeState::default());
         app.toast = Some(Toast::error("boom"));
 
         let rows = render_rows(&mut app);
@@ -142,7 +144,7 @@ mod tests {
     #[test]
     fn info_toast_top_right() {
         let mut t = empty_tree();
-        let mut app = App::new(&mut t);
+        let mut app = App::new(&mut t, TreeState::default());
         app.toast = Some(Toast::info("saved"));
 
         let rows = render_rows(&mut app);
@@ -158,7 +160,7 @@ mod tests {
             "juliett", "kilo", "lima",
         ];
         let mut t = empty_tree();
-        let mut app = App::new(&mut t);
+        let mut app = App::new(&mut t, TreeState::default());
         app.toast = Some(Toast::error(words.join(" ")));
 
         let rows = render_rows(&mut app);
@@ -171,7 +173,7 @@ mod tests {
     #[test]
     fn help_overlay_lists_every_binding() {
         let mut t = empty_tree();
-        let mut app = App::new(&mut t);
+        let mut app = App::new(&mut t, TreeState::default());
         app.mode = Mode::Help;
 
         let screen = render(&mut app);
@@ -184,7 +186,7 @@ mod tests {
     #[test]
     fn help_overlay_shows_section_headings_in_order() {
         let mut t = empty_tree();
-        let mut app = App::new(&mut t);
+        let mut app = App::new(&mut t, TreeState::default());
         app.mode = Mode::Help;
 
         let rows = render_rows(&mut app);
@@ -221,13 +223,13 @@ mod tests {
     #[test]
     fn help_overlay_hidden_in_normal_mode() {
         let mut t = empty_tree();
-        assert!(!render(&mut App::new(&mut t)).contains("toggle this help"));
+        assert!(!render(&mut App::new(&mut t, TreeState::default())).contains("toggle this help"));
     }
 
     #[test]
     fn confirm_popup_names_node_and_keys() {
-        let mut t = tree_with(vec![task("sheet-3")], &[0]);
-        let mut app = App::new(&mut t);
+        let mut t = tree_with(vec![task("sheet-3")]);
+        let mut app = App::new(&mut t, TreeState::default());
         app.mode = Mode::Confirm(Confirm {
             path: vec![0],
             name: "sheet-3".into(),
@@ -247,8 +249,8 @@ mod tests {
     #[test]
     fn confirm_popup_keeps_long_names_visible() {
         let name = "a-really-long-task-name-that-would-not-fit-into-half-the-screen-width";
-        let mut t = tree_with(vec![task(name)], &[0]);
-        let mut app = App::new(&mut t);
+        let mut t = tree_with(vec![task(name)]);
+        let mut app = App::new(&mut t, TreeState::default());
         app.mode = Mode::Confirm(Confirm {
             path: vec![0],
             name: name.into(),
@@ -278,8 +280,8 @@ mod tests {
 
     /// Screen with the prompt for `purge` open in `stage`.
     fn render_confirm(purge: PurgeOption, stage: ConfirmStage) -> String {
-        let mut t = tree_with(vec![task("lab 3")], &[0]);
-        let mut app = App::new(&mut t);
+        let mut t = tree_with(vec![task("lab 3")]);
+        let mut app = App::new(&mut t, TreeState::default());
         app.mode = Mode::Confirm(Confirm {
             path: vec![0],
             name: "lab 3".into(),
@@ -353,7 +355,7 @@ mod tests {
     #[test]
     fn help_overlay_uses_blank_lines_when_tall_enough() {
         let mut t = empty_tree();
-        let mut app = App::new(&mut t);
+        let mut app = App::new(&mut t, TreeState::default());
         app.mode = Mode::Help;
 
         let rows = render_rows_sized(&mut app, 80, 40);
@@ -370,7 +372,7 @@ mod tests {
     #[test]
     fn help_overlay_switches_to_two_columns_when_short() {
         let mut t = empty_tree();
-        let mut app = App::new(&mut t);
+        let mut app = App::new(&mut t, TreeState::default());
         app.mode = Mode::Help;
 
         let rows = render_rows_sized(&mut app, 80, 20);

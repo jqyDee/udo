@@ -45,11 +45,11 @@ impl App<'_> {
     /// Open the confirm prompt for the selected node, with its full delete
     /// plan. Nothing selected (the root, e.g. empty tree) -> error toast.
     pub(super) fn ask_delete(&mut self) {
-        let path = self.tree.cursor.clone();
-        let name = match self.tree.get(&path) {
-            Some(node) if !path.is_empty() => node.name().to_string(),
-            _ => return self.error("nothing selected"),
+        let Some(node) = self.tree_state.selected(self.tree) else {
+            return self.error("nothing selected");
         };
+        let name = node.name().to_string();
+        let path = self.tree_state.cursor.clone();
         let purge = match self.tree.purge_plan(&path) {
             Ok(Some(plan)) => PurgeOption::Ready(Box::new(plan)),
             Ok(None) => PurgeOption::NoFolder,
@@ -89,7 +89,10 @@ impl App<'_> {
                     return;
                 };
                 match self.tree.delete(&confirm.path).await {
-                    Ok(()) => self.info(format!("removed {} (files kept)", confirm.name)),
+                    Ok(()) => {
+                        self.tree_state.after_remove(self.tree, &confirm.path);
+                        self.info(format!("removed {} (files kept)", confirm.name));
+                    }
                     Err(e) => self.error(e.to_string()),
                 }
             }
@@ -153,6 +156,7 @@ impl App<'_> {
             Ok(report) => report,
             Err(e) => return self.error(e.to_string()),
         };
+        self.tree_state.after_remove(self.tree, &plan.path);
         match report.failed.split_first() {
             None => {
                 let n = report.trashed.len();

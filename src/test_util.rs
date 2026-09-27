@@ -6,11 +6,14 @@ use std::path::{Path, PathBuf};
 use chrono::Utc;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::model::{
-    container::{Container, ContainerKind},
-    node::Node,
-    task::Task,
-    tree::Tree,
+use crate::{
+    model::{
+        container::{Container, ContainerKind},
+        node::Node,
+        task::Task,
+        tree::Tree,
+    },
+    tui::tree_state::TreeState,
 };
 
 /// Pending task without a dir, due now.
@@ -31,11 +34,17 @@ pub fn container_at(name: &str, dir: &Path, kind: ContainerKind, children: Vec<N
     Node::container(name.into(), c)
 }
 
-/// Tree whose root (`/tmp/root`) has `children`, cursor at `cursor`.
-pub fn tree_with(children: Vec<Node>, cursor: &[usize]) -> Tree {
-    let mut t = Tree::new(container("root", children));
-    t.cursor = cursor.to_vec();
-    t
+/// Tree whose root (`/tmp/root`) has `children`.
+pub fn tree_with(children: Vec<Node>) -> Tree {
+    Tree::new(container("root", children))
+}
+
+/// Tree pane state with the cursor on `cursor`, nothing folded.
+pub fn state_at(cursor: &[usize]) -> TreeState {
+    TreeState {
+        cursor: cursor.to_vec(),
+        ..Default::default()
+    }
 }
 
 /// Key press without modifiers.
