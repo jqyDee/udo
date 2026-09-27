@@ -30,10 +30,10 @@ use crate::{
     },
 };
 
-/// Run the TUI until the user quits, then save the folded containers.
+/// Run the TUI until the user quits, then save the view (folded containers,
+/// selected node).
 pub async fn run(tree: &mut Tree) -> Res<()> {
-    let root_dir = tree.root.dir().ok_or("root has no dir")?;
-    let tree_state = TreeState::load(root_dir).await;
+    let tree_state = TreeState::load(tree).await;
     let mut app = App::new(tree, tree_state);
     let mut terminal = ratatui::init();
     let result = event_loop(&mut terminal, &mut app).await;

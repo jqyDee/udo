@@ -1,11 +1,12 @@
 //! State of the tree pane: cursor, folded containers, list scroll. TUI only,
 //! the `Tree` knows nothing about it.
 //!
-//! `collapsed` is saved to `<root dir>/view.toml`, never into a container's
-//! `.udo.toml`, so folding in the TUI doesn't touch the user's folders.
-//! Keyed by node ID: survives renames, moves and index shifts.
+//! Folded containers and the selected node are saved to
+//! `<root dir>/view.toml` (`ViewFile`), never into a container's
+//! `.udo.toml`, so using the TUI doesn't touch the user's folders. Both are
+//! keyed by node ID: they survive renames, moves and index shifts.
 
-use std::{collections::HashSet, path::Path};
+use std::collections::HashSet;
 
 use ratatui::widgets::ListState;
 use serde::{Deserialize, Serialize};
@@ -24,42 +25,70 @@ use crate::{
 
 pub const VIEW_FILE_NAME: &str = "view.toml";
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default)]
 pub struct TreeState {
     /// Path of the selected node; `[]` = nothing selected.
-    #[serde(skip)]
     pub cursor: NodePath,
     /// Selection + scroll offset of the list widget (kept across frames).
-    #[serde(skip)]
     pub list: ListState,
     /// IDs of folded containers.
-    #[serde(default)]
     pub collapsed: HashSet<NodeId>,
+}
+
+/// On-disk shape of `view.toml`.
+#[derive(Default, Serialize, Deserialize)]
+struct ViewFile {
+    #[serde(default)]
+    collapsed: HashSet<NodeId>,
+    /// Node the cursor was on when udo closed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    selected: Option<NodeId>,
 }
 
 impl TreeState {
     // ---------- file ----------
 
-    /// Read `<root_dir>/view.toml`. Missing or broken file -> empty state:
-    /// view state is disposable and must never stop the app from starting.
-    pub async fn load(root_dir: &Path) -> Self {
-        let path = root_dir.join(VIEW_FILE_NAME);
-        let Ok(content) = fs::read_to_string(&path).await else {
+    /// Read `view.toml` next to the root's `.udo.toml`. Missing or broken
+    /// file -> empty state: view state is disposable and must never stop the
+    /// app from starting. The cursor goes back to the node it was on, if
+    /// that node still exists (by ID, wherever it is now).
+    pub async fn load(tree: &Tree) -> Self {
+        let Some(root_dir) = tree.root.dir() else {
             return Self::default();
         };
-        toml::from_str(&content).unwrap_or_else(|e| {
-            eprintln!("warning: ignoring broken {}: {e}", path.display());
-            Self::default()
-        })
+        let path = root_dir.join(VIEW_FILE_NAME);
+        let file: ViewFile = match fs::read_to_string(&path).await {
+            Ok(content) => toml::from_str(&content).unwrap_or_else(|e| {
+                eprintln!("warning: ignoring broken {}: {e}", path.display());
+                ViewFile::default()
+            }),
+            Err(_) => ViewFile::default(),
+        };
+
+        let cursor = file
+            .selected
+            .and_then(|id| tree.rows().into_iter().find(|r| r.node.header.id == id))
+            .map(|r| r.path)
+            .unwrap_or_default();
+        Self {
+            cursor,
+            collapsed: file.collapsed,
+            ..Self::default()
+        }
     }
 
-    /// Write `<root dir>/view.toml` atomically. IDs of nodes no longer in
-    /// `tree` are dropped first, so the file doesn't grow forever.
+    /// Write `view.toml` next to the root's `.udo.toml`, atomically. IDs of
+    /// nodes no longer in `tree` are dropped first, so the file doesn't grow
+    /// forever.
     pub async fn save(&mut self, tree: &Tree) -> Res<()> {
         let root_dir = tree.root.dir().ok_or("root has no dir")?;
         let alive: HashSet<NodeId> = tree.rows().iter().map(|r| r.node.header.id).collect();
         self.collapsed.retain(|id| alive.contains(id));
-        write_toml_atomic(&root_dir.join(VIEW_FILE_NAME), &*self).await
+        let file = ViewFile {
+            collapsed: self.collapsed.clone(),
+            selected: self.selected(tree).map(|n| n.header.id),
+        };
+        write_toml_atomic(&root_dir.join(VIEW_FILE_NAME), &file).await
     }
 
     // ---------- reading ----------
@@ -573,37 +602,97 @@ mod tests {
 
     // ---------- file ----------
 
+    /// Root at `dir` with `children` (in memory; `save` writes `view.toml`
+    /// only).
+    fn root_at(dir: &std::path::Path, children: Vec<Node>) -> Tree {
+        Tree::new(container_at("root", dir, ContainerKind::Root, children))
+    }
+
     #[tokio::test]
     async fn load_missing_file_is_empty() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(TreeState::load(dir.path()).await.collapsed.is_empty());
+        let s = TreeState::load(&root_at(dir.path(), vec![task("a")])).await;
+        assert!(s.collapsed.is_empty());
+        assert!(s.cursor.is_empty());
     }
 
     #[tokio::test]
     async fn load_broken_file_is_empty() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(VIEW_FILE_NAME), "collapsed = 42").unwrap();
-        assert!(TreeState::load(dir.path()).await.collapsed.is_empty());
+        let s = TreeState::load(&root_at(dir.path(), vec![task("a")])).await;
+        assert!(s.collapsed.is_empty());
+        assert!(s.cursor.is_empty());
     }
 
     #[tokio::test]
     async fn save_load_roundtrip_and_drops_removed_ids() {
         let tmp = tempfile::tempdir().unwrap();
-        let t = Tree::new(container_at(
-            "root",
-            tmp.path(),
-            ContainerKind::Root,
-            vec![container("ws", vec![task("x")])],
-        ));
+        let t = root_at(tmp.path(), vec![container("ws", vec![task("x")])]);
         let mut s = state_at(&[0]);
         s.collapse(&t);
         s.collapsed.insert(NodeId::new()); // a node deleted meanwhile
 
         s.save(&t).await.unwrap();
 
-        let loaded = TreeState::load(tmp.path()).await;
+        let loaded = TreeState::load(&t).await;
         let ws = t.get(&[0]).unwrap().header.id;
         assert_eq!(loaded.collapsed, HashSet::from([ws]));
-        assert!(loaded.cursor.is_empty()); // cursor is not saved
+    }
+
+    #[tokio::test]
+    async fn cursor_survives_a_restart() {
+        let tmp = tempfile::tempdir().unwrap();
+        let t = root_at(
+            tmp.path(),
+            vec![task("a"), container("ws", vec![task("b"), task("c")])],
+        );
+        let mut s = state_at(&[1, 1]); // "c"
+
+        s.save(&t).await.unwrap();
+
+        assert_eq!(TreeState::load(&t).await.cursor, vec![1, 1]);
+    }
+
+    #[tokio::test]
+    async fn cursor_follows_the_node_when_indices_shift() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = root_at(tmp.path(), vec![task("a"), task("b")]);
+        let mut s = state_at(&[1]); // "b"
+        s.save(&t).await.unwrap();
+
+        // e.g. `udo add-task` from the CLI: a new node lands before "b"
+        let root = t.get_mut(&[]).and_then(Node::children_mut).unwrap();
+        root.insert(0, task("new"));
+
+        let loaded = TreeState::load(&t).await;
+        assert_eq!(loaded.cursor, vec![2]);
+        assert_eq!(loaded.selected(&t).unwrap().name(), "b");
+    }
+
+    #[tokio::test]
+    async fn deleted_node_leaves_the_cursor_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = root_at(tmp.path(), vec![task("a"), task("b")]);
+        let mut s = state_at(&[1]);
+        s.save(&t).await.unwrap();
+
+        t.get_mut(&[])
+            .and_then(Node::children_mut)
+            .unwrap()
+            .remove(1);
+
+        assert!(TreeState::load(&t).await.cursor.is_empty()); // App picks row 1
+    }
+
+    #[tokio::test]
+    async fn nothing_selected_writes_no_line() {
+        let tmp = tempfile::tempdir().unwrap();
+        let t = root_at(tmp.path(), vec![task("a")]);
+
+        TreeState::default().save(&t).await.unwrap();
+
+        let text = std::fs::read_to_string(tmp.path().join(VIEW_FILE_NAME)).unwrap();
+        assert!(!text.contains("selected"), "got:\n{text}");
     }
 }
