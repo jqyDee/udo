@@ -3,9 +3,10 @@
 Priorities as of 2026-09-28, in order. Background and older plans:
 `roadmap.txt` (phase numbers below refer to it).
 
-**Next up:** time tracking (section 2): the SQLite session backend (step 2
-of `docs/superpowers/specs/2026-09-27-storage-and-sessions-design.md`),
-then manual start / stop in the TUI and CLI.
+**Next up:** time tracking (section 2): manual start / stop in the CLI and
+TUI (step 3 of `docs/superpowers/specs/2026-09-27-storage-and-sessions-design.md`).
+The SQLite backend (step 2) is done but not wired in yet: nothing outside
+`storage/sessions` opens `udo.db`.
 
 ## Done: creation flow
 
@@ -89,10 +90,9 @@ then manual start / stop in the TUI and CLI.
       edit, delete), `SessionError`. Reference backend `MemorySessions`
       and a contract (`store_contract!`, one test per rule) every backend
       has to pass.
-- [ ] **Sessions, not totals:** every work session is stored with start and
+- [x] **Sessions, not totals:** every work session is stored with start and
       end (total = sum), plus its source (`manual`, `nvim`, `tmux`, `idea`,
-      ...) and whether it was edited. API done; persisted once the SQLite
-      backend is in.
+      ...) and whether it was edited.
 - [ ] **Manual start/stop first** (`w` in the TUI; `udo start <task>`,
       `udo stop`, `udo status` in the CLI). Only one timer at a time;
       starting another task stops the current one. Starting sets the status
@@ -114,11 +114,13 @@ then manual start / stop in the TUI and CLI.
       a lunch break the timer ran through), delete, add sessions manually.
       Warn on suspiciously long sessions when stopping. Store side done
       (`SessionStore`); UI to do.
-- [ ] **Storage: SQLite** (`udo.db` at root, `rusqlite`), sessions linked to
+- [x] **Storage: SQLite** (`udo.db` at root, `rusqlite`), sessions linked to
       tasks by ID. Several writers at once (TUI, CLI, helpers, tmux hooks)
       are safe there (WAL, `busy_timeout`, `BEGIN IMMEDIATE`). Tasks stay in
       `.udo.toml` for now. `SqliteSessions` behind `SessionStore`, passing
-      the same contract as the memory store; `session_edits` log.
+      the same contract as the memory store (plus a differential test
+      memory vs. SQLite); migrations via `user_version`; `session_edits`
+      log.
 - [ ] **Learn:** per container, the average time of tasks replaces the
       default. Unfinished tasks count too, weighted lower (their time so far
       is an "at least"). Averages are calculated from the sessions, not
