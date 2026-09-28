@@ -5,21 +5,35 @@ use crate::model::{
         Session, SessionError, SessionId, SessionPatch, SessionQuery, SessionSource, SessionStore,
         TaskRef,
     },
-    time::Time,
+    time::{Clock, Time},
 };
 
 /// Reference backend: everything in a `Vec`. Used by the contract tests.
-#[derive(Default)]
 pub struct MemorySessions {
     inner: Mutex<Inner>,
 }
 
-#[derive(Default)]
 struct Inner {
     sessions: Vec<Session>,
+    clock: Clock,
+}
+
+impl MemorySessions {
+    pub fn new(clock: Clock) -> Self {
+        Self {
+            inner: Mutex::new(Inner {
+                sessions: Vec::new(),
+                clock,
+            }),
+        }
+    }
 }
 
 impl Inner {
+    fn now(&self) -> Time {
+        (self.clock)()
+    }
+
     fn start(
         &mut self,
         task: TaskRef,
@@ -39,8 +53,9 @@ impl Inner {
             start: at,
             end: None,
             source,
-            edited: false,
+            edited_at: None,
             deleted_at: None,
+            created_at: self.now(),
         };
 
         self.sessions.push(session.clone());
@@ -54,12 +69,13 @@ impl Inner {
     /// Stop the running session at `at`, if any. Shared by `start` and
     /// `stop`. `at` before its start: soft-deleted, `EndBeforeStart`.
     fn stop_running(&mut self, at: Time) -> Result<Option<Session>, SessionError> {
+        let now = self.now();
         let Some(i) = self.running_index() else {
             return Ok(None);
         };
         let session = &mut self.sessions[i];
         if at < session.start {
-            session.deleted_at = Some(at); // the caller's "now"; the store has no clock
+            session.deleted_at = Some(now); // a clock error, not an edit
             return Err(SessionError::EndBeforeStart);
         }
         session.end = Some(at);
@@ -92,7 +108,8 @@ impl Inner {
             start,
             end: Some(end),
             source: SessionSource::Manual,
-            edited: false,
+            created_at: self.now(),
+            edited_at: None, // manual adds have no edit entry
             deleted_at: None,
         };
         self.sessions.push(session.clone());
@@ -124,6 +141,7 @@ impl Inner {
     }
 
     fn edit(&mut self, id: SessionId, patch: SessionPatch) -> Result<(), SessionError> {
+        let now = self.now();
         let i = self.index(id)?;
         let old = &self.sessions[i];
         if old.end.is_none() && patch.end.is_some() {
@@ -140,7 +158,7 @@ impl Inner {
         let session = &mut self.sessions[i];
         session.start = start;
         session.end = end;
-        session.edited = true;
+        session.edited_at = Some(now);
         Ok(())
     }
 
@@ -149,6 +167,7 @@ impl Inner {
         id: SessionId,
         at: Time,
     ) -> Result<Option<(Session, Session)>, SessionError> {
+        let now = self.now();
         let i = self.index(id)?;
         let session = &mut self.sessions[i];
         let Some(end) = session.end else {
@@ -161,8 +180,8 @@ impl Inner {
             return Ok(None); // would give a 0-minute half
         }
         session.end = Some(at);
-        session.edited = true;
-        let first = session.clone();
+        session.edited_at = Some(now);
+        let first = session.clone(); // the second piece inherits `created_at`
         let second = Session {
             id: SessionId::new(),
             start: at,
@@ -174,6 +193,7 @@ impl Inner {
     }
 
     fn cut(&mut self, id: SessionId, from: Time, to: Time) -> Result<Vec<Session>, SessionError> {
+        let now = self.now();
         let i = self.index(id)?;
         if to <= from {
             return Err(SessionError::EndBeforeStart);
@@ -189,7 +209,7 @@ impl Inner {
         if from == start && Some(to) == end {
             return Err(SessionError::WholeSession);
         }
-        session.edited = true;
+        session.edited_at = Some(now);
         if from == start {
             session.start = to; // cut over the start
             return Ok(vec![session.clone()]);
@@ -211,14 +231,15 @@ impl Inner {
         Ok(vec![first, second])
     }
 
-    fn delete(&mut self, id: SessionId, at: Time) -> Result<(), SessionError> {
+    fn delete(&mut self, id: SessionId) -> Result<(), SessionError> {
+        let now = self.now(); // first: `self.now()` borrows all of `self`
         let i = self.index(id)?;
         let session = &mut self.sessions[i];
-        if session.end.is_none() && at >= session.start {
-            session.end = Some(at); // running: stopped first
+        if session.end.is_none() && now >= session.start {
+            session.end = Some(now); // running: stopped first
         }
-        session.deleted_at = Some(at);
-        session.edited = true; // a delete is an edit entry too
+        session.deleted_at = Some(now);
+        session.edited_at = Some(now); // a delete is an edit entry too
         Ok(())
     }
 }
@@ -273,8 +294,8 @@ impl SessionStore for MemorySessions {
         self.inner.lock().unwrap().edit(id, patch)
     }
 
-    async fn delete(&self, id: SessionId, at: Time) -> Result<(), SessionError> {
-        self.inner.lock().unwrap().delete(id, at)
+    async fn delete(&self, id: SessionId) -> Result<(), SessionError> {
+        self.inner.lock().unwrap().delete(id)
     }
 }
 
@@ -282,5 +303,5 @@ impl SessionStore for MemorySessions {
 mod tests {
     use super::*;
 
-    super::super::contract::store_contract!(MemorySessions::default);
+    super::super::contract::store_contract!(MemorySessions::new);
 }

@@ -40,8 +40,10 @@ pub struct Session {
     /// `None` = running.
     pub end: Option<Time>,
     pub source: SessionSource,
-    /// Has entries in the edit log. Computed, never stored.
-    pub edited: bool,
+    /// When it was recorded (store clock). Split / cut pieces inherit it.
+    pub created_at: Time,
+    /// Last correction (store clock); `None` = never edited.
+    pub edited_at: Option<Time>,
     pub deleted_at: Option<Time>,
 }
 
@@ -99,6 +101,10 @@ impl std::error::Error for SessionError {}
 /// Where work sessions live. Every backend keeps these rules (tested by
 /// `storage::sessions::contract`). `edit`, `split`, `cut`, `delete`: an
 /// unknown or deleted id is `NotFound`.
+///
+/// Event times (start, end, split / cut points) come from the caller;
+/// bookkeeping times (`created_at`, `edited_at`, `deleted_at`) from the
+/// store's `Clock`, passed when the store is built.
 #[allow(async_fn_in_trait)] // no Send bound needed: dispatch goes through an enum, not dyn
 pub trait SessionStore {
     /// Start timing; a running session is stopped first (one timer).
@@ -110,7 +116,8 @@ pub trait SessionStore {
         at: Time,
     ) -> Result<Session, SessionError>;
     /// Stop the running session, if any. `at` before its start:
-    /// `EndBeforeStart`, and the session is soft-deleted.
+    /// `EndBeforeStart`, and the session is soft-deleted (a clock error,
+    /// not a correction: `edited_at` stays unset).
     async fn stop(&self, at: Time) -> Result<Option<Session>, SessionError>;
     /// The session running right now, if any (at most one: one timer).
     async fn running(&self) -> Result<Option<Session>, SessionError>;
@@ -139,7 +146,7 @@ pub trait SessionStore {
     /// Correction: move start / end. Logged in `session_edits`. Setting the
     /// end of a running session: `Running` (use `stop`).
     async fn edit(&self, id: SessionId, patch: SessionPatch) -> Result<(), SessionError>;
-    /// Soft delete at `at`: hidden, never removed. A running session is
-    /// stopped at `at` first.
-    async fn delete(&self, id: SessionId, at: Time) -> Result<(), SessionError>;
+    /// Soft delete: hidden, never removed. A running session is stopped
+    /// (at the clock's now) first.
+    async fn delete(&self, id: SessionId) -> Result<(), SessionError>;
 }

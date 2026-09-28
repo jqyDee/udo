@@ -18,6 +18,13 @@ fn at(h: u32, m: u32) -> Time {
         .unwrap()
 }
 
+/// "Now" for every store in the contract (their `Clock`): after all event
+/// times used here, so a bookkeeping time taken from the wrong place stands
+/// out.
+pub(super) fn now() -> Time {
+    at(20, 0)
+}
+
 /// A task with a fresh id, in `uni/cs`.
 fn task(name: &str) -> TaskRef {
     TaskRef {
@@ -29,11 +36,11 @@ fn task(name: &str) -> TaskRef {
 }
 
 /// The rules every SessionStore must keep, one `#[tokio::test]` per check,
-/// so a failing check does not hide the others. `$make` gives a fresh,
-/// empty store. Use inside a backend's test module:
+/// so a failing check does not hide the others. `$make` takes a `Clock` and
+/// gives a fresh, empty store using it. Use inside a backend's test module:
 ///
 /// ```ignore
-/// super::contract::store_contract!(MemorySessions::default);
+/// super::contract::store_contract!(MemorySessions::new);
 /// ```
 macro_rules! store_contract {
     ($make:expr) => {
@@ -71,7 +78,10 @@ macro_rules! store_contract {
         $(
             #[tokio::test]
             async fn $check() {
-                $crate::storage::sessions::contract::$check(($make)()).await;
+                $crate::storage::sessions::contract::$check(
+                    ($make)($crate::storage::sessions::contract::now),
+                )
+                .await;
             }
         )*
     };
@@ -91,7 +101,8 @@ pub(super) async fn check_start_then_running(s: impl SessionStore) {
     assert_eq!(started.task, t);
     assert_eq!(started.start, at(14, 0));
     assert_eq!(started.end, None);
-    assert!(!started.edited);
+    assert_eq!(started.created_at, now()); // the store's clock, not `start`
+    assert_eq!(started.edited_at, None);
     assert_eq!(s.running().await.unwrap(), Some(started));
 }
 
@@ -130,7 +141,8 @@ pub(super) async fn check_stop_without_running_is_none(s: impl SessionStore) {
     assert_eq!(s.stop(at(14, 0)).await, Ok(None));
 }
 
-/// `stop` before the start: `EndBeforeStart`, the session is soft-deleted.
+/// `stop` before the start: `EndBeforeStart`, the session is soft-deleted
+/// (not edited: a clock error, not a correction).
 pub(super) async fn check_stop_before_start_errors_and_soft_deletes(s: impl SessionStore) {
     let started = s
         .start(task("lab 3"), SessionSource::Manual, at(14, 0))
@@ -148,17 +160,20 @@ pub(super) async fn check_stop_before_start_errors_and_soft_deletes(s: impl Sess
     let kept = s.query(&all).await.unwrap();
     assert_eq!(kept.len(), 1);
     assert_eq!(kept[0].id, started.id);
-    assert!(kept[0].deleted_at.is_some());
+    assert_eq!(kept[0].deleted_at, Some(now()));
+    assert_eq!(kept[0].edited_at, None);
 }
 
 // --------------- add ---------------
 
-/// A manual session has source `manual` and is not edited.
+/// A manual session has source `manual`, is recorded now (not at its start)
+/// and is not edited.
 pub(super) async fn check_add_is_not_edited(s: impl SessionStore) {
     let added = s.add(task("lab 3"), at(9, 0), at(10, 30)).await.unwrap();
 
     assert_eq!(added.source, SessionSource::Manual);
-    assert!(!added.edited);
+    assert_eq!(added.created_at, now());
+    assert_eq!(added.edited_at, None);
     assert_eq!(added.end, Some(at(10, 30)));
     assert_eq!(s.running().await.unwrap(), None); // finished, not running
     assert_eq!(
@@ -244,7 +259,8 @@ pub(super) async fn check_edit_marks_edited(s: impl SessionStore) {
         .unwrap();
 
     let edited = &visible(&s).await[0];
-    assert!(edited.edited);
+    assert_eq!(edited.edited_at, Some(now()));
+    assert_eq!(edited.created_at, added.created_at); // unchanged by edits
     assert_eq!(edited.start, at(9, 0)); // untouched
     assert_eq!(edited.end, Some(at(10, 0)));
 }
@@ -306,7 +322,11 @@ pub(super) async fn check_split_inside(s: impl SessionStore) {
     assert_eq!((second.start, second.end), (at(10, 0), Some(at(11, 0))));
     assert_eq!(second.task, added.task);
     assert_eq!(second.source, added.source);
-    assert!(first.edited && second.edited);
+    assert_eq!(second.created_at, added.created_at); // same recording
+    assert_eq!(
+        (first.edited_at, second.edited_at),
+        (Some(now()), Some(now()))
+    );
     assert_eq!(visible(&s).await, vec![first, second]);
 }
 
@@ -358,7 +378,11 @@ pub(super) async fn check_cut_inside(s: impl SessionStore) {
     assert_eq!((first.start, first.end), (at(9, 0), Some(at(12, 0))));
     assert_eq!((second.start, second.end), (at(13, 0), Some(at(17, 0))));
     assert_eq!(second.task, added.task);
-    assert!(first.edited && second.edited);
+    assert_eq!(second.created_at, added.created_at); // same recording
+    assert_eq!(
+        (first.edited_at, second.edited_at),
+        (Some(now()), Some(now()))
+    );
     assert_eq!(visible(&s).await, left);
 }
 
@@ -370,7 +394,7 @@ pub(super) async fn check_cut_over_an_edge_trims(s: impl SessionStore) {
     assert_eq!(left.len(), 1);
     assert_eq!(left[0].id, added.id);
     assert_eq!((left[0].start, left[0].end), (at(10, 0), Some(at(17, 0))));
-    assert!(left[0].edited);
+    assert_eq!(left[0].edited_at, Some(now()));
 
     let left = s.cut(added.id, at(16, 0), at(18, 0)).await.unwrap(); // over the end
     assert_eq!((left[0].start, left[0].end), (at(10, 0), Some(at(16, 0))));
@@ -422,30 +446,31 @@ pub(super) async fn check_cut_running_keeps_running(s: impl SessionStore) {
 pub(super) async fn check_delete_hides(s: impl SessionStore) {
     let added = s.add(task("lab 3"), at(9, 0), at(10, 0)).await.unwrap();
 
-    s.delete(added.id, at(12, 0)).await.unwrap();
+    s.delete(added.id).await.unwrap();
 
     assert!(visible(&s).await.is_empty());
     let kept = everything(&s).await;
     assert_eq!(kept.len(), 1);
     assert_eq!(kept[0].id, added.id);
-    assert_eq!(kept[0].deleted_at, Some(at(12, 0)));
+    assert_eq!(kept[0].deleted_at, Some(now()));
+    assert_eq!(kept[0].edited_at, Some(now())); // a delete is an edit entry
 }
 
-/// Deleting the running session stops it; nothing runs afterwards, and a new
-/// timer can start.
+/// Deleting the running session stops it (at the clock's now); nothing runs
+/// afterwards, and a new timer can start.
 pub(super) async fn check_delete_running_stops(s: impl SessionStore) {
     let running = s
         .start(task("lab 3"), SessionSource::Manual, at(14, 0))
         .await
         .unwrap();
 
-    s.delete(running.id, at(15, 0)).await.unwrap();
+    s.delete(running.id).await.unwrap();
 
     assert_eq!(s.running().await.unwrap(), None);
     let kept = &everything(&s).await[0];
-    assert_eq!(kept.end, Some(at(15, 0)));
-    assert_eq!(kept.deleted_at, Some(at(15, 0)));
-    s.start(task("reading"), SessionSource::Manual, at(16, 0))
+    assert_eq!(kept.end, Some(now()));
+    assert_eq!(kept.deleted_at, Some(now()));
+    s.start(task("reading"), SessionSource::Manual, at(21, 0))
         .await
         .unwrap();
 }
@@ -456,12 +481,12 @@ pub(super) async fn check_unknown_id_is_not_found(s: impl SessionStore) {
     let ghost = SessionId::new();
     assert_eq!(s.edit(ghost, patch(Some(at(9, 0)), None)).await, err);
     assert_eq!(s.split(ghost, at(9, 0)).await, Err(SessionError::NotFound));
-    assert_eq!(s.delete(ghost, at(9, 0)).await, err);
+    assert_eq!(s.delete(ghost).await, err);
 
     let added = s.add(task("lab 3"), at(9, 0), at(10, 0)).await.unwrap();
-    s.delete(added.id, at(12, 0)).await.unwrap();
+    s.delete(added.id).await.unwrap();
     assert_eq!(s.edit(added.id, patch(Some(at(9, 30)), None)).await, err);
-    assert_eq!(s.delete(added.id, at(13, 0)).await, err);
+    assert_eq!(s.delete(added.id).await, err);
 }
 
 // --------------- query ---------------
@@ -520,7 +545,7 @@ pub(super) async fn check_query_include_deleted(s: impl SessionStore) {
     let a = s.add(task("a"), at(9, 0), at(10, 0)).await.unwrap();
     let b = s.add(task("b"), at(10, 0), at(11, 0)).await.unwrap();
 
-    s.delete(a.id, at(12, 0)).await.unwrap();
+    s.delete(a.id).await.unwrap();
 
     assert_eq!(visible(&s).await, vec![b.clone()]);
     let ids: Vec<_> = everything(&s).await.into_iter().map(|x| x.id).collect();

@@ -17,6 +17,10 @@ pub use duration::Minutes;
 /// stored offset is data, not display. Note: `==` compares the instant only.
 pub type Time = DateTime<FixedOffset>;
 
+/// Where a store gets "now" for bookkeeping times (created, edited,
+/// deleted). The app passes `now`; tests pass a fixed time.
+pub type Clock = fn() -> Time;
+
 /// Now, with the local offset. The one way udo gets the current time.
 pub fn now() -> Time {
     Local::now().fixed_offset()
