@@ -1,4 +1,4 @@
-use chrono::{FixedOffset, TimeZone};
+use chrono::{FixedOffset, TimeDelta, TimeZone};
 
 use crate::model::{
     id::NodeId,
@@ -72,6 +72,7 @@ macro_rules! store_contract {
             check_query_by_task,
             check_query_range_intersects,
             check_query_include_deleted,
+            check_returned_is_what_is_stored,
         );
     };
     (@each $make:expr; $($check:ident),* $(,)?) => {
@@ -550,4 +551,37 @@ pub(super) async fn check_query_include_deleted(s: impl SessionStore) {
     assert_eq!(visible(&s).await, vec![b.clone()]);
     let ids: Vec<_> = everything(&s).await.into_iter().map(|x| x.id).collect();
     assert_eq!(ids, vec![a.id, b.id]);
+}
+
+// --------------- storage ---------------
+
+/// What a method returns is exactly what reading returns later, down to
+/// the offsets. A backend that rounds (SQLite: milliseconds) returns the
+/// rounded value right away. Real clock times have nanoseconds.
+pub(super) async fn check_returned_is_what_is_stored(s: impl SessionStore) {
+    let precise = |h, m| at(h, m) + TimeDelta::nanoseconds(123_456_789);
+    let west = FixedOffset::west_opt(4 * 3600).unwrap(); // -04:00
+
+    let added = s
+        .add(
+            task("a"),
+            precise(9, 0),
+            precise(10, 0).with_timezone(&west),
+        )
+        .await
+        .unwrap();
+    let started = s
+        .start(task("b"), SessionSource::Manual, precise(14, 0))
+        .await
+        .unwrap();
+
+    assert_eq!(s.running().await.unwrap(), Some(started.clone()));
+    let stored = visible(&s).await;
+    assert_eq!(stored, vec![added.clone(), started]);
+    // `==` ignores offsets: each end keeps its own
+    assert_eq!(stored[0].start.offset(), added.start.offset());
+    assert_eq!(stored[0].end.unwrap().offset(), &west);
+
+    let stopped = s.stop(precise(15, 0)).await.unwrap().unwrap();
+    assert_eq!(visible(&s).await[1], stopped);
 }
