@@ -13,7 +13,8 @@ use crate::{
         time,
         tree::Tree,
     },
-    tui::tree_state::TreeState,
+    storage::Storage,
+    tui::{app::App, tree_state::TreeState},
 };
 
 /// Pending task without a dir, due now.
@@ -50,4 +51,9 @@ pub fn state_at(cursor: &[usize]) -> TreeState {
 /// Key press without modifiers.
 pub fn press(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
+}
+
+/// An `App` for tests, with in-memory storage.
+pub fn test_app(tree: &mut Tree, state: TreeState) -> App<'_> {
+    App::new(tree, state, Box::leak(Box::new(Storage::in_memory())))
 }

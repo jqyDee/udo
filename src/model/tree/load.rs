@@ -8,7 +8,6 @@ use tokio::fs;
 
 use crate::{
     Res, UDO_FILE_NAME,
-    dir::root_dir,
     model::{
         NodePath,
         container::{Container, ContainerKind},
@@ -21,11 +20,6 @@ use crate::{
 };
 
 impl Tree {
-    /// Load the tree from the on-disk file structure.
-    pub async fn load() -> Res<Self> {
-        Self::load_from(&root_dir()?).await
-    }
-
     pub async fn load_from(root_dir: &Path) -> Res<Self> {
         if !root_dir.join(UDO_FILE_NAME).exists() {
             println!("First run: creating root in {root_dir:?}!");

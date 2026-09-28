@@ -10,7 +10,7 @@ use crate::{
         settings::{TaskFolderSetting, view::SETTINGS},
         time::DeadlineRule,
     },
-    test_util::{container, container_at, press, state_at, task, tree_with},
+    test_util::{container, container_at, press, state_at, task, test_app, tree_with},
     tui::{
         form::{FieldId, FieldInput, FolderMode, FormAction, TextInput},
         toast::ToastKind,
@@ -31,14 +31,14 @@ fn key(c: char) -> KeyEvent {
 #[tokio::test]
 async fn q_quits() {
     let mut t = tree();
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
     assert_eq!(app.handle_key(key('q')).await, Flow::Quit);
 }
 
 #[tokio::test]
 async fn help_opens_and_any_key_closes_it_without_acting() {
     let mut t = tree();
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
 
     app.handle_key(key('?')).await;
     assert_eq!(app.mode, Mode::Help);
@@ -52,7 +52,7 @@ async fn help_opens_and_any_key_closes_it_without_acting() {
 #[tokio::test]
 async fn q_in_help_closes_help_instead_of_quitting() {
     let mut t = tree();
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
     app.handle_key(key('?')).await;
     assert_eq!(app.handle_key(key('q')).await, Flow::Continue);
     assert_eq!(app.mode, Mode::Normal);
@@ -61,7 +61,7 @@ async fn q_in_help_closes_help_instead_of_quitting() {
 #[tokio::test]
 async fn key_release_is_ignored() {
     let mut t = tree();
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
     let release = KeyEvent {
         kind: KeyEventKind::Release,
         state: KeyEventState::NONE,
@@ -74,7 +74,7 @@ async fn key_release_is_ignored() {
 #[tokio::test]
 async fn unknown_key_changes_nothing() {
     let mut t = tree();
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
     assert_eq!(app.handle_key(key('#')).await, Flow::Continue);
     assert_eq!(app.tree_state.cursor, vec![0]);
     assert!(app.toast.is_none());
@@ -83,14 +83,14 @@ async fn unknown_key_changes_nothing() {
 #[test]
 fn new_keeps_the_given_cursor() {
     let mut t = tree();
-    let app = App::new(&mut t, TreeState::default());
+    let app = test_app(&mut t, TreeState::default());
     assert!(app.tree_state.on_root()); // `TreeState::load` picks the start
 }
 
 #[tokio::test]
 async fn h_from_the_top_level_reaches_the_root_and_j_leaves_it() {
     let mut t = tree();
-    let mut app = App::new(&mut t, state_at(&[1]));
+    let mut app = test_app(&mut t, state_at(&[1]));
 
     app.handle_key(key('h')).await;
     assert!(app.tree_state.on_root());
@@ -102,7 +102,7 @@ async fn h_from_the_top_level_reaches_the_root_and_j_leaves_it() {
 async fn edit_and_delete_refuse_the_root() {
     for k in ['e', 'd'] {
         let mut t = tree();
-        let mut app = App::new(&mut t, TreeState::default()); // root row
+        let mut app = test_app(&mut t, TreeState::default()); // root row
 
         app.handle_key(key(k)).await;
 
@@ -118,7 +118,7 @@ async fn t_on_the_root_creates_in_the_root() {
     let tmp = tempfile::tempdir().unwrap();
     let mut t = Tree::load_from(tmp.path()).await.unwrap();
     t.create(&[], task("first")).await.unwrap();
-    let mut app = App::new(&mut t, TreeState::default()); // root row
+    let mut app = test_app(&mut t, TreeState::default()); // root row
 
     app.handle_key(key('t')).await;
     type_into(&mut app, "second").await;
@@ -133,7 +133,7 @@ async fn t_on_the_root_creates_in_the_root() {
 #[tokio::test]
 async fn navigation_moves_cursor_without_toast() {
     let mut t = tree();
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
     app.handle_key(key('j')).await;
     assert_eq!(app.tree_state.cursor, vec![1]);
     assert!(app.toast.is_none());
@@ -142,7 +142,7 @@ async fn navigation_moves_cursor_without_toast() {
 #[tokio::test]
 async fn folding_hides_rows_without_touching_the_tree() {
     let mut t = tree();
-    let mut app = App::new(&mut t, state_at(&[1])); // "ws"
+    let mut app = test_app(&mut t, state_at(&[1])); // "ws"
     app.handle_key(key(' ')).await;
     assert_eq!(app.tree_state.rows(app.tree).len(), 3); // root, a, ws; "b" hidden
     app.handle_key(key('j')).await;
@@ -152,7 +152,7 @@ async fn folding_hides_rows_without_touching_the_tree() {
 #[tokio::test]
 async fn tab_keys_switch_the_details_tab() {
     let mut t = tree();
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
     assert_eq!(app.details_tab, DetailsTab::Info);
 
     app.handle_key(press(KeyCode::Tab)).await;
@@ -169,7 +169,7 @@ async fn tab_keys_switch_the_details_tab() {
 #[tokio::test]
 async fn tab_in_a_form_moves_between_fields_not_tabs() {
     let mut t = tree();
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
     app.handle_key(key('t')).await;
 
     app.handle_key(press(KeyCode::Tab)).await;
@@ -184,7 +184,7 @@ async fn tab_in_a_form_moves_between_fields_not_tabs() {
 #[tokio::test]
 async fn set_status_on_container_shows_error_toast() {
     let mut t = tree();
-    let mut app = App::new(&mut t, state_at(&[1])); // "ws": fails before any save
+    let mut app = test_app(&mut t, state_at(&[1])); // "ws": fails before any save
 
     assert_eq!(app.handle_key(key('x')).await, Flow::Continue);
 
@@ -198,7 +198,7 @@ async fn set_status_on_task_updates_and_shows_info_toast() {
     let tmp = tempfile::tempdir().unwrap();
     let mut t = Tree::load_from(tmp.path()).await.unwrap(); // real root: saving works
     let path = t.create(&[], task("sheet")).await.unwrap();
-    let mut app = App::new(&mut t, state_at(&path));
+    let mut app = test_app(&mut t, state_at(&path));
 
     app.handle_key(key('x')).await;
 
@@ -216,7 +216,7 @@ async fn set_status_on_task_updates_and_shows_info_toast() {
 #[tokio::test]
 async fn d_opens_confirm_for_selected_node() {
     let mut t = tree();
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
 
     assert_eq!(app.handle_key(key('d')).await, Flow::Continue);
 
@@ -235,7 +235,7 @@ async fn d_opens_confirm_for_selected_node() {
 async fn n_and_esc_cancel_without_deleting() {
     for cancel in [key('n'), press(KeyCode::Esc)] {
         let mut t = tree();
-        let mut app = App::new(&mut t, state_at(&[0]));
+        let mut app = test_app(&mut t, state_at(&[0]));
         app.handle_key(key('d')).await;
 
         app.handle_key(cancel).await;
@@ -249,7 +249,7 @@ async fn n_and_esc_cancel_without_deleting() {
 #[tokio::test]
 async fn other_keys_are_ignored_while_confirming() {
     let mut t = tree();
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
     app.handle_key(key('d')).await;
 
     // neither moves the cursor behind the prompt nor quits
@@ -263,7 +263,7 @@ async fn other_keys_are_ignored_while_confirming() {
 #[tokio::test]
 async fn d_without_selection_shows_error() {
     let mut t = tree_with(vec![]); // empty tree: cursor stays on the root
-    let mut app = App::new(&mut t, TreeState::default());
+    let mut app = test_app(&mut t, TreeState::default());
 
     app.handle_key(key('d')).await;
 
@@ -277,7 +277,7 @@ async fn y_removes_node_from_tree_and_disk() {
     let tmp = tempfile::tempdir().unwrap();
     let mut t = Tree::load_from(tmp.path()).await.unwrap(); // real root: saving works
     let path = t.create(&[], task("sheet")).await.unwrap();
-    let mut app = App::new(&mut t, state_at(&path));
+    let mut app = test_app(&mut t, state_at(&path));
 
     app.handle_key(key('d')).await;
     app.handle_key(key('y')).await;
@@ -328,7 +328,7 @@ fn stage<'m>(app: &'m App<'_>) -> &'m ConfirmStage {
 async fn shift_d_with_a_plan_opens_the_purge_stage() {
     let tmp = tempfile::tempdir().unwrap();
     let mut t = lab_tree(tmp.path()).await;
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
 
     app.handle_key(key('d')).await;
     app.handle_key(shift_d()).await;
@@ -343,7 +343,7 @@ async fn shift_d_with_a_plan_opens_the_purge_stage() {
 #[tokio::test]
 async fn d_on_task_without_folder_shows_hint() {
     let mut t = tree();
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
 
     app.handle_key(key('d')).await;
     app.handle_key(shift_d()).await;
@@ -361,7 +361,7 @@ async fn d_when_refused_shows_the_reason() {
     // folder above the udo root: never offered (in memory, nothing saved)
     let big = container_at("big", tmp.path(), ContainerKind::Workspace, vec![]);
     t.insert(&[], big).unwrap();
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
 
     app.handle_key(key('d')).await;
     app.handle_key(shift_d()).await;
@@ -377,7 +377,7 @@ async fn wrong_path_keeps_popup_and_files() {
     let tmp = tempfile::tempdir().unwrap();
     let mut t = lab_tree(tmp.path()).await;
     let lab = tmp.path().join("lab");
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
     app.trash = fake_trash;
 
     let exact = lab.display().to_string();
@@ -411,7 +411,7 @@ async fn exact_path_deletes_node_and_folder() {
     let tmp = tempfile::tempdir().unwrap();
     let mut t = lab_tree(tmp.path()).await;
     let lab = tmp.path().join("lab");
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
     app.trash = fake_trash;
 
     app.handle_key(key('d')).await;
@@ -434,7 +434,7 @@ async fn exact_path_deletes_node_and_folder() {
 async fn esc_in_purge_stage_cancels_everything() {
     let tmp = tempfile::tempdir().unwrap();
     let mut t = lab_tree(tmp.path()).await;
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
     app.trash = fake_trash;
 
     app.handle_key(key('d')).await;
@@ -453,7 +453,7 @@ async fn esc_in_purge_stage_cancels_everything() {
 #[test]
 fn toast_deadline_and_expiry() {
     let mut t = tree();
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
     assert_eq!(app.toast_deadline(), None);
 
     app.toast = Some(Toast::info("hi"));
@@ -480,7 +480,7 @@ async fn task_form_starts_in_the_inherited_folder_mode() {
         let mut t = tree(); // in memory: the form is only opened, never saved
         let root = t.get_mut(&[]).and_then(Node::as_container_mut).unwrap();
         root.settings.task_folders = Some(setting);
-        let mut app = App::new(&mut t, state_at(&[1])); // "ws": inherits from the root
+        let mut app = test_app(&mut t, state_at(&[1])); // "ws": inherits from the root
 
         app.handle_key(key('t')).await;
 
@@ -497,7 +497,7 @@ async fn task_form_due_date_comes_from_the_deadline_setting() {
     let root = t.get_mut(&[]).and_then(Node::as_container_mut).unwrap();
     root.settings.default_deadline = Some("+3d 18:00".parse().unwrap());
     let before = chrono::Local::now().date_naive();
-    let mut app = App::new(&mut t, state_at(&[1])); // "ws": inherits from the root
+    let mut app = test_app(&mut t, state_at(&[1])); // "ws": inherits from the root
 
     app.handle_key(key('t')).await;
 
@@ -515,7 +515,7 @@ async fn task_form_due_date_comes_from_the_deadline_setting() {
 async fn t_type_enter_creates_task_and_selects_it() {
     let tmp = tempfile::tempdir().unwrap();
     let mut t = Tree::load_from(tmp.path()).await.unwrap(); // empty root
-    let mut app = App::new(&mut t, TreeState::default());
+    let mut app = test_app(&mut t, TreeState::default());
 
     app.handle_key(key('t')).await;
     assert!(matches!(app.mode, Mode::Form(_)));
@@ -535,7 +535,7 @@ async fn t_type_enter_creates_task_and_selects_it() {
 async fn description_from_form_is_trimmed_and_saved() {
     let tmp = tempfile::tempdir().unwrap();
     let mut t = Tree::load_from(tmp.path()).await.unwrap(); // empty root
-    let mut app = App::new(&mut t, TreeState::default());
+    let mut app = test_app(&mut t, TreeState::default());
 
     app.handle_key(key('t')).await;
     for k in type_str("exam") {
@@ -555,7 +555,7 @@ async fn description_from_form_is_trimmed_and_saved() {
 async fn invalid_name_keeps_form_open_with_error() {
     let tmp = tempfile::tempdir().unwrap();
     let mut t = Tree::load_from(tmp.path()).await.unwrap();
-    let mut app = App::new(&mut t, TreeState::default());
+    let mut app = test_app(&mut t, TreeState::default());
 
     app.handle_key(key('t')).await;
     for k in type_str("a/b") {
@@ -571,7 +571,7 @@ async fn invalid_name_keeps_form_open_with_error() {
 #[tokio::test]
 async fn esc_closes_form_without_creating() {
     let mut t = tree();
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
 
     app.handle_key(key('c')).await;
     app.handle_key(key('x')).await;
@@ -606,7 +606,7 @@ async fn type_into(app: &mut App<'_>, s: &str) {
 async fn e_opens_form_prefilled_with_the_node() {
     let tmp = tempfile::tempdir().unwrap();
     let mut t = disk_tree(tmp.path()).await;
-    let mut app = App::new(&mut t, state_at(&[1]));
+    let mut app = test_app(&mut t, state_at(&[1]));
 
     app.handle_key(key('e')).await;
 
@@ -621,7 +621,7 @@ async fn e_opens_form_prefilled_with_the_node() {
 async fn edit_renames_and_sets_description_on_disk() {
     let tmp = tempfile::tempdir().unwrap();
     let mut t = disk_tree(tmp.path()).await;
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
 
     app.handle_key(key('e')).await;
     app.handle_key(clear()).await;
@@ -644,7 +644,7 @@ async fn clearing_the_description_removes_it() {
     let tmp = tempfile::tempdir().unwrap();
     let mut t = disk_tree(tmp.path()).await;
     t.get_mut(&[0]).unwrap().header.description = Some("old".into());
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
 
     app.handle_key(key('e')).await;
     app.handle_key(press(KeyCode::Tab)).await; // -> description
@@ -658,7 +658,7 @@ async fn clearing_the_description_removes_it() {
 async fn edit_to_a_siblings_name_keeps_form_open_with_error() {
     let tmp = tempfile::tempdir().unwrap();
     let mut t = disk_tree(tmp.path()).await;
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
 
     app.handle_key(key('e')).await;
     app.handle_key(clear()).await;
@@ -677,7 +677,7 @@ async fn edit_changes_container_kind_on_disk() {
     let ws_dir = tmp.path().join("uni");
     let uni = container_at("uni", &ws_dir, ContainerKind::Workspace, vec![]);
     t.create(&[], uni).await.unwrap();
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
 
     app.handle_key(key('e')).await;
     app.handle_key(press(KeyCode::Tab)).await; // -> description
@@ -694,7 +694,7 @@ async fn edit_changes_container_kind_on_disk() {
 #[tokio::test]
 async fn e_without_selection_shows_error() {
     let mut t = tree_with(vec![]); // cursor on the root
-    let mut app = App::new(&mut t, TreeState::default());
+    let mut app = test_app(&mut t, TreeState::default());
 
     app.handle_key(key('e')).await;
 
@@ -705,7 +705,7 @@ async fn e_without_selection_shows_error() {
 #[tokio::test]
 async fn esc_closes_edit_form_without_changes() {
     let mut t = tree(); // in memory: Esc never saves
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
 
     app.handle_key(key('e')).await;
     type_into(&mut app, "zzz").await;
@@ -757,7 +757,7 @@ async fn e_on_the_settings_tab_edits_the_tasks_container() {
     let mut t = tree(); // in memory: root: [a, ws: [b]]
     let root = t.get_mut(&[]).and_then(Node::as_container_mut).unwrap();
     root.settings.default_deadline = Some("fri 22:00".parse().unwrap());
-    let mut app = App::new(&mut t, state_at(&[1, 0])); // task "b"
+    let mut app = test_app(&mut t, state_at(&[1, 0])); // task "b"
 
     open_settings(&mut app).await;
 
@@ -785,7 +785,7 @@ async fn e_on_the_settings_tab_edits_the_tasks_container() {
 async fn settings_form_saves_and_keeps_the_cursor() {
     let tmp = tempfile::tempdir().unwrap();
     let mut t = uni_tree(tmp.path()).await;
-    let mut app = App::new(&mut t, state_at(&[0, 0])); // task "lab"
+    let mut app = test_app(&mut t, state_at(&[0, 0])); // task "lab"
 
     open_settings(&mut app).await;
     focus_setting(&mut app, "default_deadline").await;
@@ -806,7 +806,7 @@ async fn clearing_a_setting_inherits_it_again() {
     let uni = t.get_mut(&[0]).and_then(Node::as_container_mut).unwrap();
     uni.settings.default_deadline = Some("fri 22:00".parse().unwrap());
     t.save(&[0]).await.unwrap();
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
 
     open_settings(&mut app).await;
     focus_setting(&mut app, "default_deadline").await;
@@ -822,7 +822,7 @@ async fn clearing_a_setting_inherits_it_again() {
 async fn bad_setting_keeps_the_form_open_with_error() {
     let tmp = tempfile::tempdir().unwrap();
     let mut t = uni_tree(tmp.path()).await;
-    let mut app = App::new(&mut t, state_at(&[0]));
+    let mut app = test_app(&mut t, state_at(&[0]));
 
     open_settings(&mut app).await;
     focus_setting(&mut app, "default_deadline").await;
@@ -840,7 +840,7 @@ async fn bad_setting_keeps_the_form_open_with_error() {
 async fn settings_form_on_the_root_row_saves_root_settings() {
     let tmp = tempfile::tempdir().unwrap();
     let mut t = uni_tree(tmp.path()).await;
-    let mut app = App::new(&mut t, state_at(&[])); // root row
+    let mut app = test_app(&mut t, state_at(&[])); // root row
 
     open_settings(&mut app).await;
     let form = open_form(&app);

@@ -14,6 +14,7 @@ use crate::{
         tree::Tree,
     },
     naming::{folder_name, normalize_name},
+    storage::Storage,
     tui,
 };
 
@@ -78,9 +79,9 @@ pub enum Commands {
 }
 
 impl Cli {
-    pub async fn execute(&self, tree: &mut Tree) -> Res<()> {
+    pub async fn execute(&self, tree: &mut Tree, storage: &Storage) -> Res<()> {
         match &self.command {
-            None => tui::run(tree).await?,
+            None => tui::run(tree, storage).await?,
             Some(cmd) => match cmd {
                 Commands::List => print_tree(tree),
                 Commands::CreateWorkspace {

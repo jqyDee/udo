@@ -7,6 +7,9 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::Res;
 
+/// The database file, in the root dir.
+pub const DB_FILE_NAME: &str = "udo.db";
+
 /// Schema changes, in order. Never edit one that has shipped; append.
 /// `PRAGMA user_version` counts how many have run.
 const MIGRATIONS: &[&str] = &[include_str!("sqlite_migrations/001_sessions.sql")];

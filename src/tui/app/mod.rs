@@ -24,6 +24,7 @@ use crate::{
         task::TaskStatus,
         tree::{TrashFn, Tree, system_trash},
     },
+    storage::Storage,
     tui::{
         app::details::DetailsTab,
         form::Form,
@@ -58,6 +59,8 @@ pub enum Flow {
 
 pub struct App<'a> {
     pub tree: &'a mut Tree,
+    /// Where sessions are recorded (the tree later too).
+    pub storage: &'a Storage,
     /// Cursor, folding and scroll of the tree pane.
     pub tree_state: TreeState,
     /// Which tab the right pane shows (Tab / Shift+Tab).
@@ -72,9 +75,10 @@ pub struct App<'a> {
 impl<'a> App<'a> {
     /// Starts on `tree_state`'s cursor (`[]` = the root row).
     /// `TreeState::load` picks where a fresh start begins.
-    pub fn new(tree: &'a mut Tree, tree_state: TreeState) -> Self {
+    pub fn new(tree: &'a mut Tree, tree_state: TreeState, storage: &'a Storage) -> Self {
         Self {
             tree,
+            storage,
             tree_state,
             mode: Mode::default(),
             details_tab: DetailsTab::default(),
