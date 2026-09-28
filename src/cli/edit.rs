@@ -153,7 +153,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(edited.to_string(), "saved ws/lab 3");
+        assert_eq!(edited.to_string(), "edited ws/lab 3");
     }
 
     #[tokio::test]

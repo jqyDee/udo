@@ -10,6 +10,7 @@ mod parse;
 mod report;
 mod resolve;
 mod rm;
+mod settings;
 mod show;
 mod timer;
 
@@ -61,6 +62,8 @@ enum Command {
     Done(mark::DoneArgs),
     /// Give a task a status: todo, in-progress, stale, done
     Mark(mark::MarkArgs),
+    /// Show a container's settings, or set / unset them
+    Settings(settings::SettingsArgs),
     /// Start timing a task (a running one is stopped first)
     Start(timer::StartArgs),
     /// Stop the running timer
@@ -91,6 +94,10 @@ impl Cli {
             }
             Command::Done(a) => emit(&mark::done(core, cwd, time::now(), a).await?, json),
             Command::Mark(a) => emit(&mark::mark(core, cwd, time::now(), a).await?, json),
+            Command::Settings(a) => match &a.action {
+                None => emit(&settings::show(core, cwd, a.node.as_deref())?, json),
+                Some(action) => emit(&settings::change(core, cwd, action).await?, json),
+            },
             Command::Add(AddCommand::Task(a)) => {
                 let now = Local::now().naive_local();
                 emit(&add::task(core, cwd, now, a).await?, json)

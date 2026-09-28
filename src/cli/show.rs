@@ -114,7 +114,7 @@ impl fmt::Display for Shown {
         if let Some(description) = &self.description {
             line(f, "description", description)?;
         }
-        
+
         let sessions = if self.sessions == 1 {
             "session"
         } else {
