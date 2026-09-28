@@ -42,12 +42,8 @@ impl App<'_> {
             ContainerKind::Project
         };
 
-        self.mode = Mode::Form(Box::new(Form::new_container(
-            parent,
-            parent_name,
-            parent_dir,
-            kind,
-        )));
+        self.mode =
+            Mode::Form(Box::new(Form::new_container(parent, parent_name, parent_dir, kind)));
     }
 
     pub(super) fn open_task_form(&mut self) {
@@ -68,12 +64,7 @@ impl App<'_> {
             .map_or(now, |r| r.value.next_after(now));
         let defaults = TaskDefaults { due, folder };
 
-        self.mode = Mode::Form(Box::new(Form::new_task(
-            parent,
-            parent_name,
-            parent_dir,
-            defaults,
-        )));
+        self.mode = Mode::Form(Box::new(Form::new_task(parent, parent_name, parent_dir, defaults)));
     }
 
     /// Edit form for the node at the cursor, prefilled with its values.

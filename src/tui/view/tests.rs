@@ -69,10 +69,7 @@ fn renders_rows_details_and_hint() {
 
 /// root: [uni: [cs: [lab]]], uni sets the deadline, cursor on task "lab".
 fn tabs_tree() -> Tree {
-    let mut t = tree_with(vec![container(
-        "uni",
-        vec![container("cs", vec![task("lab")])],
-    )]);
+    let mut t = tree_with(vec![container("uni", vec![container("cs", vec![task("lab")])])]);
     let uni = t.get_mut(&[0]).and_then(Node::as_container_mut).unwrap();
     uni.settings.default_deadline = Some("fri 22:00".parse().unwrap());
     t
@@ -104,33 +101,21 @@ fn settings_tab_shows_values_and_sources() {
     let rows = render_rows(&mut app);
     let screen = rows.concat();
 
-    assert!(
-        screen.contains("fri 22:00 (from uni)"),
-        "got:\n{}",
-        rows.join("\n")
-    );
+    assert!(screen.contains("fri 22:00 (from uni)"), "got:\n{}", rows.join("\n"));
     assert!(screen.contains("none (default)")); // task folders
     assert!(!screen.contains("to do")); // no info lines
     let archive = rows
         .iter()
         .find(|r| r.contains("archive"))
         .expect("no archive row");
-    assert!(
-        archive.contains('-'),
-        "unset archive should show -: {archive}"
-    );
+    assert!(archive.contains('-'), "unset archive should show -: {archive}");
 }
 
 /// Settings form of "uni" open, with the field of `SETTINGS` entry `key`
 /// active.
 fn settings_form_on(app: &mut App, key: &str) {
-    let mut form = Form::edit_settings(
-        vec![0],
-        "uni",
-        &ContainerSettings::default(),
-        |_| String::new(),
-        None,
-    );
+    let mut form =
+        Form::edit_settings(vec![0], "uni", &ContainerSettings::default(), |_| String::new(), None);
     form.active_field = SETTINGS.iter().position(|i| i.key == key).unwrap();
     app.mode = Mode::Form(Box::new(form));
 }
@@ -143,11 +128,7 @@ fn settings_form_shows_the_format_of_the_active_field() {
     settings_form_on(&mut app, "default_deadline");
     let rows = render_rows(&mut app);
     let expected = format!("e.g. {}", DeadlineRule::EXAMPLES);
-    assert!(
-        rows.concat().contains(&expected),
-        "got:\n{}",
-        rows.join("\n")
-    );
+    assert!(rows.concat().contains(&expected), "got:\n{}", rows.join("\n"));
 
     settings_form_on(&mut app, "task_folders"); // a choice: no format
     assert!(!render(&mut app).contains("e.g."));
@@ -312,10 +293,7 @@ fn help_overlay_shows_section_headings_in_order() {
         })
         .collect();
     let reading_order: Vec<(usize, usize)> = headings.iter().map(|&(r, c)| (c, r)).collect();
-    assert!(
-        reading_order.is_sorted(),
-        "headings out of order: {headings:?}"
-    );
+    assert!(reading_order.is_sorted(), "headings out of order: {headings:?}");
     // each section's first binding sits right below its heading
     for (s, (row, _)) in KEYMAP.iter().zip(&headings) {
         assert!(
@@ -499,8 +477,5 @@ fn help_overlay_switches_to_two_columns_when_short() {
                 .1
         })
         .collect();
-    assert!(
-        cols.iter().any(|&c| c != cols[0]),
-        "still one column: {cols:?}"
-    );
+    assert!(cols.iter().any(|&c| c != cols[0]), "still one column: {cols:?}");
 }

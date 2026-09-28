@@ -229,15 +229,9 @@ mod tests {
 
         let p = t.create(&[1], node).await.unwrap();
 
-        assert_eq!(
-            t.get(&p).unwrap().header.description.as_deref(),
-            Some("two\nlines")
-        );
+        assert_eq!(t.get(&p).unwrap().header.description.as_deref(), Some("two\nlines"));
         let ws = ContainerData::load(&tmp.path().join("ws")).await.unwrap();
-        assert_eq!(
-            ws.tasks[1].header.description.as_deref(),
-            Some("two\nlines")
-        );
+        assert_eq!(ws.tasks[1].header.description.as_deref(), Some("two\nlines"));
     }
 
     #[tokio::test]
@@ -336,10 +330,7 @@ mod tests {
         let mut t = disk_tree(tmp.path()).await;
 
         for bad in ["", "..", "a/b"] {
-            assert!(
-                t.edit(&[0], header_patch(rename(bad))).await.is_err(),
-                "{bad:?}"
-            );
+            assert!(t.edit(&[0], header_patch(rename(bad))).await.is_err(), "{bad:?}");
         }
         assert!(t.edit(&[], header_patch(rename("x"))).await.is_err()); // root
         assert!(t.edit(&[9], NodePatch::default()).await.is_err());
@@ -715,10 +706,7 @@ mod tests {
             .unwrap();
 
         let ws = ContainerData::load(&tmp.path().join("ws")).await.unwrap();
-        assert_eq!(
-            ws.settings.default_deadline,
-            Some("fri 22:00".parse().unwrap())
-        );
+        assert_eq!(ws.settings.default_deadline, Some("fri 22:00".parse().unwrap()));
         let root = ContainerData::load(tmp.path()).await.unwrap();
         assert_eq!(root.settings.default_deadline, None); // parent untouched
     }
@@ -751,10 +739,7 @@ mod tests {
         let loaded = Tree::load_from(tmp.path()).await.unwrap();
         assert_eq!(loaded.root_settings(), &theme("dark"));
         let root = loaded.get(&[]).unwrap().as_container().unwrap();
-        assert_eq!(
-            root.settings.default_deadline,
-            Some("+7d 23:59".parse().unwrap())
-        );
+        assert_eq!(root.settings.default_deadline, Some("+7d 23:59".parse().unwrap()));
     }
 
     #[tokio::test]
@@ -806,10 +791,7 @@ mod tests {
             assert!(t.create(&[1], task).await.is_err(), "task {bad:?} accepted");
             let dir = tmp.path().join("ws").join("dir");
             let proj = new_container(bad, &dir, ContainerKind::Project);
-            assert!(
-                t.create(&[1], proj).await.is_err(),
-                "container {bad:?} accepted"
-            );
+            assert!(t.create(&[1], proj).await.is_err(), "container {bad:?} accepted");
         }
         assert_eq!(t.get(&[1]).unwrap().children().len(), 1); // still only "b"
         assert!(!tmp.path().join("ws").join("dir").exists()); // check before mkdir

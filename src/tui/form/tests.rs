@@ -150,10 +150,7 @@ fn edit_task_is_prefilled_without_folder_rows() {
 
     assert_eq!(form.title, "edit task · lab 3");
     assert_eq!(form.action, FormAction::EditNode { path: vec![0, 1] });
-    assert_eq!(
-        ids(&form),
-        [FieldId::Name, FieldId::Description, FieldId::Due]
-    );
+    assert_eq!(ids(&form), [FieldId::Name, FieldId::Description, FieldId::Due]);
     let v = form.values();
     assert_eq!(v.name, "lab 3");
     assert_eq!(v.description, "ex 1-4");
@@ -168,10 +165,7 @@ fn edit_container_is_prefilled_with_its_kind() {
     let form = Form::edit_node(vec![0], &Node::container("uni".into(), c));
 
     assert_eq!(form.title, "edit container · uni");
-    assert_eq!(
-        ids(&form),
-        [FieldId::Name, FieldId::Description, FieldId::Kind]
-    );
+    assert_eq!(ids(&form), [FieldId::Name, FieldId::Description, FieldId::Kind]);
     let v = form.values();
     assert_eq!(v.description, ""); // none set
     assert_eq!(v.kind, Some(ContainerKind::Project));
@@ -216,10 +210,7 @@ fn values_normalize_the_name_but_keep_the_description_raw() {
 fn form_field_date_wraps_date_input() {
     let f = FormField::date(FieldId::Due, dt(2026, 10, 15, 14, 30));
     assert_eq!(f.id, FieldId::Due);
-    assert_eq!(
-        f.input,
-        FieldInput::Date(DateInput::new(dt(2026, 10, 15, 14, 30)))
-    );
+    assert_eq!(f.input, FieldInput::Date(DateInput::new(dt(2026, 10, 15, 14, 30))));
 }
 
 #[test]
@@ -234,10 +225,7 @@ fn value_getters_only_match_their_own_kind() {
     assert_eq!(form.date_value(FieldId::Dir), None); // dir is text
     assert_eq!(form.text_value(FieldId::Folder), None); // folder is a choice
     assert_eq!(form.choice_value(FieldId::Name), None);
-    assert_eq!(
-        form.choice_value(FieldId::Folder),
-        Some(FolderMode::Auto.index())
-    );
+    assert_eq!(form.choice_value(FieldId::Folder), Some(FolderMode::Auto.index()));
 }
 
 // --------------- Key Tests ---------------
@@ -247,10 +235,7 @@ fn handle_key_outcomes() {
     let mut form = test_form();
     assert_eq!(form.handle_key(press(KeyCode::Enter)), FormOutcome::Submit);
     assert_eq!(form.handle_key(press(KeyCode::Esc)), FormOutcome::Cancel);
-    assert_eq!(
-        form.handle_key(press(KeyCode::Char('x'))),
-        FormOutcome::Continue
-    );
+    assert_eq!(form.handle_key(press(KeyCode::Char('x'))), FormOutcome::Continue);
 }
 
 #[test]
@@ -427,13 +412,7 @@ fn settings_form(root: Option<&RootSettings>) -> Form {
         default_deadline: Some("fri 22:00".parse().unwrap()),
         ..Default::default()
     };
-    Form::edit_settings(
-        vec![0],
-        "uni",
-        &own,
-        |info| format!("{} (inherited)", info.label),
-        root,
-    )
+    Form::edit_settings(vec![0], "uni", &own, |info| format!("{} (inherited)", info.label), root)
 }
 
 /// What a setting field says applies when unset: the placeholder of a text
@@ -563,10 +542,7 @@ fn task_folders_choice_is_read_back() {
     focus(&mut form, setting_id("task_folders"));
 
     form.handle_key(press(KeyCode::Right)); // inherit -> auto
-    assert_eq!(
-        form.settings().unwrap().0.task_folders,
-        Some(TaskFolderSetting::Auto)
-    );
+    assert_eq!(form.settings().unwrap().0.task_folders, Some(TaskFolderSetting::Auto));
 
     form.handle_key(press(KeyCode::Left)); // back to inherit
     assert_eq!(form.settings().unwrap().0.task_folders, None);

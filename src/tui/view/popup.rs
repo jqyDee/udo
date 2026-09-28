@@ -84,11 +84,7 @@ fn draw_purge(frame: &mut Frame, plan: &PurgePlan, input: &TextInput) {
         lines.extend(labeled(label, &other.display().to_string(), path_w));
     }
     if plan.outside.len() > MAX_OUTSIDE {
-        let more = format!(
-            "{:LABEL_W$}and {} more",
-            "",
-            plan.outside.len() - MAX_OUTSIDE
-        );
+        let more = format!("{:LABEL_W$}and {} more", "", plan.outside.len() - MAX_OUTSIDE);
         lines.push(Line::from(more).dim());
     }
     lines.push(Line::from(contains_text(plan.containers, plan.tasks)));
@@ -154,11 +150,7 @@ fn contains_text(containers: usize, tasks: usize) -> String {
     if containers == 0 && tasks == 0 {
         return "contains no other nodes".into();
     }
-    format!(
-        "contains {}, {}",
-        count(containers, "container"),
-        count(tasks, "task")
-    )
+    format!("contains {}, {}", count(containers, "container"), count(tasks, "task"))
 }
 
 /// Small bordered message box in the top right (green info / red error).

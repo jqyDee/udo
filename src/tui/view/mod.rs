@@ -40,14 +40,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     if let Mode::Form(form) = &app.mode {
         let [top_details, bottom_form] =
             Layout::vertical([Constraint::Percentage(40), Constraint::Percentage(60)]).areas(right);
-        details::draw(
-            frame,
-            top_details,
-            app.tree,
-            node,
-            app.details_tab,
-            &settings,
-        );
+        details::draw(frame, top_details, app.tree, node, app.details_tab, &settings);
         form::draw(frame, bottom_form, form);
     } else {
         details::draw(frame, right, app.tree, node, app.details_tab, &settings);

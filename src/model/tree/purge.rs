@@ -185,10 +185,7 @@ impl Tree {
                 return;
             };
             for u in &c.unloaded {
-                out.push((
-                    u.clone(),
-                    format!("an unloaded container in {:?}", node.name()),
-                ));
+                out.push((u.clone(), format!("an unloaded container in {:?}", node.name())));
             }
             for (i, child) in c.children.iter().enumerate() {
                 path.push(i);
@@ -302,12 +299,7 @@ mod tests {
             ContainerKind::Workspace,
             vec![algo, task_at("data", &mk(tmp, "data"))],
         );
-        let shared = container_at(
-            "shared",
-            &mk(tmp, "shared"),
-            ContainerKind::Workspace,
-            vec![],
-        );
+        let shared = container_at("shared", &mk(tmp, "shared"), ContainerKind::Workspace, vec![]);
         Tree::new(container_at(
             "root",
             &mk(tmp, "udo"),
@@ -394,10 +386,7 @@ mod tests {
         let p = plan(&t, tmp.path(), &[0]).unwrap().unwrap();
 
         let data = tmp.path().join("data");
-        assert_eq!(
-            p.folders,
-            vec![data.clone(), old.clone(), tmp.path().join("uni")]
-        );
+        assert_eq!(p.folders, vec![data.clone(), old.clone(), tmp.path().join("uni")]);
         assert_eq!(p.outside, vec![data, old]);
     }
 

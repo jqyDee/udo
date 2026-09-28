@@ -265,10 +265,7 @@ mod tests {
                 let now = at(9, day, h, 0);
                 let due = rule.next_after(now);
                 assert!(due > now, "{due} not after {now}");
-                assert!(
-                    due - now <= chrono::TimeDelta::days(7),
-                    "{due} too far from {now}"
-                );
+                assert!(due - now <= chrono::TimeDelta::days(7), "{due} too far from {now}");
                 assert_eq!(due.weekday(), Weekday::Wed);
             }
         }

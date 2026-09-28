@@ -79,10 +79,7 @@ mod tests {
     #[test]
     fn rows_are_depth_first() {
         let t = tree();
-        assert_eq!(
-            names(&t.rows()),
-            vec!["a", "inner", "b", "deep", "c", "z", "empty"]
-        );
+        assert_eq!(names(&t.rows()), vec!["a", "inner", "b", "deep", "c", "z", "empty"]);
     }
 
     #[test]

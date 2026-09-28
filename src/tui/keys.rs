@@ -188,10 +188,7 @@ mod tests {
 
     #[test]
     fn create_keys() {
-        assert_eq!(
-            action_for(press(KeyCode::Char('c'))),
-            Some(Action::NewContainer)
-        );
+        assert_eq!(action_for(press(KeyCode::Char('c'))), Some(Action::NewContainer));
         assert_eq!(action_for(press(KeyCode::Char('t'))), Some(Action::NewTask));
     }
 

@@ -177,23 +177,14 @@ pub(super) async fn check_add_is_not_edited(s: impl SessionStore) {
     assert_eq!(added.edited_at, None);
     assert_eq!(added.end, Some(at(10, 30)));
     assert_eq!(s.running().await.unwrap(), None); // finished, not running
-    assert_eq!(
-        s.query(&SessionQuery::default()).await.unwrap(),
-        vec![added]
-    );
+    assert_eq!(s.query(&SessionQuery::default()).await.unwrap(), vec![added]);
 }
 
 /// `add` with end before (or on) start: `EndBeforeStart`, nothing stored.
 pub(super) async fn check_add_refuses_end_before_start(s: impl SessionStore) {
     let t = task("lab 3");
-    assert_eq!(
-        s.add(t.clone(), at(10, 0), at(9, 0)).await,
-        Err(SessionError::EndBeforeStart)
-    );
-    assert_eq!(
-        s.add(t, at(10, 0), at(10, 0)).await,
-        Err(SessionError::EndBeforeStart)
-    );
+    assert_eq!(s.add(t.clone(), at(10, 0), at(9, 0)).await, Err(SessionError::EndBeforeStart));
+    assert_eq!(s.add(t, at(10, 0), at(10, 0)).await, Err(SessionError::EndBeforeStart));
     assert!(s.query(&SessionQuery::default()).await.unwrap().is_empty());
 }
 
@@ -201,26 +192,14 @@ pub(super) async fn check_add_refuses_end_before_start(s: impl SessionStore) {
 pub(super) async fn check_add_refuses_overlap(s: impl SessionStore) {
     s.add(task("lab 3"), at(9, 0), at(11, 0)).await.unwrap();
 
-    assert_eq!(
-        s.add(task("a"), at(10, 0), at(12, 0)).await,
-        Err(SessionError::Overlap)
-    ); // tail
-    assert_eq!(
-        s.add(task("b"), at(8, 0), at(12, 0)).await,
-        Err(SessionError::Overlap)
-    ); // around
-    assert_eq!(
-        s.add(task("c"), at(9, 30), at(10, 0)).await,
-        Err(SessionError::Overlap)
-    ); // inside
+    assert_eq!(s.add(task("a"), at(10, 0), at(12, 0)).await, Err(SessionError::Overlap)); // tail
+    assert_eq!(s.add(task("b"), at(8, 0), at(12, 0)).await, Err(SessionError::Overlap)); // around
+    assert_eq!(s.add(task("c"), at(9, 30), at(10, 0)).await, Err(SessionError::Overlap)); // inside
 
     s.start(task("d"), SessionSource::Manual, at(14, 0))
         .await
         .unwrap();
-    assert_eq!(
-        s.add(task("e"), at(15, 0), at(16, 0)).await,
-        Err(SessionError::Overlap)
-    ); // after a running start
+    assert_eq!(s.add(task("e"), at(15, 0), at(16, 0)).await, Err(SessionError::Overlap)); // after a running start
 }
 
 /// Half-open intervals: 14:00–15:00 and 15:00–16:00 both fit.
@@ -324,10 +303,7 @@ pub(super) async fn check_split_inside(s: impl SessionStore) {
     assert_eq!(second.task, added.task);
     assert_eq!(second.source, added.source);
     assert_eq!(second.created_at, added.created_at); // same recording
-    assert_eq!(
-        (first.edited_at, second.edited_at),
-        (Some(now()), Some(now()))
-    );
+    assert_eq!((first.edited_at, second.edited_at), (Some(now()), Some(now())));
     assert_eq!(visible(&s).await, vec![first, second]);
 }
 
@@ -357,10 +333,7 @@ pub(super) async fn check_split_running_errors(s: impl SessionStore) {
         .await
         .unwrap();
 
-    assert_eq!(
-        s.split(running.id, at(15, 0)).await,
-        Err(SessionError::Running)
-    );
+    assert_eq!(s.split(running.id, at(15, 0)).await, Err(SessionError::Running));
     assert_eq!(s.running().await.unwrap(), Some(running));
 }
 
@@ -380,10 +353,7 @@ pub(super) async fn check_cut_inside(s: impl SessionStore) {
     assert_eq!((second.start, second.end), (at(13, 0), Some(at(17, 0))));
     assert_eq!(second.task, added.task);
     assert_eq!(second.created_at, added.created_at); // same recording
-    assert_eq!(
-        (first.edited_at, second.edited_at),
-        (Some(now()), Some(now()))
-    );
+    assert_eq!((first.edited_at, second.edited_at), (Some(now()), Some(now())));
     assert_eq!(visible(&s).await, left);
 }
 
@@ -563,11 +533,7 @@ pub(super) async fn check_returned_is_what_is_stored(s: impl SessionStore) {
     let west = FixedOffset::west_opt(4 * 3600).unwrap(); // -04:00
 
     let added = s
-        .add(
-            task("a"),
-            precise(9, 0),
-            precise(10, 0).with_timezone(&west),
-        )
+        .add(task("a"), precise(9, 0), precise(10, 0).with_timezone(&west))
         .await
         .unwrap();
     let started = s

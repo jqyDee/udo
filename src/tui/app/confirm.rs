@@ -164,10 +164,7 @@ impl App<'_> {
             None => {
                 let n = report.trashed.len();
                 let folders = if n == 1 { "folder" } else { "folders" };
-                self.info(format!(
-                    "deleted {} · {n} {folders} moved to Trash",
-                    plan.name
-                ));
+                self.info(format!("deleted {} · {n} {folders} moved to Trash", plan.name));
             }
             Some(((dir, reason), rest)) => {
                 let mut msg = format!(

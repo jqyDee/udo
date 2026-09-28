@@ -139,10 +139,7 @@ mod tests {
         let mut t = tree();
         set_archive(&mut t, &[0], "/uni");
 
-        assert_eq!(
-            archive(&t, &[0, 0]),
-            resolved("/uni", Source::Inherited(vec![0]))
-        );
+        assert_eq!(archive(&t, &[0, 0]), resolved("/uni", Source::Inherited(vec![0])));
     }
 
     #[test]
@@ -151,10 +148,7 @@ mod tests {
         set_archive(&mut t, &[], "/root");
         set_archive(&mut t, &[0], "/uni");
 
-        assert_eq!(
-            archive(&t, &[0, 0]),
-            resolved("/uni", Source::Inherited(vec![0]))
-        );
+        assert_eq!(archive(&t, &[0, 0]), resolved("/uni", Source::Inherited(vec![0])));
     }
 
     #[test]
@@ -163,11 +157,7 @@ mod tests {
         set_archive(&mut t, &[], "/root");
 
         for path in [&[0][..], &[0, 0], &[1]] {
-            assert_eq!(
-                archive(&t, path),
-                resolved("/root", Source::Inherited(vec![])),
-                "{path:?}"
-            );
+            assert_eq!(archive(&t, path), resolved("/root", Source::Inherited(vec![])), "{path:?}");
         }
         assert_eq!(archive(&t, &[]), resolved("/root", Source::Own));
     }
@@ -178,10 +168,7 @@ mod tests {
         set_archive(&mut t, &[0, 0], "/cs");
 
         // tasks have no settings: the value is always inherited
-        assert_eq!(
-            archive(&t, &[0, 0, 0]),
-            resolved("/cs", Source::Inherited(vec![0, 0]))
-        );
+        assert_eq!(archive(&t, &[0, 0, 0]), resolved("/cs", Source::Inherited(vec![0, 0])));
     }
 
     #[test]
@@ -219,10 +206,7 @@ mod tests {
         set_archive(&mut t, &[0, 0], "/cs");
 
         // the parent's own value, seen from the child: inherited, not Own
-        assert_eq!(
-            inherited_archive(&t, &[0, 0]),
-            resolved("/uni", Source::Inherited(vec![0]))
-        );
+        assert_eq!(inherited_archive(&t, &[0, 0]), resolved("/uni", Source::Inherited(vec![0])));
     }
 
     #[test]
@@ -231,10 +215,7 @@ mod tests {
         set_archive(&mut t, &[], "/root");
         set_archive(&mut t, &[0, 0], "/cs");
 
-        assert_eq!(
-            inherited_archive(&t, &[0, 0]),
-            resolved("/root", Source::Inherited(vec![]))
-        );
+        assert_eq!(inherited_archive(&t, &[0, 0]), resolved("/root", Source::Inherited(vec![])));
     }
 
     #[test]
@@ -279,10 +260,7 @@ mod tests {
 
         // root: exactly the one setting that is set
         let root_file = std::fs::read_to_string(root_dir.join(UDO_FILE_NAME)).unwrap();
-        assert!(
-            root_file.contains("archive_dir = \"/arch\""),
-            "got:\n{root_file}"
-        );
+        assert!(root_file.contains("archive_dir = \"/arch\""), "got:\n{root_file}");
         for unset in ["task_folders", "default_deadline", "estimate", "[root]"] {
             assert!(!root_file.contains(unset), "{unset} in:\n{root_file}");
         }
@@ -293,9 +271,6 @@ mod tests {
 
         // after a reload it is still inherited from the root
         let loaded = Tree::load_from(&root_dir).await.unwrap();
-        assert_eq!(
-            archive(&loaded, &uni),
-            resolved("/arch", Source::Inherited(vec![]))
-        );
+        assert_eq!(archive(&loaded, &uni), resolved("/arch", Source::Inherited(vec![])));
     }
 }

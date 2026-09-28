@@ -95,14 +95,8 @@ mod tests {
     #[test]
     fn default_child_dir_is_parent_dir_plus_name() {
         let t = tree(); // root (/tmp/root): [a, inner (/tmp/inner): [b]]
-        assert_eq!(
-            t.default_child_dir(&[1], "new"),
-            Some(PathBuf::from("/tmp/inner/new"))
-        );
-        assert_eq!(
-            t.default_child_dir(&[], "new"),
-            Some(PathBuf::from("/tmp/root/new"))
-        );
+        assert_eq!(t.default_child_dir(&[1], "new"), Some(PathBuf::from("/tmp/inner/new")));
+        assert_eq!(t.default_child_dir(&[], "new"), Some(PathBuf::from("/tmp/root/new")));
         assert_eq!(t.default_child_dir(&[0], "new"), None); // task parent
         assert_eq!(t.default_child_dir(&[9], "new"), None); // missing
     }
@@ -113,10 +107,7 @@ mod tests {
     fn auto_task_dir_follows_the_setting() {
         let mut t = tree();
         set_folders(&mut t, &[], TaskFolderSetting::Auto);
-        assert_eq!(
-            t.auto_task_dir(&[], "c"),
-            Some(PathBuf::from("/tmp/root/c"))
-        );
+        assert_eq!(t.auto_task_dir(&[], "c"), Some(PathBuf::from("/tmp/root/c")));
         assert_eq!(
             t.auto_task_dir(&[1], "c"),
             Some(PathBuf::from("/tmp/inner/c")) // inherited from the root
@@ -134,10 +125,7 @@ mod tests {
         set_folders(&mut t, &[1], TaskFolderSetting::Auto);
 
         assert_eq!(t.auto_task_dir(&[], "c"), None);
-        assert_eq!(
-            t.auto_task_dir(&[1], "c"),
-            Some(PathBuf::from("/tmp/inner/c"))
-        );
+        assert_eq!(t.auto_task_dir(&[1], "c"), Some(PathBuf::from("/tmp/inner/c")));
     }
 
     #[test]

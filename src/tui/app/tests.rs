@@ -505,10 +505,7 @@ async fn task_form_due_date_comes_from_the_deadline_setting() {
         panic!("no form open");
     };
     let due = form.date_value(FieldId::Due).expect("no due field");
-    assert_eq!(
-        due.time(),
-        chrono::NaiveTime::from_hms_opt(18, 0, 0).unwrap()
-    );
+    assert_eq!(due.time(), chrono::NaiveTime::from_hms_opt(18, 0, 0).unwrap());
     // `now` is read inside: allow for the date changing while the test runs
     let days = (due.date() - before).num_days();
     assert!(days == 3 || days == 4, "due {due} is {days} days away");

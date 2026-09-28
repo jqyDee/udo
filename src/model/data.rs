@@ -128,10 +128,7 @@ mod tests {
         assert_eq!(loaded.header.name, "w");
         assert_eq!(loaded.children, vec![PathBuf::from("/tmp/sub")]);
         // #[serde(flatten)] settings must survive the round-trip
-        assert_eq!(
-            loaded.settings.archive_dir,
-            Some(PathBuf::from("/tmp/arch"))
-        );
+        assert_eq!(loaded.settings.archive_dir, Some(PathBuf::from("/tmp/arch")));
     }
 
     #[tokio::test]

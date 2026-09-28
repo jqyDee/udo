@@ -262,9 +262,6 @@ mod tests {
     fn default_deadline_in_the_file() {
         let s: ContainerSettings = toml::from_str("default_deadline = \"+7d 23:59\"").unwrap();
         assert_eq!(s.default_deadline, Some("+7d 23:59".parse().unwrap()));
-        assert_eq!(
-            toml::to_string(&s).unwrap().trim(),
-            "default_deadline = \"+7d 23:59\""
-        );
+        assert_eq!(toml::to_string(&s).unwrap().trim(), "default_deadline = \"+7d 23:59\"");
     }
 }
