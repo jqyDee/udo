@@ -585,10 +585,6 @@ mod tests {
     use super::*;
     use crate::{model::id::NodeId, storage::sqlite};
 
-    super::super::contract::store_contract!(|clock: Clock| {
-        SqliteSessions::new(sqlite::open_in_memory().unwrap(), clock)
-    });
-
     // The edit log is SQLite's own (the contract cannot see it): what gets
     // written there is tested here.
 

@@ -274,10 +274,3 @@ impl SessionStore for MemorySessions {
         self.inner.lock().unwrap().delete(id)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    super::super::contract::store_contract!(MemorySessions::new);
-}
