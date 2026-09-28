@@ -229,7 +229,10 @@ around your calendar and shows the result on your phone.
       Ctrl+S = submit); details pane shows each line.
 - [ ] `udo run` is a `todo!()` and panics: error out until it is built.
 - [ ] `submit_form` clones the whole form on every Enter.
-- [ ] `cli.rs` cleanup.
+- [ ] `cli.rs` cleanup (in design: split, path syntax, missing commands).
+- [ ] **Shell completion** after the CLI rework: `clap_complete` with
+      dynamic node names from the tree (`udo start la<Tab>` -> `lab 3`),
+      using the same resolver as the commands.
 - [ ] `roadmap.txt` 6.1 status is out of date (event loop is async, TUI
       writes: status, delete, create, edit, settings; details tabs, root
       row).
