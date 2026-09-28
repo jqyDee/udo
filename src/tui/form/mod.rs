@@ -29,7 +29,8 @@ pub use date::{DateInput, Segment};
 pub use text::TextInput;
 
 use crate::{
-    dir::{default_dir, parse_abs_dir}, model::{
+    dir::{default_dir, parse_abs_dir},
+    model::{
         NodePath,
         container::{Container, ContainerKind},
         node::{Node, NodeBody},
@@ -39,7 +40,8 @@ use crate::{
         },
         task::Task,
         time::{local_to_fixed, now},
-    }, naming::normalize_name,
+    },
+    naming::normalize_name,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]

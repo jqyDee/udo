@@ -5,7 +5,10 @@ use std::path::PathBuf;
 use chrono::NaiveDateTime;
 
 use crate::{
-    Res, core::Core, dir::default_dir, model::{
+    Res,
+    core::Core,
+    dir::default_dir,
+    model::{
         NodePath,
         node::{Node, NodePatch},
         settings::TaskFolderSetting,
