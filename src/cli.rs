@@ -5,18 +5,18 @@ use clap::{Parser, Subcommand};
 
 use crate::{
     DATE_FMT, Res,
+    core::Core,
     model::{
         NodePath,
         container::{Container, ContainerKind},
         node::{Node, NodeBody},
-        sessions::SessionStore,
+        sessions::{Session, SessionStore},
         task::Task,
-        time::{self, local_to_fixed},
+        time::{self, Time, local_to_fixed},
         tree::Tree,
     },
     naming::{folder_name, normalize_name},
-    storage::Storage,
-    tracking, tui,
+    tui,
 };
 
 #[derive(Parser)]
@@ -90,11 +90,11 @@ pub enum Commands {
 }
 
 impl Cli {
-    pub async fn execute(&self, tree: &mut Tree, storage: &Storage) -> Res<()> {
+    pub async fn execute(&self, core: &mut Core) -> Res<()> {
         match &self.command {
-            None => tui::run(tree, storage).await?,
+            None => tui::run(core).await?,
             Some(cmd) => match cmd {
-                Commands::List => print_tree(tree),
+                Commands::List => print_tree(core.tree()),
                 Commands::CreateWorkspace {
                     name,
                     dir,
@@ -108,7 +108,7 @@ impl Cli {
 
                     let node =
                         Node::container(name.clone(), ws).with_description(description.clone());
-                    tree.create(&[], node).await?;
+                    core.create(&[], node).await?;
                     println!("Created workspace {name:?} at {dir:?}");
                 }
                 Commands::AddProject {
@@ -117,7 +117,8 @@ impl Cli {
                     dir,
                     description,
                 } => {
-                    let ws = tree
+                    let ws = core
+                        .tree()
                         .resolve(&[workspace.as_str()])
                         .ok_or("workspace not found")?;
                     let dir = match dir {
@@ -125,13 +126,13 @@ impl Cli {
                         Some(d) => absolute(d)?,
                         None => {
                             let folder = folder_name(project).ok_or("name cannot be empty")?;
-                            node_dir(tree, &ws)?.join(folder)
+                            node_dir(core.tree(), &ws)?.join(folder)
                         }
                     };
                     let proj = Container::new(dir.clone(), ContainerKind::Project);
                     let node = Node::container(project.clone(), proj)
                         .with_description(description.clone());
-                    tree.create(&ws, node).await?;
+                    core.create(&ws, node).await?;
                     println!("Created project {project:?} at {dir:?}");
                 }
                 Commands::AddTask {
@@ -150,6 +151,7 @@ impl Cli {
                     let date =
                         local_to_fixed(local).ok_or("that time doesn't exist (DST switch)")?;
 
+                    let tree = core.tree();
                     let parent: NodePath = match (workspace, project) {
                         (None, None) => vec![], // root
                         (Some(w), None) => {
@@ -172,7 +174,7 @@ impl Cli {
 
                     let node = Node::task(task.clone(), Task::new(dir, date))
                         .with_description(description.clone());
-                    tree.create(&parent, node).await?;
+                    core.create(&parent, node).await?;
                     println!("Added task {task:?}");
                 }
                 Commands::Run { project, task } => {
@@ -180,18 +182,16 @@ impl Cli {
                 }
                 Commands::Start { task } => {
                     let names: Vec<&str> = task.split('/').map(str::trim).collect();
-                    let path = tree.resolve(&names).ok_or("task not found")?;
-                    let session = tracking::start(tree, storage, &path, time::now()).await?;
-                    println!("{}", tracking::running_line(&session, session.start));
+                    let path = core.tree().resolve(&names).ok_or("task not found")?;
+                    let session = core.start(&path, time::now()).await?;
+                    println!("{}", running_line(&session, session.start));
                 }
-                Commands::Stop => match tracking::stop(storage, time::now()).await? {
-                    Some(session) => println!("{}", tracking::stopped_line(&session)),
+                Commands::Stop => match core.stop(time::now()).await? {
+                    Some(session) => println!("{}", stopped_line(&session)),
                     None => println!("nothing running"),
                 },
-                Commands::Status => match storage.sessions.running().await? {
-                    Some(session) => {
-                        println!("{}", tracking::running_line(&session, time::now()))
-                    }
+                Commands::Status => match core.sessions().running().await? {
+                    Some(session) => println!("{}", running_line(&session, time::now())),
                     None => println!("nothing running"),
                 },
             },
@@ -244,4 +244,15 @@ fn collapse_whitespaces(input: &str) -> Result<String, String> {
         return Err("name cannot be empty".into());
     }
     Ok(name)
+}
+
+/// The running session, timed up to `now`.
+fn running_line(session: &Session, now: Time) -> String {
+    format!("running: {}; {}", session.task.name, session.duration(now))
+}
+
+/// Stopped session. A running one counts as 0 minutes.
+fn stopped_line(session: &Session) -> String {
+    let duration = session.duration(session.start); // `now` only counts while running
+    format!("stopped: {}; {duration}", session.task.name)
 }

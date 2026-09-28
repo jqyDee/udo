@@ -20,11 +20,11 @@ use crossterm::event::{KeyEvent, KeyEventKind};
 pub use confirm::{Confirm, ConfirmStage, PurgeOption};
 
 use crate::{
+    core::Core,
     model::{
         task::TaskStatus,
-        tree::{TrashFn, Tree, system_trash},
+        tree::{TrashFn, system_trash},
     },
-    storage::Storage,
     tui::{
         app::details::DetailsTab,
         form::Form,
@@ -58,9 +58,8 @@ pub enum Flow {
 }
 
 pub struct App<'a> {
-    pub tree: &'a mut Tree,
-    /// Where sessions are recorded (the tree later too).
-    pub storage: &'a Storage,
+    /// The tree and the stores; every change goes through it.
+    pub core: &'a mut Core,
     /// Cursor, folding and scroll of the tree pane.
     pub tree_state: TreeState,
     /// Which tab the right pane shows (Tab / Shift+Tab).
@@ -75,10 +74,9 @@ pub struct App<'a> {
 impl<'a> App<'a> {
     /// Starts on `tree_state`'s cursor (`[]` = the root row).
     /// `TreeState::load` picks where a fresh start begins.
-    pub fn new(tree: &'a mut Tree, tree_state: TreeState, storage: &'a Storage) -> Self {
+    pub fn new(core: &'a mut Core, tree_state: TreeState) -> Self {
         Self {
-            tree,
-            storage,
+            core,
             tree_state,
             mode: Mode::default(),
             details_tab: DetailsTab::default(),
@@ -112,12 +110,12 @@ impl<'a> App<'a> {
         match action {
             Action::Quit => return Flow::Quit,
             Action::Help => self.mode = Mode::Help,
-            Action::Up => self.tree_state.move_up(self.tree),
-            Action::Down => self.tree_state.move_down(self.tree),
-            Action::In => self.tree_state.move_in(self.tree),
+            Action::Up => self.tree_state.move_up(self.core.tree()),
+            Action::Down => self.tree_state.move_down(self.core.tree()),
+            Action::In => self.tree_state.move_in(self.core.tree()),
             Action::Out => self.tree_state.move_out(),
-            Action::Toggle => self.tree_state.toggle_collapse(self.tree),
-            Action::CollapseAll => self.tree_state.collapse_all(self.tree),
+            Action::Toggle => self.tree_state.toggle_collapse(self.core.tree()),
+            Action::CollapseAll => self.tree_state.collapse_all(self.core.tree()),
             Action::ExpandAll => self.tree_state.expand_all(),
             Action::SetStatus(status) => self.set_status(status).await,
             Action::Edit => match self.details_tab {
@@ -135,9 +133,9 @@ impl<'a> App<'a> {
 
     async fn set_status(&mut self, status: TaskStatus) {
         let path = self.tree_state.cursor.clone();
-        match self.tree.set_task_status(&path, status).await {
+        match self.core.set_status(&path, status).await {
             Ok(()) => {
-                let name = self.tree.get(&path).map_or("", |n| n.name());
+                let name = self.core.tree().get(&path).map_or("", |n| n.name());
                 self.info(format!("{name} -> {status}"));
             }
             Err(e) => self.error(e.to_string()),

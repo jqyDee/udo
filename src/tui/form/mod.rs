@@ -29,8 +29,7 @@ pub use date::{DateInput, Segment};
 pub use text::TextInput;
 
 use crate::{
-    dir::parse_abs_dir,
-    model::{
+    dir::{default_dir, parse_abs_dir}, model::{
         NodePath,
         container::{Container, ContainerKind},
         node::{Node, NodeBody},
@@ -40,8 +39,7 @@ use crate::{
         },
         task::Task,
         time::{local_to_fixed, now},
-    },
-    naming::{folder_name, normalize_name},
+    }, naming::normalize_name,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -557,7 +555,7 @@ impl Form {
     /// without a parent dir or while the name is empty.
     pub fn auto_dir(&self) -> Option<PathBuf> {
         let name = self.text_value(FieldId::Name)?;
-        Some(self.parent_dir.as_ref()?.join(folder_name(name)?))
+        default_dir(self.parent_dir.as_ref()?, name)
     }
 
     /// The folder the node would get right now: `auto` -> `auto_dir`,

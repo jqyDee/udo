@@ -25,14 +25,15 @@ impl App<'_> {
     /// Where a new node goes: the root if `global`, else the container at
     /// the cursor (or the task's container).
     fn creation_parent(&self) -> NodePath {
-        self.tree
+        self.core
+            .tree()
             .nearest_file_owner(&self.tree_state.cursor)
             .unwrap_or_default()
     }
 
     pub(super) fn open_container_form(&mut self) {
         let parent = self.creation_parent();
-        let parent_node = self.tree.get(&parent);
+        let parent_node = self.core.tree().get(&parent);
         let parent_name = parent_node.map_or("root", |n| n.name());
         let parent_dir = parent_node.and_then(|n| n.dir().map(|d| d.to_path_buf()));
 
@@ -48,21 +49,15 @@ impl App<'_> {
 
     pub(super) fn open_task_form(&mut self) {
         let parent = self.creation_parent();
-        let parent_node = self.tree.get(&parent);
+        let parent_node = self.core.tree().get(&parent);
         let parent_name = parent_node.map_or("root", |n| n.name());
         let parent_dir = parent_node.and_then(|n| n.dir().map(|d| d.to_path_buf()));
 
-        let folder = match self.tree.setting(&parent, |s| s.task_folders) {
-            Some(r) => FolderMode::from(r.value),
-            None => FolderMode::None,
+        let d = self.core.task_defaults(&parent, Local::now().naive_local());
+        let defaults = TaskDefaults {
+            due: d.due,
+            folder: FolderMode::from(d.task_folders),
         };
-
-        let now = Local::now().naive_local();
-        let due = self
-            .tree
-            .setting(&parent, |s| s.default_deadline)
-            .map_or(now, |r| r.value.next_after(now));
-        let defaults = TaskDefaults { due, folder };
 
         self.mode = Mode::Form(Box::new(Form::new_task(parent, parent_name, parent_dir, defaults)));
     }
@@ -72,7 +67,7 @@ impl App<'_> {
         if self.tree_state.on_root() {
             return self.error("the root cannot be edited");
         }
-        match self.tree_state.selected(self.tree) {
+        match self.tree_state.selected(self.core.tree()) {
             Some(node) => {
                 let path = self.tree_state.cursor.clone();
                 self.mode = Mode::Form(Box::new(Form::edit_node(path, node)));
@@ -85,7 +80,7 @@ impl App<'_> {
     /// container). Placeholders show what applies when a field is empty;
     /// the root row also gets the `[root]` settings.
     pub(super) fn open_settings_form(&mut self) {
-        let tree: &Tree = self.tree;
+        let tree: &Tree = self.core.tree();
         let Some(path) = tree.nearest_file_owner(&self.tree_state.cursor) else {
             return self.error("nothing selected");
         };
@@ -150,7 +145,7 @@ impl App<'_> {
                 };
                 let node =
                     Node::task(v.name.clone(), Task::new(dir, due)).with_description(description);
-                self.tree
+                self.core
                     .create(parent, node)
                     .await
                     .map(|path| (path, format!("added task {}", v.name)))
@@ -167,7 +162,7 @@ impl App<'_> {
                 };
                 let node = Node::container(v.name.clone(), Container::new(dir, kind))
                     .with_description(description);
-                self.tree
+                self.core
                     .create(parent, node)
                     .await
                     .map(|path| (path, format!("created {kind} {}", v.name)))
@@ -193,7 +188,7 @@ impl App<'_> {
                     },
                     body,
                 };
-                self.tree
+                self.core
                     .edit(path, patch)
                     .await
                     .map(|()| (path.clone(), format!("saved {}", v.name)))
@@ -208,7 +203,7 @@ impl App<'_> {
                 };
                 // opened from a task: the cursor stays on the task
                 let cursor = self.tree_state.cursor.clone();
-                self.tree
+                self.core
                     .set_settings(path, settings, root)
                     .await
                     .map(|()| (cursor, "saved settings".to_string()))
@@ -217,7 +212,7 @@ impl App<'_> {
 
         match saved {
             Ok((path, msg)) => {
-                self.tree_state.reveal(self.tree, path);
+                self.tree_state.reveal(self.core.tree(), path);
                 self.mode = Mode::Normal;
                 self.info(msg);
             }

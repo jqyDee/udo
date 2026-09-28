@@ -1,15 +1,13 @@
 use clap::Parser;
-use udo::{cli::Cli, dir::root_dir, model::tree::Tree, storage::Storage};
+use udo::{cli::Cli, core::Core, dir::root_dir};
 
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
 
     let result = async {
-        let root_dir = root_dir()?;
-        let mut tree = Tree::load_from(&root_dir).await?;
-        let storage = Storage::open_db(&root_dir)?;
-        cli.execute(&mut tree, &storage).await
+        let mut core = Core::open(&root_dir()?).await?;
+        cli.execute(&mut core).await
     }
     .await;
 

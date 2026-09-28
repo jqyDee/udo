@@ -5,7 +5,7 @@ use std::{
 
 use directories::BaseDirs;
 
-use crate::{ROOT_ENV, Res};
+use crate::{ROOT_ENV, Res, naming::folder_name};
 
 /// A dir typed in the TUI: `/…` as is, `~` / `~/…` below the home dir.
 /// Anything else (relative, `~user`, empty) is an error meant for a toast.
@@ -52,6 +52,12 @@ pub fn root_dir_from(env: Option<OsString>) -> Res<PathBuf> {
     }
     let base_dirs = BaseDirs::new().ok_or("Could not acquire Base dirs")?;
     Ok(base_dirs.home_dir().join(".config").join("udo"))
+}
+
+/// Where a new node's folder goes by default: `<parent_dir>/<folder name>`.
+/// None if nothing usable is left of the name.
+pub fn default_dir(parent_dir: &Path, name: &str) -> Option<PathBuf> {
+    Some(parent_dir.join(folder_name(name)?))
 }
 
 #[cfg(test)]
@@ -102,5 +108,17 @@ mod tests {
             let dir = root_dir_from(env).unwrap();
             assert!(dir.ends_with(".config/udo"));
         }
+    }
+
+    #[test]
+    fn default_dir_is_the_folder_name_below_the_parent() {
+        let dir = default_dir(Path::new("/uni"), "lab  3");
+
+        assert_eq!(dir, Some(PathBuf::from("/uni/lab_3")));
+    }
+
+    #[test]
+    fn default_dir_of_a_blank_name_is_none() {
+        assert_eq!(default_dir(Path::new("/uni"), "   "), None);
     }
 }

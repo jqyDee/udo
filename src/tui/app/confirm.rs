@@ -48,12 +48,12 @@ impl App<'_> {
         if self.tree_state.on_root() {
             return self.error("the root cannot be removed");
         }
-        let Some(node) = self.tree_state.selected(self.tree) else {
+        let Some(node) = self.tree_state.selected(self.core.tree()) else {
             return self.error("nothing selected");
         };
         let name = node.name().to_string();
         let path = self.tree_state.cursor.clone();
-        let purge = match self.tree.purge_plan(&path) {
+        let purge = match self.core.purge_plan(&path) {
             Ok(Some(plan)) => PurgeOption::Ready(Box::new(plan)),
             Ok(None) => PurgeOption::NoFolder,
             Err(e) => PurgeOption::Refused(e.to_string()),
@@ -91,9 +91,10 @@ impl App<'_> {
                 let Some(confirm) = self.close_confirm() else {
                     return;
                 };
-                match self.tree.delete(&confirm.path).await {
+                match self.core.delete(&confirm.path).await {
                     Ok(()) => {
-                        self.tree_state.after_remove(self.tree, &confirm.path);
+                        self.tree_state
+                            .after_remove(self.core.tree(), &confirm.path);
                         self.info(format!("removed {} (files kept)", confirm.name));
                     }
                     Err(e) => self.error(e.to_string()),
@@ -155,11 +156,11 @@ impl App<'_> {
 
     /// Execute `plan` and report the result as a toast.
     async fn run_purge(&mut self, plan: &PurgePlan) {
-        let report = match self.tree.purge(plan, self.trash).await {
+        let report = match self.core.purge(plan, self.trash).await {
             Ok(report) => report,
             Err(e) => return self.error(e.to_string()),
         };
-        self.tree_state.after_remove(self.tree, &plan.path);
+        self.tree_state.after_remove(self.core.tree(), &plan.path);
         match report.failed.split_first() {
             None => {
                 let n = report.trashed.len();

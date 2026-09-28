@@ -11,12 +11,12 @@ pub const DATE_FMT: &str = "%Y-%m-%d %H:%M";
 pub type Res<T> = Result<T, Box<dyn std::error::Error>>;
 
 pub mod cli;
+pub mod core;
 pub mod dir;
 pub mod model;
 pub mod naming;
 pub mod persist;
 pub mod storage;
-pub mod tracking;
 pub mod tui;
 
 #[cfg(test)]

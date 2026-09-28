@@ -57,8 +57,8 @@ fn empty_tree() -> Tree {
 
 #[test]
 fn renders_rows_details_and_hint() {
-    let mut t = tree_with(vec![container("uni", vec![task("exam")])]);
-    let screen = render(&mut test_app(&mut t, state_at(&[0, 0])));
+    let t = tree_with(vec![container("uni", vec![task("exam")])]);
+    let screen = render(&mut test_app(t, state_at(&[0, 0])));
     assert!(screen.contains("▾ uni/"));
     assert!(screen.contains("○ exam"));
     assert!(screen.contains("to do")); // details pane of the selected task
@@ -77,8 +77,8 @@ fn tabs_tree() -> Tree {
 
 #[test]
 fn details_title_names_both_tabs() {
-    let mut t = tabs_tree();
-    let screen = render(&mut test_app(&mut t, state_at(&[0, 0, 0])));
+    let t = tabs_tree();
+    let screen = render(&mut test_app(t, state_at(&[0, 0, 0])));
     for tab in DetailsTab::ALL {
         assert!(screen.contains(tab.title()), "{} missing", tab.title());
     }
@@ -86,16 +86,16 @@ fn details_title_names_both_tabs() {
 
 #[test]
 fn info_tab_is_the_default() {
-    let mut t = tabs_tree();
-    let screen = render(&mut test_app(&mut t, state_at(&[0, 0, 0])));
+    let t = tabs_tree();
+    let screen = render(&mut test_app(t, state_at(&[0, 0, 0])));
     assert!(screen.contains("to do")); // task status: info tab
     assert!(!screen.contains("fri 22:00")); // no settings
 }
 
 #[test]
 fn settings_tab_shows_values_and_sources() {
-    let mut t = tabs_tree();
-    let mut app = test_app(&mut t, state_at(&[0, 0, 0]));
+    let t = tabs_tree();
+    let mut app = test_app(t, state_at(&[0, 0, 0]));
     app.details_tab = DetailsTab::Settings;
 
     let rows = render_rows(&mut app);
@@ -122,8 +122,8 @@ fn settings_form_on(app: &mut App, key: &str) {
 
 #[test]
 fn settings_form_shows_the_format_of_the_active_field() {
-    let mut t = tabs_tree();
-    let mut app = test_app(&mut t, state_at(&[0]));
+    let t = tabs_tree();
+    let mut app = test_app(t, state_at(&[0]));
 
     settings_form_on(&mut app, "default_deadline");
     let rows = render_rows(&mut app);
@@ -137,8 +137,8 @@ fn settings_form_shows_the_format_of_the_active_field() {
 #[test]
 fn both_tabs_start_with_the_name() {
     for tab in DetailsTab::ALL {
-        let mut t = tabs_tree();
-        let mut app = test_app(&mut t, state_at(&[0, 0])); // "cs"
+        let t = tabs_tree();
+        let mut app = test_app(t, state_at(&[0, 0])); // "cs"
         app.details_tab = tab;
 
         let rows = render_rows(&mut app);
@@ -161,19 +161,19 @@ fn both_tabs_start_with_the_name() {
 
 #[test]
 fn renders_hint_on_empty_tree() {
-    let mut t = empty_tree();
-    assert!(render(&mut test_app(&mut t, TreeState::default())).contains("Nothing here yet"));
+    let t = empty_tree();
+    assert!(render(&mut test_app(t, TreeState::default())).contains("Nothing here yet"));
 }
 
 // ---------- tree pane ----------
 
 #[test]
 fn folded_container_shows_closed_marker_and_hides_children() {
-    let mut t = tree_with(vec![container("uni", vec![task("exam")])]);
+    let t = tree_with(vec![container("uni", vec![task("exam")])]);
     let mut state = state_at(&[0]);
     state.collapse(&t);
 
-    let screen = render(&mut test_app(&mut t, state));
+    let screen = render(&mut test_app(t, state));
 
     assert!(screen.contains("▸ uni/"));
     assert!(!screen.contains("exam"));
@@ -181,8 +181,8 @@ fn folded_container_shows_closed_marker_and_hides_children() {
 
 #[test]
 fn list_selection_follows_the_cursor_row() {
-    let mut t = tree_with(vec![task("a"), container("uni", vec![task("exam")])]);
-    let mut app = test_app(&mut t, state_at(&[1, 0]));
+    let t = tree_with(vec![task("a"), container("uni", vec![task("exam")])]);
+    let mut app = test_app(t, state_at(&[1, 0]));
 
     render(&mut app);
 
@@ -191,8 +191,8 @@ fn list_selection_follows_the_cursor_row() {
 
 #[test]
 fn root_row_comes_first_with_its_dir() {
-    let mut t = tree_with(vec![container("uni", vec![task("exam")])]);
-    let rows = render_rows(&mut test_app(&mut t, state_at(&[0])));
+    let t = tree_with(vec![container("uni", vec![task("exam")])]);
+    let rows = render_rows(&mut test_app(t, state_at(&[0])));
 
     let (root_row, _) = find(&rows, "root").expect("no root row");
     let (uni_row, _) = find(&rows, "uni/").expect("no uni row");
@@ -203,8 +203,8 @@ fn root_row_comes_first_with_its_dir() {
 
 #[test]
 fn root_row_on_an_empty_tree_is_selected_with_a_hint() {
-    let mut t = empty_tree();
-    let mut app = test_app(&mut t, TreeState::default());
+    let t = empty_tree();
+    let mut app = test_app(t, TreeState::default());
 
     let screen = render(&mut app);
 
@@ -216,8 +216,8 @@ fn root_row_on_an_empty_tree_is_selected_with_a_hint() {
 
 #[test]
 fn error_toast_top_right_and_hint_stays() {
-    let mut t = empty_tree();
-    let mut app = test_app(&mut t, TreeState::default());
+    let t = empty_tree();
+    let mut app = test_app(t, TreeState::default());
     app.toast = Some(Toast::error("boom"));
 
     let rows = render_rows(&mut app);
@@ -231,8 +231,8 @@ fn error_toast_top_right_and_hint_stays() {
 
 #[test]
 fn info_toast_top_right() {
-    let mut t = empty_tree();
-    let mut app = test_app(&mut t, TreeState::default());
+    let t = empty_tree();
+    let mut app = test_app(t, TreeState::default());
     app.toast = Some(Toast::info("saved"));
 
     let rows = render_rows(&mut app);
@@ -247,8 +247,8 @@ fn long_toast_wraps_instead_of_cutting_off() {
         "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india",
         "juliett", "kilo", "lima",
     ];
-    let mut t = empty_tree();
-    let mut app = test_app(&mut t, TreeState::default());
+    let t = empty_tree();
+    let mut app = test_app(t, TreeState::default());
     app.toast = Some(Toast::error(words.join(" ")));
 
     let rows = render_rows(&mut app);
@@ -260,8 +260,8 @@ fn long_toast_wraps_instead_of_cutting_off() {
 
 #[test]
 fn help_overlay_lists_every_binding() {
-    let mut t = empty_tree();
-    let mut app = test_app(&mut t, TreeState::default());
+    let t = empty_tree();
+    let mut app = test_app(t, TreeState::default());
     app.mode = Mode::Help;
 
     let screen = render(&mut app);
@@ -273,8 +273,8 @@ fn help_overlay_lists_every_binding() {
 
 #[test]
 fn help_overlay_shows_section_headings_in_order() {
-    let mut t = empty_tree();
-    let mut app = test_app(&mut t, TreeState::default());
+    let t = empty_tree();
+    let mut app = test_app(t, TreeState::default());
     app.mode = Mode::Help;
 
     let rows = render_rows(&mut app);
@@ -307,14 +307,14 @@ fn help_overlay_shows_section_headings_in_order() {
 
 #[test]
 fn help_overlay_hidden_in_normal_mode() {
-    let mut t = empty_tree();
-    assert!(!render(&mut test_app(&mut t, TreeState::default())).contains("toggle this help"));
+    let t = empty_tree();
+    assert!(!render(&mut test_app(t, TreeState::default())).contains("toggle this help"));
 }
 
 #[test]
 fn confirm_popup_names_node_and_keys() {
-    let mut t = tree_with(vec![task("sheet-3")]);
-    let mut app = test_app(&mut t, TreeState::default());
+    let t = tree_with(vec![task("sheet-3")]);
+    let mut app = test_app(t, TreeState::default());
     app.mode = Mode::Confirm(Confirm {
         path: vec![0],
         name: "sheet-3".into(),
@@ -334,8 +334,8 @@ fn confirm_popup_names_node_and_keys() {
 #[test]
 fn confirm_popup_keeps_long_names_visible() {
     let name = "a-really-long-task-name-that-would-not-fit-into-half-the-screen-width";
-    let mut t = tree_with(vec![task(name)]);
-    let mut app = test_app(&mut t, TreeState::default());
+    let t = tree_with(vec![task(name)]);
+    let mut app = test_app(t, TreeState::default());
     app.mode = Mode::Confirm(Confirm {
         path: vec![0],
         name: name.into(),
@@ -365,8 +365,8 @@ fn purge_plan(dir: &str, outside: Vec<PathBuf>) -> Box<PurgePlan> {
 
 /// Screen with the prompt for `purge` open in `stage`.
 fn render_confirm(purge: PurgeOption, stage: ConfirmStage) -> String {
-    let mut t = tree_with(vec![task("lab 3")]);
-    let mut app = test_app(&mut t, TreeState::default());
+    let t = tree_with(vec![task("lab 3")]);
+    let mut app = test_app(t, TreeState::default());
     app.mode = Mode::Confirm(Confirm {
         path: vec![0],
         name: "lab 3".into(),
@@ -439,8 +439,8 @@ fn purge_popup_wraps_long_paths() {
 
 #[test]
 fn help_overlay_uses_blank_lines_when_tall_enough() {
-    let mut t = empty_tree();
-    let mut app = test_app(&mut t, TreeState::default());
+    let t = empty_tree();
+    let mut app = test_app(t, TreeState::default());
     app.mode = Mode::Help;
 
     let rows = render_rows_sized(&mut app, 80, 40);
@@ -456,8 +456,8 @@ fn help_overlay_uses_blank_lines_when_tall_enough() {
 
 #[test]
 fn help_overlay_switches_to_two_columns_when_short() {
-    let mut t = empty_tree();
-    let mut app = test_app(&mut t, TreeState::default());
+    let t = empty_tree();
+    let mut app = test_app(t, TreeState::default());
     app.mode = Mode::Help;
 
     let rows = render_rows_sized(&mut app, 80, 20);

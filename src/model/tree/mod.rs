@@ -6,7 +6,6 @@ mod load;
 mod purge;
 mod rows;
 
-pub use folders::DirOwner;
 pub use purge::{PurgePlan, PurgeReport, TrashFn, system_trash};
 pub use rows::Row;
 

@@ -23,8 +23,7 @@ use ratatui::DefaultTerminal;
 
 use crate::{
     Res,
-    model::tree::Tree,
-    storage::Storage,
+    core::Core,
     tui::{
         app::{App, Flow},
         tree_state::TreeState,
@@ -33,14 +32,14 @@ use crate::{
 
 /// Run the TUI until the user quits, then save the view (folded containers,
 /// selected node).
-pub async fn run(tree: &mut Tree, storage: &Storage) -> Res<()> {
-    let tree_state = TreeState::load(tree).await;
-    let mut app = App::new(tree, tree_state, storage);
+pub async fn run(core: &mut Core) -> Res<()> {
+    let tree_state = TreeState::load(core.tree()).await;
+    let mut app = App::new(core, tree_state);
     let mut terminal = ratatui::init();
     let result = event_loop(&mut terminal, &mut app).await;
     ratatui::restore(); // always, even if the loop failed
     result?;
-    app.tree_state.save(app.tree).await
+    app.tree_state.save(app.core.tree()).await
 }
 
 /// Draw, wait, react, repeat. Only terminal errors end the loop.

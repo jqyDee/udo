@@ -1,11 +1,14 @@
-//! Shared builders for unit tests. In-memory only: nothing here is saved, so
-//! the dirs are never written unless a test calls `save`.
+//! Shared builders for unit tests. In memory unless the name says otherwise
+//! (`disk_tree`): nothing is saved, so the dirs are never written unless a
+//! test calls `save`.
 
 use std::path::{Path, PathBuf};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use tempfile::TempDir;
 
 use crate::{
+    core::Core,
     model::{
         container::{Container, ContainerKind},
         node::Node,
@@ -53,7 +56,30 @@ pub fn press(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
 }
 
-/// An `App` for tests, with in-memory storage.
-pub fn test_app(tree: &mut Tree, state: TreeState) -> App<'_> {
-    App::new(tree, state, Box::leak(Box::new(Storage::in_memory())))
+/// An `App` for tests on `tree`, with in-memory storage. Read the tree back
+/// through `app.core.tree()`. Leaked: the `Core` must outlive the `App`
+/// without a `let` in every test, and the test process ends right after.
+pub fn test_app(tree: Tree, state: TreeState) -> App<'static> {
+    let core = Box::leak(Box::new(Core::new(tree, Storage::in_memory())));
+    App::new(core, state)
+}
+
+/// root (tmp) -> [task "a", ws (tmp/ws) -> [task "b"]], both files saved:
+/// for tests whose operations write `.udo.toml`. Keep the `TempDir` alive.
+pub async fn disk_tree() -> (TempDir, Tree) {
+    let tmp = tempfile::tempdir().unwrap();
+    let ws_dir = tmp.path().join("ws");
+    std::fs::create_dir(&ws_dir).unwrap();
+    let tree = Tree::new(container_at(
+        "root",
+        tmp.path(),
+        ContainerKind::Root,
+        vec![
+            task("a"),
+            container_at("ws", &ws_dir, ContainerKind::Workspace, vec![task("b")]),
+        ],
+    ));
+    tree.save(&[]).await.unwrap();
+    tree.save(&[1]).await.unwrap();
+    (tmp, tree)
 }
