@@ -4,6 +4,7 @@ use crate::{
     Res,
     core::Core,
     model::{
+        id::NodeId,
         sessions::{Session, SessionSource, SessionStore, TaskRef},
         task::TaskStatus,
         time::Time,
@@ -15,12 +16,12 @@ impl Core {
     /// first) and mark it in progress. The session comes first: a failed
     /// status write never loses recorded time. Callers pass `time::now()`.
     pub async fn start(&mut self, path: &[usize], at: Time) -> Res<Session> {
-        let (_, parent_path) = path.split_last().ok_or("not a task")?; // the root row has no parent
-        let task = TaskRef::of(
-            self.tree.get(path).ok_or("no such node")?,
-            self.tree.get(parent_path).ok_or("no such node")?,
-        )
-        .ok_or("not a task")?;
+        // the root row has no parent
+        let (_, parent_path) = path.split_last().ok_or("the root is not a task")?;
+        let node = self.tree.get(path).ok_or("no such node")?;
+        let parent = self.tree.get(parent_path).ok_or("no such node")?;
+        let task =
+            TaskRef::of(node, parent).ok_or_else(|| format!("{:?} is not a task", node.name()))?;
 
         let session = self
             .storage
@@ -36,6 +37,15 @@ impl Core {
     /// Stop the running session at `at`, if any. Callers pass `time::now()`.
     pub async fn stop(&self, at: Time) -> Res<Option<Session>> {
         Ok(self.storage.sessions.stop(at).await?)
+    }
+
+    /// Stop the running session at `at` if it times one of `tasks` (a task
+    /// that is finished or removed); another task's timer keeps running.
+    pub(super) async fn stop_if_on(&self, tasks: &[NodeId], at: Time) -> Res<Option<Session>> {
+        match self.storage.sessions.running().await? {
+            Some(running) if tasks.contains(&running.task.id) => self.stop(at).await,
+            _ => Ok(None),
+        }
     }
 }
 

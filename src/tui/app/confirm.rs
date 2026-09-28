@@ -5,11 +5,11 @@
 use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::{
-    model::{NodePath, tree::PurgePlan},
+    model::{NodePath, time, tree::PurgePlan},
     tui::form::TextInput,
 };
 
-use super::{App, Flow, Mode};
+use super::{App, Flow, Mode, timer_note};
 
 /// What a pending "remove?" prompt is about. Stored when `d` is pressed, so
 /// the answer always applies to the node that was selected at that moment.
@@ -91,11 +91,15 @@ impl App<'_> {
                 let Some(confirm) = self.close_confirm() else {
                     return;
                 };
-                match self.core.delete(&confirm.path).await {
-                    Ok(()) => {
+                match self.core.delete(&confirm.path, time::now()).await {
+                    Ok(stopped) => {
                         self.tree_state
                             .after_remove(self.core.tree(), &confirm.path);
-                        self.info(format!("removed {} (files kept)", confirm.name));
+                        self.info(format!(
+                            "removed {} (files kept){}",
+                            confirm.name,
+                            timer_note(stopped.is_some())
+                        ));
                     }
                     Err(e) => self.error(e.to_string()),
                 }
@@ -156,8 +160,8 @@ impl App<'_> {
 
     /// Execute `plan` and report the result as a toast.
     async fn run_purge(&mut self, plan: &PurgePlan) {
-        let report = match self.core.purge(plan, self.trash).await {
-            Ok(report) => report,
+        let (report, stopped) = match self.core.purge(plan, self.trash, time::now()).await {
+            Ok(done) => done,
             Err(e) => return self.error(e.to_string()),
         };
         self.tree_state.after_remove(self.core.tree(), &plan.path);
@@ -165,7 +169,8 @@ impl App<'_> {
             None => {
                 let n = report.trashed.len();
                 let folders = if n == 1 { "folder" } else { "folders" };
-                self.info(format!("deleted {} · {n} {folders} moved to Trash", plan.name));
+                let note = timer_note(stopped.is_some());
+                self.info(format!("deleted {} · {n} {folders} moved to Trash{note}", plan.name));
             }
             Some(((dir, reason), rest)) => {
                 let mut msg = format!(

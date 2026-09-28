@@ -3,10 +3,14 @@
 //! the function that runs it; this file only dispatches and prints.
 
 mod add;
+mod edit;
 mod ls;
+mod mark;
 mod parse;
 mod report;
 mod resolve;
+mod rm;
+mod show;
 mod timer;
 
 use std::path::Path;
@@ -17,7 +21,7 @@ use clap::{Parser, Subcommand};
 use crate::{
     Res,
     core::Core,
-    model::{container::ContainerKind, time},
+    model::{container::ContainerKind, time, tree::system_trash},
     tui,
 };
 use add::AddCommand;
@@ -44,9 +48,19 @@ pub struct Cli {
 enum Command {
     /// List the tree from NODE down
     Ls(ls::LsArgs),
+    /// Show one node: its fields and the time tracked on it
+    Show(show::ShowArgs),
     /// Add a task, project or workspace
     #[command(subcommand)]
     Add(AddCommand),
+    /// Change a node's name, description, due date or kind
+    Edit(edit::EditArgs),
+    /// Remove a node (its files stay, unless --with-folder)
+    Rm(rm::RmArgs),
+    /// Mark a task done (stops its timer)
+    Done(mark::DoneArgs),
+    /// Give a task a status: todo, in-progress, stale, done
+    Mark(mark::MarkArgs),
     /// Start timing a task (a running one is stopped first)
     Start(timer::StartArgs),
     /// Stop the running timer
@@ -65,6 +79,18 @@ impl Cli {
         let json = self.json;
         match command {
             Command::Ls(a) => emit(&ls::run(core, cwd, a)?, json),
+            Command::Show(a) => emit(&show::run(core, cwd, time::now(), a).await?, json),
+            Command::Edit(a) => {
+                let now = Local::now().naive_local();
+                emit(&edit::run(core, cwd, now, a).await?, json)
+            }
+            Command::Rm(a) => {
+                let mut ask = rm::ask_on_terminal;
+                let removed = rm::run(core, cwd, time::now(), a, system_trash, &mut ask).await?;
+                emit(&removed, json)
+            }
+            Command::Done(a) => emit(&mark::done(core, cwd, time::now(), a).await?, json),
+            Command::Mark(a) => emit(&mark::mark(core, cwd, time::now(), a).await?, json),
             Command::Add(AddCommand::Task(a)) => {
                 let now = Local::now().naive_local();
                 emit(&add::task(core, cwd, now, a).await?, json)

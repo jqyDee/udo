@@ -38,7 +38,8 @@ pub struct SessionLine {
 }
 
 impl SessionLine {
-    fn of(session: &Session, now: Time) -> Self {
+    /// `session` timed up to `now` (a stopped one up to its end).
+    pub(super) fn of(session: &Session, now: Time) -> Self {
         Self {
             task: session.task.name.clone(),
             started: session.start,
@@ -48,7 +49,7 @@ impl SessionLine {
     }
 
     /// `lab 3 (1h12)`
-    fn text(&self) -> String {
+    pub(super) fn text(&self) -> String {
         format!("{} ({})", self.task, Minutes::new(self.minutes))
     }
 }
@@ -102,7 +103,7 @@ impl fmt::Display for Stopped {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.0 {
             Some(line) => write!(f, "stopped: {}", line.text()),
-            None => write!(f, "nothing running"),
+            None => write!(f, "no session running"),
         }
     }
 }
@@ -113,7 +114,7 @@ impl fmt::Display for Status {
             (Some(line), true) => write!(f, "{} {}", line.task, Minutes::new(line.minutes)),
             (Some(line), false) => write!(f, "running: {}", line.text()),
             (None, true) => Ok(()),
-            (None, false) => write!(f, "nothing running"),
+            (None, false) => write!(f, "no session running"),
         }
     }
 }
@@ -200,8 +201,8 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(stopped.to_string(), "nothing running");
-        assert_eq!(long.to_string(), "nothing running");
+        assert_eq!(stopped.to_string(), "no session running");
+        assert_eq!(long.to_string(), "no session running");
         assert_eq!(short.to_string(), ""); // `emit` prints nothing
     }
 

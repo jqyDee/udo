@@ -23,6 +23,7 @@ use crate::{
     core::Core,
     model::{
         task::TaskStatus,
+        time,
         tree::{TrashFn, system_trash},
     },
     tui::{
@@ -133,10 +134,10 @@ impl<'a> App<'a> {
 
     async fn set_status(&mut self, status: TaskStatus) {
         let path = self.tree_state.cursor.clone();
-        match self.core.set_status(&path, status).await {
-            Ok(()) => {
+        match self.core.set_status(&path, status, time::now()).await {
+            Ok(stopped) => {
                 let name = self.core.tree().get(&path).map_or("", |n| n.name());
-                self.info(format!("{name} -> {status}"));
+                self.info(format!("{name} -> {status}{}", timer_note(stopped.is_some())));
             }
             Err(e) => self.error(e.to_string()),
         }
@@ -163,4 +164,9 @@ impl<'a> App<'a> {
             self.toast = None;
         }
     }
+}
+
+/// Toast suffix when an action also stopped the timer (done, delete).
+fn timer_note(stopped: bool) -> &'static str {
+    if stopped { ", timer stopped" } else { "" }
 }

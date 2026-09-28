@@ -10,8 +10,11 @@ use crate::{
     dir::default_dir,
     model::{
         NodePath,
+        id::NodeId,
         node::{Node, NodePatch},
+        sessions::Session,
         settings::TaskFolderSetting,
+        time::Time,
         tree::{PurgePlan, PurgeReport, TrashFn},
     },
 };
@@ -39,9 +42,14 @@ impl Core {
         self.tree.edit(path, patch).await
     }
 
-    /// Unregister the node at `path`; its files stay on disk.
-    pub async fn delete(&mut self, path: &[usize]) -> Res<()> {
-        self.tree.delete(path).await
+    /// Unregister the node at `path`; its files stay on disk. A timer on it
+    /// or on a task below it is stopped first (at `at`) and returned; the
+    /// session keeps its task's data. Callers pass `time::now()`.
+    pub async fn delete(&mut self, path: &[usize], at: Time) -> Res<Option<Session>> {
+        let tasks = self.removable_tasks(path)?;
+        let stopped = self.stop_if_on(&tasks, at).await?;
+        self.tree.delete(path).await?;
+        Ok(stopped)
     }
 
     /// What a full delete of `path` would move to the Trash (None: no
@@ -50,9 +58,38 @@ impl Core {
         self.tree.purge_plan(path)
     }
 
-    /// Execute `plan`: unregister the node, then trash its folders.
-    pub async fn purge(&mut self, plan: &PurgePlan, trash: TrashFn) -> Res<PurgeReport> {
-        self.tree.purge(plan, trash).await
+    /// Execute `plan`: unregister the node, then trash its folders. Stops a
+    /// timer on it first, like `delete`.
+    pub async fn purge(
+        &mut self,
+        plan: &PurgePlan,
+        trash: TrashFn,
+        at: Time,
+    ) -> Res<(PurgeReport, Option<Session>)> {
+        let tasks = self.removable_tasks(&plan.path)?;
+        let stopped = self.stop_if_on(&tasks, at).await?;
+        let report = self.tree.purge(plan, trash).await?;
+        Ok((report, stopped))
+    }
+
+    /// The ids of the task at `path` or of every task below the container
+    /// there. Err for the root or a missing path, so nothing is stopped for
+    /// a remove that cannot happen.
+    fn removable_tasks(&self, path: &[usize]) -> Res<Vec<NodeId>> {
+        if path.is_empty() {
+            return Err("the root cannot be removed".into());
+        }
+        let node = self.tree.get(path).ok_or("no node at the path")?;
+        if node.as_task().is_some() {
+            return Ok(vec![node.id()]);
+        }
+        Ok(self
+            .tree
+            .rows()
+            .into_iter()
+            .filter(|r| r.path.starts_with(path) && r.node.as_task().is_some())
+            .map(|r| r.node.id())
+            .collect())
     }
 
     /// Defaults for a new task in `parent`, from its inherited settings.
@@ -84,9 +121,9 @@ mod tests {
     use crate::{
         model::{
             container::{Container, ContainerKind},
+            sessions::SessionStore,
             settings::ContainerSettings,
             task::Task,
-            time::Time,
         },
         storage::Storage,
         test_util::disk_tree,
@@ -142,9 +179,73 @@ mod tests {
     async fn delete_unregisters_the_node() {
         let (_tmp, mut core) = core().await;
 
-        core.delete(&[0]).await.unwrap();
+        core.delete(&[0], due()).await.unwrap();
 
         assert_eq!(core.tree().get(&[0]).unwrap().name(), "ws"); // "a" is gone
+    }
+
+    /// 2026-10-15 at `h:m`, offset +02:00.
+    fn at(h: u32, m: u32) -> Time {
+        FixedOffset::east_opt(2 * 3600)
+            .unwrap()
+            .with_ymd_and_hms(2026, 10, 15, h, m, 0)
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn deleting_the_timed_task_stops_the_timer() {
+        let (_tmp, mut core) = core().await;
+        core.start(&[0], at(14, 0)).await.unwrap();
+
+        let stopped = core.delete(&[0], at(14, 45)).await.unwrap();
+
+        assert_eq!(stopped.unwrap().end, Some(at(14, 45)));
+        assert_eq!(core.sessions().running().await.unwrap(), None);
+    }
+
+    /// "b" runs inside "ws": removing "ws" stops it.
+    #[tokio::test]
+    async fn deleting_a_container_stops_a_timer_below_it() {
+        let (_tmp, mut core) = core().await;
+        core.start(&[1, 0], at(14, 0)).await.unwrap();
+
+        let stopped = core.delete(&[1], at(14, 45)).await.unwrap();
+
+        assert_eq!(stopped.unwrap().task.name, "b");
+    }
+
+    #[tokio::test]
+    async fn deleting_another_node_keeps_the_timer() {
+        let (_tmp, mut core) = core().await;
+        core.start(&[1, 0], at(14, 0)).await.unwrap();
+
+        let stopped = core.delete(&[0], at(14, 45)).await.unwrap();
+
+        assert_eq!(stopped, None);
+        assert!(core.sessions().running().await.unwrap().is_some());
+    }
+
+    /// A remove that cannot happen stops nothing.
+    #[tokio::test]
+    async fn a_refused_delete_keeps_the_timer() {
+        let (_tmp, mut core) = core().await;
+        core.start(&[0], at(14, 0)).await.unwrap();
+
+        assert!(core.delete(&[], at(14, 45)).await.is_err()); // the root
+        assert!(core.delete(&[7], at(14, 45)).await.is_err()); // missing
+
+        assert!(core.sessions().running().await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn purging_stops_a_timer_below_the_node() {
+        let (_tmp, mut core) = core().await;
+        core.start(&[1, 0], at(14, 0)).await.unwrap();
+        let plan = core.purge_plan(&[1]).unwrap().unwrap();
+
+        let (_report, stopped) = core.purge(&plan, |_| Ok(()), at(14, 45)).await.unwrap();
+
+        assert_eq!(stopped.unwrap().task.name, "b");
     }
 
     #[tokio::test]

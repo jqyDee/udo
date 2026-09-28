@@ -2,7 +2,46 @@
 
 use chrono::NaiveDateTime;
 
-use crate::{DATE_FMT, model::time::DeadlineRule};
+use crate::{
+    DATE_FMT,
+    model::{container::ContainerKind, task::TaskStatus, time::DeadlineRule},
+};
+
+/// `udo mark STATUS`: the statuses as they are typed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum StatusArg {
+    Todo,
+    InProgress,
+    Stale,
+    Done,
+}
+
+impl From<StatusArg> for TaskStatus {
+    fn from(arg: StatusArg) -> Self {
+        match arg {
+            StatusArg::Todo => Self::Pending,
+            StatusArg::InProgress => Self::InProgress,
+            StatusArg::Stale => Self::Stale,
+            StatusArg::Done => Self::Finished,
+        }
+    }
+}
+
+/// `udo edit --kind`: the kinds a container can be changed to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum KindArg {
+    Workspace,
+    Project,
+}
+
+impl From<KindArg> for ContainerKind {
+    fn from(arg: KindArg) -> Self {
+        match arg {
+            KindArg::Workspace => Self::Workspace,
+            KindArg::Project => Self::Project,
+        }
+    }
+}
 
 /// `--due`: a rule relative to now, or a fixed local date.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
