@@ -102,7 +102,7 @@ mod tests {
         let conn = open(&path).unwrap();
         conn.execute(
             "INSERT INTO sessions VALUES
-             ('s1', 't1', 'lab 3', '', 'uni', 0, 120, NULL, NULL, 'manual', 0, 120, NULL, NULL)",
+             ('s1', 't1', 'lab 3', '', 'c1', '/uni', 0, 120, NULL, NULL, 'manual', 0, 120, NULL, NULL)",
             (),
         )
         .unwrap();
@@ -173,7 +173,7 @@ mod tests {
         let running = |id: &str| {
             conn.execute(
                 "INSERT INTO sessions VALUES
-                 (?1, 't1', 'lab 3', '', 'uni', 0, 120, NULL, NULL, 'manual', 0, 120, NULL, NULL)",
+                 (?1, 't1', 'lab 3', '', 'c1', '/uni', 0, 120, NULL, NULL, 'manual', 0, 120, NULL, NULL)",
                 [id],
             )
         };

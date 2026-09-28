@@ -6,6 +6,8 @@
 //!
 //! A new backend: add a third `Side` and compare it the same way.
 
+use std::path::PathBuf;
+
 use chrono::{FixedOffset, TimeDelta, TimeZone};
 use proptest::prelude::*;
 
@@ -293,7 +295,8 @@ proptest! {
                     id: NodeId::new(),
                     name: format!("task {i}"),
                     description: String::new(),
-                    container_path: "uni".into(),
+                    container_dir: PathBuf::from("uni"),
+                    container_id: NodeId::new(),
                 })
                 .collect();
             let mut memory = Side::new(MemorySessions::new(now));

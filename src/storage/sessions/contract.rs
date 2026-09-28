@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use chrono::{FixedOffset, TimeDelta, TimeZone};
 
 use crate::model::{
@@ -31,7 +33,8 @@ fn task(name: &str) -> TaskRef {
         id: NodeId::new(),
         name: name.into(),
         description: String::new(),
-        container_path: "uni/cs".into(),
+        container_dir: PathBuf::from("uni/cs"),
+        container_id: NodeId::new(),
     }
 }
 
@@ -49,6 +52,8 @@ macro_rules! store_contract {
             check_start_stops_previous,
             check_start_same_task_is_noop,
             check_start_refuses_overlap,
+            check_start_at_the_running_start_replaces_it,
+            check_start_before_the_running_start_is_overlap,
             check_stop_without_running_is_none,
             check_stop_at_start_is_refused,
             check_stop_before_start_errors_and_soft_deletes,
@@ -160,6 +165,49 @@ pub(super) async fn check_start_refuses_overlap(s: impl SessionStore) {
         .await
         .unwrap();
     assert_eq!(s.running().await.unwrap(), Some(next));
+}
+
+/// Switching tasks at the running session's own start (two starts at the
+/// same moment): the running one would be 0 minutes, so it is dropped
+/// (soft-deleted, not edited) and the new one still starts.
+pub(super) async fn check_start_at_the_running_start_replaces_it(s: impl SessionStore) {
+    let dropped = s
+        .start(task("lab 3"), SessionSource::Manual, at(14, 0))
+        .await
+        .unwrap();
+
+    let next = s
+        .start(task("reading"), SessionSource::Manual, at(14, 0))
+        .await
+        .unwrap();
+
+    assert_eq!(s.running().await.unwrap(), Some(next.clone()));
+    assert_eq!(visible(&s).await, vec![next]);
+    let all = SessionQuery {
+        include_deleted: true,
+        ..Default::default()
+    };
+    let kept = s.query(&all).await.unwrap();
+    let dropped = kept.iter().find(|x| x.id == dropped.id).unwrap();
+    assert_eq!(dropped.deleted_at, Some(now()));
+    assert_eq!(dropped.edited_at, None);
+}
+
+/// A start before the running session's start runs into it: `Overlap`,
+/// and the running one keeps running (a clock that went back loses nothing).
+pub(super) async fn check_start_before_the_running_start_is_overlap(s: impl SessionStore) {
+    let running = s
+        .start(task("lab 3"), SessionSource::Manual, at(14, 0))
+        .await
+        .unwrap();
+
+    let before = s
+        .start(task("reading"), SessionSource::Manual, at(13, 0))
+        .await;
+
+    assert_eq!(before, Err(SessionError::Overlap));
+    assert_eq!(s.running().await.unwrap(), Some(running.clone()));
+    assert_eq!(visible(&s).await, vec![running]);
 }
 
 /// `stop` without a running session is `Ok(None)`.

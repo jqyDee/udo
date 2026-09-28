@@ -3,7 +3,8 @@ CREATE TABLE sessions (
     task_id          TEXT NOT NULL,      -- NodeId, no foreign key (tree in files)
     task_name        TEXT NOT NULL,
     task_description TEXT NOT NULL,
-    container_path   TEXT NOT NULL,
+    container_id     TEXT NOT NULL,      -- NodeId of the parent container
+    container_dir    TEXT NOT NULL,      -- its folder when recorded
     started_at       INTEGER NOT NULL,   -- UTC ms
     start_offset     INTEGER NOT NULL,   -- minutes
     ended_at         INTEGER,            -- NULL = running

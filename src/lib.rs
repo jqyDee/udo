@@ -16,6 +16,7 @@ pub mod model;
 pub mod naming;
 pub mod persist;
 pub mod storage;
+pub mod tracking;
 pub mod tui;
 
 #[cfg(test)]

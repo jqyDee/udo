@@ -9,13 +9,14 @@ use crate::{
         NodePath,
         container::{Container, ContainerKind},
         node::{Node, NodeBody},
+        sessions::SessionStore,
         task::Task,
-        time::local_to_fixed,
+        time::{self, local_to_fixed},
         tree::Tree,
     },
     naming::{folder_name, normalize_name},
     storage::Storage,
-    tui,
+    tracking, tui,
 };
 
 #[derive(Parser)]
@@ -76,6 +77,16 @@ pub enum Commands {
         #[arg(short, long, value_parser = collapse_whitespaces)]
         task: String,
     },
+    /// Start timing a task (a running one is stopped first)
+    Start {
+        /// Path of names below the root, e.g. "uni/cs/lab 3"
+        #[arg(value_parser = collapse_whitespaces)]
+        task: String,
+    },
+    /// Stop the running timer
+    Stop,
+    /// Show what is being timed
+    Status,
 }
 
 impl Cli {
@@ -167,6 +178,22 @@ impl Cli {
                 Commands::Run { project, task } => {
                     todo!("Run is not yet done; project: {}, task: {}!", project, task);
                 }
+                Commands::Start { task } => {
+                    let names: Vec<&str> = task.split('/').map(str::trim).collect();
+                    let path = tree.resolve(&names).ok_or("task not found")?;
+                    let session = tracking::start(tree, storage, &path, time::now()).await?;
+                    println!("{}", tracking::running_line(&session, session.start));
+                }
+                Commands::Stop => match tracking::stop(storage, time::now()).await? {
+                    Some(session) => println!("{}", tracking::stopped_line(&session)),
+                    None => println!("nothing running"),
+                },
+                Commands::Status => match storage.sessions.running().await? {
+                    Some(session) => {
+                        println!("{}", tracking::running_line(&session, time::now()))
+                    }
+                    None => println!("nothing running"),
+                },
             },
         }
         Ok(())

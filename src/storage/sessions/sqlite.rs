@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use rusqlite::{
     Connection, ErrorCode, OptionalExtension, Row, ToSql, Transaction, TransactionBehavior, params,
@@ -133,7 +136,8 @@ fn session_from_row(row: &Row) -> rusqlite::Result<Session> {
             id: row.get("task_id")?,
             name: row.get("task_name")?,
             description: row.get("task_description")?,
-            container_path: row.get("container_path")?,
+            container_id: row.get("container_id")?,
+            container_dir: PathBuf::from(row.get::<_, String>("container_dir")?),
         },
         start: time_from_row(row, "started_at", "start_offset")?,
         end: opt_time_from_row(row, "ended_at", "end_offset")?,
@@ -167,19 +171,23 @@ fn insert(tx: &Transaction, s: &Session) -> Result<(), SessionError> {
     let (end, end_offset) = s.end.map(time_to_sql).unzip();
     let (created, created_offset) = time_to_sql(s.created_at);
     let (deleted, deleted_offset) = s.deleted_at.map(time_to_sql).unzip();
+    let dir = s.task.container_dir.to_str().ok_or_else(|| {
+        SessionError::Backend(format!("folder name is not UTF-8: {:?}", s.task.container_dir))
+    })?;
 
     tx.execute(
         "INSERT INTO sessions (
-             id, task_id, task_name, task_description, container_path,
+             id, task_id, task_name, task_description, container_id, container_dir,
              started_at, start_offset, ended_at, end_offset, source,
              created_at, created_offset, deleted_at, deleted_offset
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             s.id,
             s.task.id,
             s.task.name,
             s.task.description,
-            s.task.container_path,
+            s.task.container_id,
+            dir,
             start,
             start_offset,
             end,
@@ -253,14 +261,15 @@ fn start(
         return Ok(running.clone()); // same task: no-op, nothing to commit
     }
     // before stopping anything: a refused start changes nothing. The
-    // running one is left out: it ends at `at`, touching the new one.
-    if overlaps(&tx, at, None, running.map(|s| s.id))? {
+    // running one is left out if it can end at `at` (touching the new
+    // one); started after `at`, the new one would run into it.
+    let ends_at_at = running.filter(|s| s.start <= at).map(|s| s.id);
+    if overlaps(&tx, at, None, ends_at_at)? {
         return Err(SessionError::Overlap);
     }
-    if let Stopped::ClockError = stop_running(&tx, now, at)? {
-        tx.commit()?; // keep the soft delete
-        return Err(SessionError::EndBeforeStart);
-    }
+    // started exactly at `at` (`ClockError`): 0 minutes, dropped
+    // (soft-deleted); committed with the new session below
+    stop_running(&tx, now, at)?;
     let session = Session {
         id: SessionId::new(),
         task,
@@ -606,7 +615,8 @@ mod tests {
             id: NodeId::new(),
             name: "lab 3".into(),
             description: String::new(),
-            container_path: "uni/cs".into(),
+            container_id: NodeId::new(),
+            container_dir: PathBuf::from("uni/cs"),
         }
     }
 

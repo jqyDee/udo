@@ -16,8 +16,10 @@ use crate::model::{
 pub trait SessionStore {
     /// Start timing; a running session is stopped first (one timer).
     /// Same task already running: no-op, returns the running session.
-    /// `at` in the past, inside or before a recorded session: `Overlap`,
-    /// and nothing changes (the running one is not stopped).
+    /// `at` in the past, inside or before a recorded session (the running
+    /// one included): `Overlap`, and nothing changes (the running one is not
+    /// stopped). `at` exactly at the running one's start: that one would be
+    /// 0 minutes, so it is dropped (soft-deleted, not edited).
     async fn start(
         &self,
         task: TaskRef,

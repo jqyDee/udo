@@ -48,11 +48,17 @@ impl Inner {
             return Ok(running.clone()); // same task: no-op
         }
         // before stopping anything: a refused start changes nothing. The
-        // running one is left out: it ends at `at`, touching the new one.
-        if self.overlaps(at, None, running.map(|s| s.id)) {
+        // running one is left out if it can end at `at` (touching the new
+        // one); started after `at`, the new one would run into it.
+        let ends_at_at = running.filter(|s| s.start <= at).map(|s| s.id);
+        if self.overlaps(at, None, ends_at_at) {
             return Err(SessionError::Overlap);
         }
-        self.stop_running(at)?;
+        match self.stop_running(at) {
+            // started exactly at `at`: 0 minutes, dropped (soft-deleted)
+            Ok(_) | Err(SessionError::EndBeforeStart) => {}
+            Err(e) => return Err(e),
+        }
 
         let session = Session {
             id: SessionId::new(),
