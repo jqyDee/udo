@@ -1,9 +1,13 @@
 //! The one database (`udo.db`): connection setup and migrations, shared by
 //! every area (sessions now, the tree later).
 
-use std::{path::Path, time::Duration};
+use std::{
+    path::Path,
+    thread,
+    time::{Duration, Instant},
+};
 
-use rusqlite::{Connection, TransactionBehavior};
+use rusqlite::{Connection, ErrorCode, TransactionBehavior};
 
 use crate::Res;
 
@@ -20,9 +24,27 @@ pub fn open(path: &Path) -> Res<Connection> {
     let mut conn = Connection::open(path)?;
     // first: switching to WAL needs a lock too, so it must already wait for one
     conn.busy_timeout(Duration::from_secs(BUSY_TIMEOUT_SECS))?; // a second writer retries instead of failing
-    conn.pragma_update(None, "journal_mode", "WAL")?; // readers never wait on a writer
+    enable_wal(&conn)?; // readers never wait on a writer
     setup(&mut conn)?;
     Ok(conn)
+}
+
+/// Switch to WAL. On a fresh file this needs the file for itself for a
+/// moment, and when several processes open it at once SQLite can answer
+/// "busy" right away instead of waiting (it skips the busy handler there to
+/// avoid a deadlock). So retry, for as long as the busy timeout.
+fn enable_wal(conn: &Connection) -> Res<()> {
+    let give_up = Instant::now() + Duration::from_secs(BUSY_TIMEOUT_SECS);
+    loop {
+        match conn.pragma_update(None, "journal_mode", "WAL") {
+            Err(rusqlite::Error::SqliteFailure(e, _))
+                if e.code == ErrorCode::DatabaseBusy && Instant::now() < give_up =>
+            {
+                thread::sleep(Duration::from_millis(10));
+            }
+            result => return Ok(result?),
+        }
+    }
 }
 
 /// A fresh, empty database in memory (tests).
