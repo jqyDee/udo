@@ -22,7 +22,8 @@ use crate::{
 impl Tree {
     pub async fn load_from(root_dir: &Path) -> Res<Self> {
         if !root_dir.join(UDO_FILE_NAME).exists() {
-            println!("First run: creating root in {root_dir:?}!");
+            // stderr: stdout carries command results only (`--json` must parse)
+            eprintln!("First run: creating root in {root_dir:?}!");
             fs::create_dir_all(root_dir).await?;
 
             let root = Container::new(root_dir.to_path_buf(), ContainerKind::Root);

@@ -7,7 +7,7 @@ async fn main() {
 
     let result = async {
         let mut core = Core::open(&root_dir()?).await?;
-        cli.execute(&mut core).await
+        cli.execute(&mut core, &std::env::current_dir()?).await
     }
     .await;
 
