@@ -2,7 +2,7 @@
 //! minutes. Sub-millisecond parts are dropped; so are offset seconds (only
 //! historical zones before ~1900 have them).
 
-use chrono::{DateTime, FixedOffset};
+use chrono::{DateTime, FixedOffset, SubsecRound};
 use rusqlite::{Row, types::Type};
 
 use crate::model::time::Time;
@@ -32,6 +32,12 @@ pub fn opt_time_from_row(row: &Row, ms: &str, offset: &str) -> rusqlite::Result<
         None => Ok(None),
         Some(_) => time_from_row(row, ms, offset).map(Some),
     }
+}
+
+/// Rounded to what the database keeps (ms), so what a method returns is
+/// what reading returns later.
+pub fn to_ms(t: Time) -> Time {
+    t.trunc_subsecs(3)
 }
 
 #[cfg(test)]

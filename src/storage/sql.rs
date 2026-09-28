@@ -5,7 +5,7 @@ use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, 
 
 use crate::model::{
     id::NodeId,
-    sessions::{SessionId, SessionSource},
+    sessions::{SessionError, SessionId, SessionSource},
 };
 
 /// Stored as text: `Display` in, `FromStr` out.
@@ -29,6 +29,12 @@ macro_rules! sql_as_text {
 }
 
 sql_as_text!(SessionId, NodeId, SessionSource);
+
+impl From<rusqlite::Error> for SessionError {
+    fn from(e: rusqlite::Error) -> Self {
+        Self::Backend(e.to_string())
+    }
+}
 
 #[cfg(test)]
 mod tests {

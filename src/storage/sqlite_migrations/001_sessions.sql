@@ -21,8 +21,10 @@ CREATE TABLE session_edits (
     at          INTEGER NOT NULL,        -- store clock
     at_offset   INTEGER NOT NULL,
     kind        TEXT NOT NULL,           -- edit | split | cut | delete
-    old_start   INTEGER, old_end INTEGER,
-    new_start   INTEGER, new_end INTEGER
+    old_start   INTEGER, old_start_offset INTEGER,
+    old_end     INTEGER, old_end_offset   INTEGER,
+    new_start   INTEGER, new_start_offset INTEGER,
+    new_end     INTEGER, new_end_offset   INTEGER
 ) STRICT;
 
 -- one timer: every running row indexes the constant 1, a second one collides
