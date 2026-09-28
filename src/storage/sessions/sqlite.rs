@@ -210,8 +210,9 @@ fn already_running(e: rusqlite::Error) -> SessionError {
 enum Stopped {
     Nothing,
     Ended(Session),
-    /// `at` was before its start: soft-deleted. Commit, then report
-    /// `EndBeforeStart` (an early `return Err` would roll the delete back).
+    /// `at` was not after its start (0 minutes or less): soft-deleted.
+    /// Commit, then report `EndBeforeStart` (an early `return Err` would
+    /// roll the delete back).
     ClockError,
 }
 
@@ -220,7 +221,7 @@ fn stop_running(tx: &Transaction, now: Time, at: Time) -> Result<Stopped, Sessio
     let Some(mut session) = running(tx)? else {
         return Ok(Stopped::Nothing);
     };
-    if at < session.start {
+    if at <= session.start {
         let (deleted, offset) = time_to_sql(now);
         tx.execute(
             "UPDATE sessions SET deleted_at = ?1, deleted_offset = ?2 WHERE id = ?3",
@@ -245,10 +246,16 @@ fn start(
     at: Time,
 ) -> Result<Session, SessionError> {
     let tx = write_tx(conn)?;
-    if let Some(running) = running(&tx)?
+    let running = running(&tx)?;
+    if let Some(running) = &running
         && running.task.id == task.id
     {
-        return Ok(running); // same task: no-op, nothing to commit
+        return Ok(running.clone()); // same task: no-op, nothing to commit
+    }
+    // before stopping anything: a refused start changes nothing. The
+    // running one is left out: it ends at `at`, touching the new one.
+    if overlaps(&tx, at, None, running.map(|s| s.id))? {
+        return Err(SessionError::Overlap);
     }
     if let Stopped::ClockError = stop_running(&tx, now, at)? {
         tx.commit()?; // keep the soft delete
@@ -479,8 +486,8 @@ fn edit(
 fn delete(conn: &mut Connection, now: Time, id: SessionId) -> Result<(), SessionError> {
     let tx = write_tx(conn)?;
     let session = find(&tx, id)?;
-    if session.end.is_none() && now >= session.start {
-        set_times(&tx, id, session.start, Some(now))?; // running: stopped first
+    if session.end.is_none() && now > session.start {
+        set_times(&tx, id, session.start, Some(now))?; // running: stopped first (never 0 minutes)
     }
     let (deleted, offset) = time_to_sql(now);
     tx.execute(

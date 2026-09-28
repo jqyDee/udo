@@ -41,10 +41,16 @@ impl Inner {
         source: SessionSource,
         at: Time,
     ) -> Result<Session, SessionError> {
-        if let Some(i) = self.running_index()
-            && self.sessions[i].task.id == task.id
+        let running = self.running();
+        if let Some(running) = &running
+            && running.task.id == task.id
         {
-            return Ok(self.sessions[i].clone());
+            return Ok(running.clone()); // same task: no-op
+        }
+        // before stopping anything: a refused start changes nothing. The
+        // running one is left out: it ends at `at`, touching the new one.
+        if self.overlaps(at, None, running.map(|s| s.id)) {
+            return Err(SessionError::Overlap);
         }
         self.stop_running(at)?;
 
@@ -68,14 +74,15 @@ impl Inner {
     }
 
     /// Stop the running session at `at`, if any. Shared by `start` and
-    /// `stop`. `at` before its start: soft-deleted, `EndBeforeStart`.
+    /// `stop`. `at` not after its start (it would be 0 minutes or less):
+    /// soft-deleted, `EndBeforeStart`.
     fn stop_running(&mut self, at: Time) -> Result<Option<Session>, SessionError> {
         let now = self.now();
         let Some(i) = self.running_index() else {
             return Ok(None);
         };
         let session = &mut self.sessions[i];
-        if at < session.start {
+        if at <= session.start {
             session.deleted_at = Some(now); // a clock error, not an edit
             return Err(SessionError::EndBeforeStart);
         }
@@ -212,8 +219,8 @@ impl Inner {
         let now = self.now(); // first: `self.now()` borrows all of `self`
         let i = self.index(id)?;
         let session = &mut self.sessions[i];
-        if session.end.is_none() && now >= session.start {
-            session.end = Some(now); // running: stopped first
+        if session.end.is_none() && now > session.start {
+            session.end = Some(now); // running: stopped first (never 0 minutes)
         }
         session.deleted_at = Some(now);
         session.edited_at = Some(now); // a delete is an edit entry too

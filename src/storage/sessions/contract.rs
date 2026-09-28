@@ -48,7 +48,9 @@ macro_rules! store_contract {
             check_start_then_running,
             check_start_stops_previous,
             check_start_same_task_is_noop,
+            check_start_refuses_overlap,
             check_stop_without_running_is_none,
+            check_stop_at_start_is_refused,
             check_stop_before_start_errors_and_soft_deletes,
             check_add_is_not_edited,
             check_add_refuses_end_before_start,
@@ -137,9 +139,44 @@ pub(super) async fn check_start_same_task_is_noop(s: impl SessionStore) {
     assert_eq!(s.query(&SessionQuery::default()).await.unwrap().len(), 1);
 }
 
+/// A backdated `start` inside or before a recorded session: `Overlap`, and
+/// nothing changes (the running timer keeps running). Starting where the
+/// running one gets stopped is fine: they only touch.
+pub(super) async fn check_start_refuses_overlap(s: impl SessionStore) {
+    let recorded = s.add(task("a"), at(9, 0), at(11, 0)).await.unwrap();
+    let running = s
+        .start(task("b"), SessionSource::Manual, at(12, 0))
+        .await
+        .unwrap();
+
+    let err = Err(SessionError::Overlap);
+    assert_eq!(s.start(task("c"), SessionSource::Manual, at(10, 0)).await, err); // inside
+    assert_eq!(s.start(task("c"), SessionSource::Manual, at(8, 0)).await, err); // runs into it
+    assert_eq!(s.running().await.unwrap(), Some(running.clone())); // not stopped
+    assert_eq!(visible(&s).await, vec![recorded, running]);
+
+    let next = s
+        .start(task("c"), SessionSource::Manual, at(13, 0))
+        .await
+        .unwrap();
+    assert_eq!(s.running().await.unwrap(), Some(next));
+}
+
 /// `stop` without a running session is `Ok(None)`.
 pub(super) async fn check_stop_without_running_is_none(s: impl SessionStore) {
     assert_eq!(s.stop(at(14, 0)).await, Ok(None));
+}
+
+/// `stop` exactly at the start would leave 0 minutes: refused like a clock
+/// error, no 0-minute session is ever stored.
+pub(super) async fn check_stop_at_start_is_refused(s: impl SessionStore) {
+    s.start(task("lab 3"), SessionSource::Manual, at(14, 0))
+        .await
+        .unwrap();
+
+    assert_eq!(s.stop(at(14, 0)).await, Err(SessionError::EndBeforeStart));
+    assert_eq!(s.running().await.unwrap(), None);
+    assert!(visible(&s).await.is_empty());
 }
 
 /// `stop` before the start: `EndBeforeStart`, the session is soft-deleted
