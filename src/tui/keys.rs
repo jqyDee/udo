@@ -26,6 +26,7 @@ pub enum Action {
     NewTask,
     NextTab,
     PrevTab,
+    Back,
 }
 
 /// One row of the keymap: all keys that trigger `action`, and its help text.
@@ -75,18 +76,38 @@ pub const KEYMAP: &[Section] = &[
     ]},
 ];
 
+/// Keys while the cursor is in the sessions list (`Mode::Sessions`).
+#[rustfmt::skip]
+pub const LIST_KEYMAP: &[Section] = &[
+    Section { title: "sessions", bindings: &[
+        Binding { keys: &[KeyCode::Esc], action: Action::Back, help: "back to the tree" },
+    ]},
+];
+
 /// All bindings of all sections, in `KEYMAP` order.
 pub fn bindings() -> impl Iterator<Item = &'static Binding> {
-    KEYMAP.iter().flat_map(|s| s.bindings)
+    bindings_in(KEYMAP)
+}
+
+/// All bindings of all sections of `keymap` (`KEYMAP`, `LIST_KEYMAP`), in
+/// order.
+pub fn bindings_in(keymap: &[Section]) -> impl Iterator<Item = &'static Binding> {
+    keymap.iter().flat_map(|s| s.bindings)
 }
 
 /// Map a key press to an action via `KEYMAP`. Releases/repeats and unknown
 /// keys -> None.
 pub fn action_for(key: KeyEvent) -> Option<Action> {
+    action_for_in(KEYMAP, key)
+}
+
+/// Map a key press to an action via `keymap` (one per mode). Releases /
+/// repeats and unknown keys -> None.
+pub fn action_for_in(keymap: &[Section], key: KeyEvent) -> Option<Action> {
     if key.kind != KeyEventKind::Press {
         return None;
     }
-    bindings()
+    bindings_in(keymap)
         .find(|b| b.keys.contains(&key.code))
         .map(|b| b.action)
 }
@@ -124,20 +145,32 @@ mod tests {
     use super::*;
     use crate::test_util::press;
 
+    /// Every keymap of a mode. Duplicates across them are fine (`e` means
+    /// something else in the list), within one they are not.
+    const KEYMAPS: [&[Section]; 2] = [KEYMAP, LIST_KEYMAP];
+
     #[test]
     fn no_key_is_bound_twice() {
-        // across sections too: `find` would silently take the first one
-        let mut seen = std::collections::HashSet::new();
-        for b in bindings() {
-            for k in b.keys {
-                assert!(seen.insert(*k), "{k:?} is bound twice");
+        for keymap in KEYMAPS {
+            // across sections too: `find` would silently take the first one
+            let mut seen = std::collections::HashSet::new();
+            for b in bindings_in(keymap) {
+                for k in b.keys {
+                    assert!(seen.insert(*k), "{k:?} is bound twice");
+                }
             }
         }
     }
 
     #[test]
+    fn esc_goes_back_in_the_list() {
+        assert_eq!(action_for_in(LIST_KEYMAP, press(KeyCode::Esc)), Some(Action::Back));
+        assert_eq!(action_for(press(KeyCode::Esc)), None); // the tree: nothing
+    }
+
+    #[test]
     fn every_section_has_title_and_bindings() {
-        for s in KEYMAP {
+        for s in KEYMAPS.into_iter().flatten() {
             assert!(!s.title.is_empty(), "section without title");
             assert!(!s.bindings.is_empty(), "section {:?} is empty", s.title);
         }
@@ -153,7 +186,7 @@ mod tests {
 
     #[test]
     fn every_binding_has_help_text() {
-        for b in bindings() {
+        for b in KEYMAPS.into_iter().flat_map(bindings_in) {
             assert!(!b.help.is_empty(), "{:?} has no help text", b.action);
         }
     }

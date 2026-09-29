@@ -854,7 +854,9 @@ async fn a_task_has_no_name_column() {
 
     let rows = session_rows(&render_rows(&mut app));
 
-    assert!(rows[0].starts_with("Thu 15.10"), "{rows:?}");
+    // the weekday first, no name (local zone: the weekday of 00:00 +02:00)
+    let weekday = at(0, 0).with_timezone(&Local).format("%a").to_string();
+    assert!(rows[0].starts_with(&weekday), "{rows:?}");
 }
 
 #[tokio::test]
@@ -895,6 +897,25 @@ async fn no_sessions_says_so() {
     let screen = render(&mut app);
 
     assert!(screen.contains("no session recorded yet"), "{screen}");
+}
+
+/// The list cursor's row is reversed, the others are not.
+#[tokio::test]
+async fn the_selected_session_is_reversed() {
+    let mut app = sessions_tab(&[0, 0], 2).await;
+    app.session_list.selected = Some(app.sessions[0].id); // the oldest: 00:00
+
+    let buf = render_buffer(&mut app, 80, 24);
+    let rows = rows_of(&buf);
+
+    let cell_at = |needle: &str| {
+        let (y, x) = find(&rows, needle).unwrap_or_else(|| panic!("{needle:?} not on screen"));
+        buf[(x as u16, y as u16)].clone()
+    };
+    let oldest = cell_at(&format!("{}–", clock(0, 0)));
+    let newest = cell_at(&format!("{}–", clock(0, 20)));
+    assert!(oldest.modifier.contains(Modifier::REVERSED));
+    assert!(!newest.modifier.contains(Modifier::REVERSED));
 }
 
 #[tokio::test]

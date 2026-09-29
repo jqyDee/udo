@@ -997,3 +997,95 @@ async fn settings_form_on_the_root_row_saves_root_settings() {
     let reloaded = Tree::load_from(tmp.path()).await.unwrap();
     assert_eq!(reloaded.root_settings().theme.as_deref(), Some("dark"));
 }
+
+// ---------- sessions list (`Mode::Sessions`) ----------
+
+/// `tree()` (root: [a, ws: [b]]) with the cursor on "a", `n` sessions on it
+/// (10 minutes each, 20 apart, from midnight), the sessions tab shown.
+async fn list_app(n: i64) -> App<'static> {
+    let mut app = test_app(tree(), state_at(&[0]));
+    for i in 0..n {
+        let start = at(0, 0) + chrono::TimeDelta::minutes(i * 20);
+        app.core
+            .add_session(&[0], start, start + chrono::TimeDelta::minutes(10))
+            .await
+            .unwrap();
+    }
+    app.reload().await;
+    app.details_tab = DetailsTab::Sessions;
+    app
+}
+
+#[tokio::test]
+async fn e_on_the_sessions_tab_enters_the_list_on_the_newest() {
+    let mut app = list_app(3).await;
+
+    app.handle_key(key('e')).await;
+
+    assert_eq!(app.mode, Mode::Sessions);
+    let newest = app.sessions.last().unwrap().id; // `sessions` is oldest first
+    assert_eq!(app.session_list.selected, Some(newest));
+}
+
+#[tokio::test]
+async fn esc_leaves_the_list() {
+    let mut app = list_app(3).await;
+    app.handle_key(key('e')).await;
+
+    app.handle_key(press(KeyCode::Esc)).await;
+
+    assert_eq!(app.mode, Mode::Normal);
+    assert_eq!(app.session_list.selected, None);
+}
+
+#[tokio::test]
+async fn e_without_sessions_stays_in_the_tree() {
+    let mut app = list_app(0).await;
+
+    app.handle_key(key('e')).await;
+
+    assert_eq!(app.mode, Mode::Normal);
+    assert_eq!(app.session_list.selected, None);
+    let toast = app.toast.as_ref().expect("no toast");
+    assert_eq!((toast.kind, toast.msg.as_str()), (ToastKind::Info, "no sessions yet"));
+}
+
+/// Tree keys (move, done, delete, timer, new task, tab) do nothing in the list.
+#[tokio::test]
+async fn tree_keys_do_nothing_in_the_list() {
+    let mut app = list_app(3).await;
+    app.handle_key(key('e')).await;
+    let selected = app.session_list.selected;
+
+    for k in [
+        key('j'),
+        key('x'),
+        key('d'),
+        key('s'),
+        key('t'),
+        press(KeyCode::Tab),
+    ] {
+        app.handle_key(k).await;
+    }
+
+    assert_eq!(app.mode, Mode::Sessions);
+    assert_eq!(app.session_list.selected, selected);
+    assert_eq!(app.tree_state.cursor, vec![0]);
+    assert_eq!(app.details_tab, DetailsTab::Sessions);
+    assert!(app.toast.is_none(), "{:?}", app.toast);
+    assert_eq!(app.running, None);
+    let a = app.core.tree().get(&[0]).and_then(Node::as_task).unwrap();
+    assert_eq!(a.done_at, None);
+}
+
+#[tokio::test]
+async fn e_on_a_later_page_selects_its_first_row() {
+    let mut app = list_app(7).await;
+    app.session_list.page_len = 3; // set by drawing; no render here
+    app.session_list.page = 1; // rows 3..6, newest first
+
+    app.handle_key(key('e')).await;
+
+    let fourth_newest = app.sessions[7 - 1 - 3].id;
+    assert_eq!(app.session_list.selected, Some(fourth_newest));
+}

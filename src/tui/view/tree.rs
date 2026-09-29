@@ -4,7 +4,7 @@ use chrono::Local;
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Style, Stylize},
+    style::{Color, Style, Stylize},
     text::{Line, Span},
     widgets::{Block, List, ListItem},
 };
@@ -34,9 +34,14 @@ pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree, state: &mut TreeState, i
     if tree.root.children().is_empty() {
         lines.push(Line::from("  Nothing here yet: c new container, t new task").dim());
     }
+    let row_highlight = if info.tree_inactive {
+        Style::new().bg(Color::DarkGray)
+    } else {
+        Style::new().reversed()
+    };
     let list_widget = List::new(lines.into_iter().map(ListItem::new))
         .block(Block::bordered().title(" udo "))
-        .highlight_style(Style::new().reversed());
+        .highlight_style(row_highlight);
     frame.render_stateful_widget(list_widget, area, &mut state.list);
 }
 

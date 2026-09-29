@@ -6,11 +6,13 @@
 //! - `details`: `DetailsTab`, which tab the right pane shows (Tab / Shift+Tab)
 //! - `forms`:   create forms (`t` `T` `c` `C`), the edit form (`e`) and the
 //!   settings form (`e` on the settings tab)
+//! - `sessions`: the cursor in the sessions tab's list (`e` on the tab, `esc`)
 //! - `timer`:   start / stop the timer on the task at the cursor (`s`)
 
 mod confirm;
 pub mod details;
 mod forms;
+mod sessions;
 #[cfg(test)]
 mod tests;
 mod timer;
@@ -54,6 +56,9 @@ pub enum Mode {
     Confirm(Confirm),
     /// Create or edit form open; keys go to `Form::handle_key`.
     Form(Box<Form>),
+    /// Cursor in the sessions tab's list (`SessionList::selected`): keys go
+    /// through `LIST_KEYMAP`.
+    Sessions,
 }
 
 /// What the event loop should do after a key.
@@ -145,6 +150,7 @@ impl<'a> App<'a> {
                 Some(action) => self.run(action).await,
                 None => Flow::Continue,
             },
+            Mode::Sessions => self.handle_list_key(key).await,
             Mode::Confirm(_) => self.answer_confirm(key).await,
             Mode::Form(_) => self.handle_form_key(key).await,
         }
@@ -167,7 +173,7 @@ impl<'a> App<'a> {
             Action::Edit => match self.details_tab {
                 DetailsTab::Info => self.open_edit_form(),
                 DetailsTab::Settings => self.open_settings_form(),
-                DetailsTab::Sessions => {} // stage 3: moves the cursor into the list
+                DetailsTab::Sessions => self.enter_list(),
             },
             Action::Delete => self.ask_delete(),
             Action::ToggleTimer => self.toggle_timer().await,
@@ -175,6 +181,7 @@ impl<'a> App<'a> {
             Action::NewTask => self.open_task_form(),
             Action::NextTab => self.details_tab.next(),
             Action::PrevTab => self.details_tab.prev(),
+            Action::Back => {} // only bound in `LIST_KEYMAP`
         }
         Flow::Continue
     }

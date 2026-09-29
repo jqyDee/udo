@@ -1,7 +1,10 @@
-//! State of the sessions tab's list: which page it shows and how long a
-//! page is. No drawing, no store: the rows come from `App.sessions`.
+//! State of the sessions tab's list: which page it shows, how long a page
+//! is and which session the list cursor is on. No drawing, no store: the
+//! rows come from `App.sessions`.
 
 use std::ops::Range;
+
+use crate::model::sessions::SessionId;
 
 /// Which part of the cursor node's sessions the sessions tab shows.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -11,6 +14,10 @@ pub struct SessionList {
     /// Rows per page, set while drawing (`view::details::page_len`, from
     /// the pane height). 0: not drawn yet.
     pub page_len: usize,
+    /// The session under the list cursor (`Mode::Sessions`); `None`: the
+    /// cursor is in the tree. An id, not a row: it stays on its session
+    /// when rows move.
+    pub selected: Option<SessionId>,
 }
 
 impl SessionList {
@@ -33,8 +40,13 @@ impl SessionList {
 mod tests {
     use super::*;
 
+    /// Paging only: the selection does not matter here.
     fn list(page: usize, page_len: usize) -> SessionList {
-        SessionList { page, page_len }
+        SessionList {
+            page,
+            page_len,
+            ..Default::default()
+        }
     }
 
     #[test]

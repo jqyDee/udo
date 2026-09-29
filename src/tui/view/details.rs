@@ -204,8 +204,8 @@ fn time_lines(tree: &Tree, node: &Node, info: &ViewInfo) -> Vec<Line<'static>> {
 }
 
 /// Sessions tab: the cursor node's sessions, newest first, one page (the
-/// page line only with several pages). A container: with the task name in
-/// front.
+/// page line only with several pages), the selected one reversed. A
+/// container: with the task name in front.
 fn session_lines(node: &Node, info: &ViewInfo) -> Vec<Line<'static>> {
     if info.sessions.is_empty() {
         return vec![Line::from("no session recorded yet").dim()];
@@ -224,7 +224,15 @@ fn session_lines(node: &Node, info: &ViewInfo) -> Vec<Line<'static>> {
     });
     let mut lines: Vec<Line> = page
         .iter()
-        .map(|s| session_row(s, name_width, info.now))
+        .map(|s| {
+            let row = session_row(s, name_width, info.now);
+            // the list cursor: reversed, like the tree cursor
+            if list.selected == Some(s.id) {
+                row.reversed()
+            } else {
+                row
+            }
+        })
         .collect();
 
     let pages = list.pages(newest_first.len());
