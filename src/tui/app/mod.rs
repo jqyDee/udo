@@ -116,10 +116,12 @@ impl<'a> App<'a> {
     /// Read again what the views need from the stores. A failed read keeps
     /// the old values and says so.
     pub async fn reload(&mut self) {
+        let old = self.newest_ids();
         match self.core.sessions_of(&self.tree_state.cursor).await {
             Ok(sessions) => self.sessions = sessions,
             Err(e) => self.error(e.to_string()),
         }
+        self.follow_sessions(&old);
         match self.core.tasks_with_sessions().await {
             Ok(with_sessions) => self.with_sessions = with_sessions,
             Err(e) => self.error(e.to_string()),

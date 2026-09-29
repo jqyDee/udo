@@ -203,9 +203,9 @@ fn time_lines(tree: &Tree, node: &Node, info: &ViewInfo) -> Vec<Line<'static>> {
     lines
 }
 
-/// Sessions tab: the cursor node's sessions, newest first, one page (the
-/// page line only with several pages), the selected one reversed. A
-/// container: with the task name in front.
+/// Sessions tab: the cursor node's sessions, newest first, one page, the
+/// selected one reversed; the page line always at the bottom (`page 1/1`
+/// too). A container: with the task name in front.
 fn session_lines(node: &Node, info: &ViewInfo) -> Vec<Line<'static>> {
     if info.sessions.is_empty() {
         return vec![Line::from("no session recorded yet").dim()];
@@ -236,16 +236,16 @@ fn session_lines(node: &Node, info: &ViewInfo) -> Vec<Line<'static>> {
         .collect();
 
     let pages = list.pages(newest_first.len());
-    if pages > 1 {
-        // a short last page: blank rows, so the page line stays in place
-        lines.resize(list.page_len.max(lines.len()), Line::default());
-        let current = list.page.min(pages - 1) + 1; // same clamp as `range`
-        lines.push(
-            Line::from(format!("page {current}/{pages}"))
-                .dim()
-                .right_aligned(),
-        );
-    }
+
+    // a short last page: blank rows, so the page line stays in place
+    lines.resize(list.page_len.max(lines.len()), Line::default());
+    let current = list.page.min(pages - 1) + 1; // same clamp as `range`
+    lines.push(
+        Line::from(format!("page {current}/{pages}"))
+            .dim()
+            .right_aligned(),
+    );
+
     lines
 }
 

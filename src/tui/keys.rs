@@ -80,6 +80,10 @@ pub const KEYMAP: &[Section] = &[
 #[rustfmt::skip]
 pub const LIST_KEYMAP: &[Section] = &[
     Section { title: "sessions", bindings: &[
+        Binding { keys: &[KeyCode::Char('j'), KeyCode::Down], action: Action::Down, help: "next (older) session" },
+        Binding { keys: &[KeyCode::Char('k'), KeyCode::Up], action: Action::Up, help: "previous (newer) session" },
+        Binding { keys: &[KeyCode::Char('l'), KeyCode::Right], action: Action::In, help: "next page" },
+        Binding { keys: &[KeyCode::Char('h'), KeyCode::Left], action: Action::Out, help: "previous page" },
         Binding { keys: &[KeyCode::Esc], action: Action::Back, help: "back to the tree" },
     ]},
 ];

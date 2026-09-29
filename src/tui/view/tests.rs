@@ -9,6 +9,7 @@ use ratatui::{
 use std::path::PathBuf;
 
 use chrono::{Local, TimeDelta};
+use crossterm::event::KeyCode;
 
 use super::*;
 use crate::{
@@ -21,7 +22,7 @@ use crate::{
         time::{DeadlineRule, Minutes, Time},
         tree::{PurgePlan, Tree},
     },
-    test_util::{at, container, state_at, task, test_app, tree_with},
+    test_util::{at, container, press, state_at, task, test_app, tree_with},
     tui::{
         app::{Confirm, ConfirmStage, PurgeOption, details::DetailsTab},
         form::{Form, TextInput},
@@ -899,6 +900,28 @@ async fn no_sessions_says_so() {
     assert!(screen.contains("no session recorded yet"), "{screen}");
 }
 
+/// Keys, not state set by hand: `e` then `l` show page 2 with its first
+/// row selected.
+#[tokio::test]
+async fn l_shows_the_next_page_with_its_first_row_selected() {
+    let mut app = sessions_tab(&[0, 0], 30).await; // 24 rows: 18 per page
+    render_rows(&mut app); // sets `page_len` as the keys need it
+
+    app.handle_key(press(KeyCode::Char('e'))).await;
+    app.handle_key(press(KeyCode::Char('l'))).await;
+
+    let buf = render_buffer(&mut app, 80, 24);
+    let rows = rows_of(&buf);
+    assert!(rows.concat().contains("page 2/2"));
+    // row 18, newest first = session 11 (oldest first): 11 * 20 minutes
+    let (y, x) = find(&rows, &format!("{}–", clock(3, 40))).expect("row 18 not shown");
+    assert!(
+        buf[(x as u16, y as u16)]
+            .modifier
+            .contains(Modifier::REVERSED)
+    );
+}
+
 /// The list cursor's row is reversed, the others are not.
 #[tokio::test]
 async fn the_selected_session_is_reversed() {
@@ -918,11 +941,16 @@ async fn the_selected_session_is_reversed() {
     assert!(!newest.modifier.contains(Modifier::REVERSED));
 }
 
+/// The page line is always there, at the same place: `page 1/1` too.
 #[tokio::test]
-async fn one_page_has_no_page_line() {
-    let mut app = sessions_tab(&[0, 0], 2).await;
+async fn one_page_still_has_its_page_line_at_the_bottom() {
+    let mut few = sessions_tab(&[0, 0], 2).await;
+    let mut many = sessions_tab(&[0, 0], 30).await;
 
-    assert!(!render(&mut app).contains("page "));
+    let one = find(&render_rows(&mut few), "page 1/1").expect("no page line");
+    let two = find(&render_rows(&mut many), "page 1/2").expect("no page line");
+
+    assert_eq!(one, two);
 }
 
 #[tokio::test]

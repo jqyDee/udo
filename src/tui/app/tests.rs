@@ -1057,12 +1057,13 @@ async fn tree_keys_do_nothing_in_the_list() {
     app.handle_key(key('e')).await;
     let selected = app.session_list.selected;
 
+    // (`j` `k` `h` `l` move in the list: see the moving tests)
     for k in [
-        key('j'),
         key('x'),
         key('d'),
         key('s'),
         key('t'),
+        key('q'),
         press(KeyCode::Tab),
     ] {
         app.handle_key(k).await;
@@ -1088,4 +1089,174 @@ async fn e_on_a_later_page_selects_its_first_row() {
 
     let fourth_newest = app.sessions[7 - 1 - 3].id;
     assert_eq!(app.session_list.selected, Some(fourth_newest));
+}
+
+#[tokio::test]
+async fn q_does_not_quit_in_the_list() {
+    let mut app = list_app(3).await;
+    app.handle_key(key('e')).await;
+
+    assert_eq!(app.handle_key(key('q')).await, Flow::Continue);
+    assert_eq!(app.mode, Mode::Sessions);
+}
+
+// ---------- moving in the list (7 sessions, 3 per page) ----------
+
+/// `list_app(7)` in the list, 3 rows per page, on the newest session.
+async fn in_list_of_7() -> App<'static> {
+    let mut app = list_app(7).await;
+    app.session_list.page_len = 3; // set by drawing; no render here
+    app.handle_key(key('e')).await;
+    app
+}
+
+/// Row of the selected session, newest first (0 = newest).
+fn selected_row(app: &App) -> usize {
+    let selected = app.session_list.selected.expect("nothing selected");
+    let oldest_first = app.sessions.iter().position(|s| s.id == selected);
+    app.sessions.len() - 1 - oldest_first.expect("selection not in the list")
+}
+
+#[tokio::test]
+async fn j_and_k_move_the_selection() {
+    let mut app = in_list_of_7().await;
+
+    app.handle_key(key('j')).await;
+    app.handle_key(key('j')).await;
+    assert_eq!(selected_row(&app), 2);
+    app.handle_key(key('k')).await;
+    assert_eq!(selected_row(&app), 1);
+}
+
+#[tokio::test]
+async fn j_at_the_end_of_a_page_goes_on_to_the_next() {
+    let mut app = in_list_of_7().await;
+
+    for _ in 0..3 {
+        app.handle_key(key('j')).await;
+    }
+
+    assert_eq!((selected_row(&app), app.session_list.page), (3, 1));
+}
+
+#[tokio::test]
+async fn l_and_h_turn_the_page_to_its_first_row() {
+    let mut app = in_list_of_7().await;
+    app.handle_key(key('j')).await; // row 1
+
+    app.handle_key(key('l')).await;
+    assert_eq!((selected_row(&app), app.session_list.page), (3, 1));
+    app.handle_key(key('l')).await;
+    assert_eq!((selected_row(&app), app.session_list.page), (6, 2));
+    app.handle_key(key('h')).await;
+    assert_eq!((selected_row(&app), app.session_list.page), (3, 1));
+}
+
+#[tokio::test]
+async fn moving_stops_at_the_ends() {
+    let mut app = in_list_of_7().await;
+
+    app.handle_key(key('k')).await; // already the newest
+    app.handle_key(key('h')).await; // already the first page
+    assert_eq!((selected_row(&app), app.session_list.page), (0, 0));
+
+    for _ in 0..10 {
+        app.handle_key(key('j')).await;
+    }
+    app.handle_key(key('l')).await;
+    assert_eq!((selected_row(&app), app.session_list.page), (6, 2));
+}
+
+#[tokio::test]
+async fn arrow_keys_move_like_hjkl() {
+    let mut app = in_list_of_7().await;
+
+    app.handle_key(press(KeyCode::Down)).await;
+    assert_eq!(selected_row(&app), 1);
+    app.handle_key(press(KeyCode::Right)).await;
+    assert_eq!(selected_row(&app), 3);
+    app.handle_key(press(KeyCode::Up)).await;
+    assert_eq!(selected_row(&app), 2);
+    app.handle_key(press(KeyCode::Left)).await;
+    assert_eq!(selected_row(&app), 0);
+}
+
+// ---------- the list across reloads (changes through `Core`, as elsewhere) ----------
+
+#[tokio::test]
+async fn a_session_added_elsewhere_keeps_the_selection() {
+    let mut app = in_list_of_7().await;
+    app.handle_key(key('j')).await; // row 1
+    let selected = app.session_list.selected;
+
+    app.core
+        .add_session(&[0], at(9, 0), at(9, 30))
+        .await
+        .unwrap(); // newest
+    app.reload().await;
+
+    assert_eq!(app.session_list.selected, selected);
+    assert_eq!(selected_row(&app), 2); // pushed down by one
+}
+
+#[tokio::test]
+async fn a_selected_session_removed_elsewhere_moves_to_its_row() {
+    let mut app = in_list_of_7().await;
+    app.handle_key(key('j')).await; // row 1
+    let gone = app.session_list.selected.unwrap();
+
+    app.core.delete_session(gone).await.unwrap();
+    app.reload().await;
+
+    assert_eq!(app.mode, Mode::Sessions);
+    assert_ne!(app.session_list.selected, Some(gone));
+    assert_eq!(selected_row(&app), 1); // the next older one
+}
+
+#[tokio::test]
+async fn the_last_session_removed_leaves_the_list() {
+    let mut app = list_app(1).await;
+    app.handle_key(key('e')).await;
+
+    app.core.delete_session(app.sessions[0].id).await.unwrap();
+    app.reload().await;
+
+    assert_eq!(app.mode, Mode::Normal);
+    assert_eq!(app.session_list.selected, None);
+    let toast = app.toast.as_ref().expect("no toast");
+    assert_eq!((toast.kind, toast.msg.as_str()), (ToastKind::Info, "no sessions left"));
+}
+
+/// "a" and "b" both have 3 pages; moving the tree cursor to "ws" (b's
+/// sessions) starts on page 1, not on a's page 3.
+#[tokio::test]
+async fn moving_the_tree_cursor_resets_the_page() {
+    let mut app = list_app(7).await; // on "a"
+    for i in 0..7 {
+        let start = at(10, 0) + chrono::TimeDelta::minutes(i * 20);
+        app.core
+            .add_session(&[1, 0], start, start + chrono::TimeDelta::minutes(10))
+            .await
+            .unwrap();
+    }
+    app.session_list.page_len = 3;
+    app.session_list.page = 2;
+
+    app.handle_key(key('j')).await; // tree: "a" -> "ws" (reloads itself)
+
+    assert_eq!(app.tree_state.cursor, vec![1]);
+    assert_eq!(app.sessions.len(), 7); // b's
+    assert_eq!(app.session_list.page, 0);
+}
+
+/// Staying on the same node (a tick, any key) keeps the page.
+#[tokio::test]
+async fn a_reload_on_the_same_node_keeps_the_page() {
+    let mut app = list_app(7).await;
+    app.session_list.page_len = 3;
+    app.session_list.page = 2;
+
+    app.reload().await;
+
+    assert_eq!(app.session_list.page, 2);
 }
