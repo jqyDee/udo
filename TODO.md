@@ -1,12 +1,12 @@
 # udo TODO
 
-Priorities as of 2026-09-28, in order. Background and older plans:
+Priorities as of 2026-09-29, in order. Background and older plans:
 `roadmap.txt` (phase numbers below refer to it).
 
-**Next up:** time tracking (section 2): manual start / stop in the CLI and
-TUI (step 3 of `docs/superpowers/specs/2026-09-27-storage-and-sessions-design.md`).
-The SQLite backend (step 2) is done but not wired in yet: nothing outside
-`storage/sessions` opens `udo.db`.
+**Next up:** time tracking in the TUI (section 2): `w` to start / stop,
+the running timer in the status line, open sessions left by a crash. The
+CLI side is done (CLI rework stages 1-5, `udo.db` wired in through `Core`);
+the TUI has no timer yet.
 
 ## Done: creation flow
 
@@ -62,7 +62,8 @@ The SQLite backend (step 2) is done but not wired in yet: nothing outside
       the form. Saved with `Tree::set_settings` (the form always sends all
       of them). Root row: also the `[root]` settings (`ROOT_SETTINGS`, same
       table shape), in the form and in the settings tab.
-- [ ] Edit settings from the CLI (with the `cli.rs` cleanup).
+- [x] Edit settings from the CLI: `udo settings [NODE]`, `settings set` /
+      `unset` (same `SETTINGS` table as the TUI form).
 - [x] **Default deadline** for new tasks as a rule: `fri 22:00` (next
       Friday) or `+7d 23:59`. Nothing fancier for now.
 - [x] **`task_folders = auto | none`** replaces the "folders only in
@@ -73,7 +74,8 @@ The SQLite backend (step 2) is done but not wired in yet: nothing outside
       config) are task fields, not settings.
 - [x] Durations are written like `1h30` / `90m` (`model::time::Minutes`;
       not used by a setting yet, the default estimate is the first).
-- [ ] CLI: create workspaces below other containers (e.g. `--parent uni/cs`).
+- [x] CLI: create workspaces below other containers: the NODE path names
+      the parent (`udo add workspace uni/cs/labs`), no `--parent` needed.
 
 ## 2. Time tracking (the core feature)
 
@@ -93,13 +95,16 @@ The SQLite backend (step 2) is done but not wired in yet: nothing outside
 - [x] **Sessions, not totals:** every work session is stored with start and
       end (total = sum), plus its source (`manual`, `nvim`, `tmux`, `idea`,
       ...) and whether it was edited.
-- [ ] **Manual start/stop first** (`w` in the TUI; `udo start <task>`,
-      `udo stop`, `udo status` in the CLI). Only one timer at a time;
-      starting another task stops the current one. Starting sets the status
-      to "in progress".
-- [ ] **Timer survives closing udo:** a session is written as "open" the
-      moment it starts; the status line shows `▶ lab 3 · 1h12`. Open
-      sessions found after a crash / power-off are offered for fixing.
+- [x] **Manual start/stop in the CLI:** `udo start [NODE]`, `udo stop`,
+      `udo status [--short]`. One timer; starting another task stops the
+      current one; starting sets the status to "in progress" (`Core` rules,
+      shared with the TUI).
+- [ ] **Manual start/stop in the TUI:** `w` on a task, through the same
+      `Core::start` / `stop`.
+- [x] **Timer survives closing udo:** a session is written to `udo.db` as
+      "open" the moment it starts.
+- [ ] **Timer in the TUI status line** (`▶ lab 3 · 1h12`); open sessions
+      found after a crash / power-off are offered for fixing.
 - [ ] **Tracking by program (with run configs):**
       - nvim in the foreground: udo suspends the TUI and waits (roadmap 6.2)
       - nvim in tmux: tmux hooks (`client-attached`, `client-detached`,
@@ -112,8 +117,9 @@ The SQLite backend (step 2) is done but not wired in yet: nothing outside
       session data either way.
 - [ ] **Corrections are a core feature:** edit start/end, split, cut (e.g.
       a lunch break the timer ran through), delete, add sessions manually.
-      Warn on suspiciously long sessions when stopping. Store side done
-      (`SessionStore`); UI to do.
+      Store and CLI done (`udo session list / add / edit / split / cut /
+      rm`, short IDs, times like `-45m` / `+1h30`). To do: the TUI (Time
+      tab), and a warning on suspiciously long sessions when stopping.
 - [x] **Storage: SQLite** (`udo.db` at root, `rusqlite`), sessions linked to
       tasks by ID. Several writers at once (TUI, CLI, helpers, tmux hooks)
       are safe there (WAL, `busy_timeout`, `BEGIN IMMEDIATE`). Tasks stay in
@@ -227,9 +233,21 @@ around your calendar and shows the result on your phone.
 
 - [ ] **Description as a multi-line textbox** in the forms (Enter = new line,
       Ctrl+S = submit); details pane shows each line.
-- [ ] `udo run` is a `todo!()` and panics: error out until it is built.
+- [x] `udo run` panicked (`todo!()`): removed in the CLI rework until run
+      configs exist.
 - [ ] `submit_form` clones the whole form on every Enter.
-- [ ] `cli.rs` cleanup (in design: split, path syntax, missing commands).
+- [x] **CLI rework** (`docs/superpowers/specs/2026-09-28-cli-rework-design.md`,
+      stages 1-5): `Core`, one path syntax for NODE, `--json`, every command
+      in `src/cli/commands/` (groups as folders: `add`, `settings`,
+      `session`).
+- [ ] **Session time details** (small, from stage 5):
+      - `-D` / `now` keep their seconds, so pieces cut in a later run show
+        `44m` instead of `45m`: round session times to the minute?
+      - `session rm` on a running session prints it as running, though the
+        store stops it first
+      - `now` is case-sensitive (`NOW` is refused)
+      - `session list --from` after `--to` shows an empty list silently
+        instead of an error
 - [ ] **Shell completion** after the CLI rework: `clap_complete` with
       dynamic node names from the tree (`udo start la<Tab>` -> `lab 3`),
       using the same resolver as the commands.
@@ -237,7 +255,7 @@ around your calendar and shows the result on your phone.
       `--to` / `--all` / `--deleted`): e.g. by source (`manual`, `nvim`,
       …), edited only, longer than X; maybe the same filters for `ls`
       (status, due before).
-- [ ] **Test helper leftovers** (after centralising `test_util.rs`): shared
+- [x] **Test helper leftovers** (after centralising `test_util.rs`): shared
       `task_ref` for the session store tests, local date helpers built on
       `dt`, clearer names for `rm.rs` `fake_trash` and `app/tests.rs`
       `disk_tree`. Plan:
@@ -252,7 +270,7 @@ around your calendar and shows the result on your phone.
 - [x] Cursor and folding moved from `Tree` into the TUI's `TreeState`;
       `view.toml` stores folded containers and the selected node by ID, so
       the cursor comes back after a restart.
-- [ ] `udo edit` in the CLI (with the `cli.rs` cleanup).
+- [x] `udo edit` in the CLI (name, description, due, kind).
 - [ ] Edit dirs (move folders): its own operation (rename on disk, fix the
       parent's `children` / task row), not a plain patch field.
 - [x] Delete with folder: optionally remove the node's folder too (today `d`
