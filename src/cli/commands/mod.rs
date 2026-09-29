@@ -7,9 +7,9 @@
 //! `run`.
 
 mod add;
+mod done;
 mod edit;
 mod ls;
-mod mark;
 mod rm;
 mod session;
 mod settings;
@@ -41,10 +41,8 @@ pub enum Command {
     Edit(edit::EditArgs),
     /// Remove a node (its files stay, unless --with-folder)
     Rm(rm::RmArgs),
-    /// Mark a task done (stops its timer)
-    Done(mark::DoneArgs),
-    /// Give a task a status: todo, in-progress, stale, done
-    Mark(mark::MarkArgs),
+    /// Mark a task done (stops its timer), or reopen it with --undo
+    Done(done::DoneArgs),
     /// Show a container's settings, or set / unset them
     Settings(settings::SettingsArgs),
     /// Start timing a task (a running one is stopped first)
@@ -62,7 +60,7 @@ pub enum Command {
 /// NODE arguments without a path start.
 pub async fn run(command: &Command, core: &mut Core, cwd: &Path, json: bool) -> Res<()> {
     match command {
-        Command::Ls(a) => emit(&ls::run(core, cwd, a)?, json),
+        Command::Ls(a) => emit(&ls::run(core, cwd, time::now(), a).await?, json),
         Command::Show(a) => emit(&show::run(core, cwd, time::now(), a).await?, json),
         Command::Add(c) => add::run(c, core, cwd, json).await,
         Command::Edit(a) => {
@@ -74,8 +72,7 @@ pub async fn run(command: &Command, core: &mut Core, cwd: &Path, json: bool) -> 
             let removed = rm::run(core, cwd, time::now(), a, system_trash, &mut ask).await?;
             emit(&removed, json)
         }
-        Command::Done(a) => emit(&mark::done(core, cwd, time::now(), a).await?, json),
-        Command::Mark(a) => emit(&mark::mark(core, cwd, time::now(), a).await?, json),
+        Command::Done(a) => emit(&done::run(core, cwd, time::now(), a).await?, json),
         Command::Settings(a) => settings::run(a, core, cwd, json).await,
         Command::Start(a) => emit(&timer::start(core, cwd, time::now(), a).await?, json),
         Command::Stop => emit(&timer::stop(core, time::now()).await?, json),

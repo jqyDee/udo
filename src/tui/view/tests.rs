@@ -1,4 +1,4 @@
-use ratatui::{Terminal, backend::TestBackend};
+use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, style::Color};
 
 use std::path::PathBuf;
 
@@ -8,10 +8,11 @@ use crate::{
         id::NodeId,
         node::Node,
         settings::{ContainerSettings, view::SETTINGS},
-        time::DeadlineRule,
+        task::Task,
+        time::{DeadlineRule, Time},
         tree::{PurgePlan, Tree},
     },
-    test_util::{container, state_at, task, test_app, tree_with},
+    test_util::{at, container, state_at, task, test_app, tree_with},
     tui::{
         app::{Confirm, ConfirmStage, PurgeOption, details::DetailsTab},
         form::{Form, TextInput},
@@ -30,9 +31,18 @@ fn render_rows(app: &mut App) -> Vec<String> {
 
 /// Like `render_rows`, on a `width` x `height` terminal.
 fn render_rows_sized(app: &mut App, width: u16, height: u16) -> Vec<String> {
+    rows_of(&render_buffer(app, width, height))
+}
+
+/// One frame of `app` on a `width` x `height` terminal, drawn at
+/// `at(12, 0)`.
+fn render_buffer(app: &mut App, width: u16, height: u16) -> Buffer {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-    terminal.draw(|f| draw(f, app)).unwrap();
-    let buf = terminal.backend().buffer();
+    terminal.draw(|f| draw(f, app, at(12, 0))).unwrap();
+    terminal.backend().buffer().clone()
+}
+
+fn rows_of(buf: &Buffer) -> Vec<String> {
     (0..buf.area.height)
         .map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect())
         .collect()
@@ -63,6 +73,71 @@ fn renders_rows_details_and_hint() {
     assert!(screen.contains("○ exam"));
     assert!(screen.contains("to do")); // details pane of the selected task
     assert!(screen.contains("? help"));
+}
+
+// ---------- status + overdue (rendered at `at(12, 0)`) ----------
+
+/// Task `name` due at `due`, done at `done_at`.
+fn task_due(name: &str, due: Time, done_at: Option<Time>) -> Node {
+    let mut t = Task::new(None, due);
+    t.done_at = done_at;
+    Node::task(name.into(), t)
+}
+
+/// Foreground color of the first cell of `needle` on screen.
+fn fg_of(app: &mut App, needle: &str) -> Color {
+    let buf = render_buffer(app, 80, 24);
+    let (y, x) = find(&rows_of(&buf), needle).unwrap_or_else(|| panic!("{needle:?} not on screen"));
+    buf[(x as u16, y as u16)].fg
+}
+
+#[test]
+fn overdue_name_is_red_unless_done() {
+    let t = tree_with(vec![
+        task_due("late", at(11, 0), None),
+        task_due("finished", at(11, 0), Some(at(10, 0))),
+        task_due("later", at(13, 0), None),
+    ]);
+    let mut app = test_app(t, state_at(&[]));
+
+    assert_eq!(fg_of(&mut app, "late"), Color::Red);
+    assert_ne!(fg_of(&mut app, "finished"), Color::Red);
+    assert_ne!(fg_of(&mut app, "later"), Color::Red);
+    let screen = render(&mut app);
+    assert!(screen.contains("● finished") && screen.contains("○ late"));
+}
+
+#[test]
+fn details_due_line_says_overdue() {
+    let t = tree_with(vec![
+        task_due("late", at(11, 0), None),
+        task_due("later", at(13, 0), None),
+    ]);
+
+    let mut app = test_app(t, state_at(&[0]));
+
+    let late = render(&mut app);
+    app.tree_state.cursor = vec![1];
+    let later = render(&mut app);
+
+    assert!(late.contains(" (overdue)"));
+    assert!(!later.contains("overdue"));
+}
+
+#[tokio::test]
+async fn a_session_through_core_makes_the_task_started() {
+    let t = tree_with(vec![task("exam")]);
+    let mut app = test_app(t, state_at(&[0]));
+    app.core
+        .add_session(&[0], at(9, 0), at(10, 0))
+        .await
+        .unwrap();
+
+    app.reload().await;
+
+    let screen = render(&mut app);
+    assert!(screen.contains("◐ exam"), "{screen}");
+    assert!(screen.contains("started"));
 }
 
 // ---------- details tabs ----------

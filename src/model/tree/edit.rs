@@ -8,7 +8,8 @@ use crate::{
         data::ContainerData,
         node::{BodyPatch, Node, NodePatch, clean_description},
         settings::{ContainerSettings, RootSettings},
-        task::{TaskPatch, TaskStatus},
+        task::TaskPatch,
+        time::Time,
         tree::Tree,
     },
     naming::folder_name,
@@ -158,15 +159,17 @@ impl Tree {
         self.save(parent_path).await
     }
 
-    pub async fn set_task_status(&mut self, path: &[usize], status: TaskStatus) -> Res<()> {
+    /// Set (`Some`: done at that time) or clear (`None`: reopen) the task's
+    /// `done_at` and save it. Not a task: error.
+    pub async fn set_task_done(&mut self, path: &[usize], done_at: Option<Time>) -> Res<()> {
         if self.get(path).and_then(Node::as_task).is_none() {
-            return Err("only tasks have a status".into());
+            return Err("only tasks can be done".into());
         }
         self.update(
             path,
             NodePatch {
                 body: Some(BodyPatch::Task(TaskPatch {
-                    status: Some(status),
+                    done_at: Some(done_at),
                     ..Default::default()
                 })),
                 ..Default::default()
@@ -210,10 +213,10 @@ mod tests {
             data::ContainerData,
             node::{BodyPatch, HeaderPatch, NodeHeader, NodePatch},
             settings::{ContainerSettings, RootSettings},
-            task::{TaskPatch, TaskStatus},
+            task::TaskPatch,
             tree::{Tree, tests::tree},
         },
-        test_util::{container, container_at, disk_tree_in, new_container, new_task, task},
+        test_util::{at, container, container_at, disk_tree_in, new_container, new_task, task},
     };
 
     // ---------- create ----------
@@ -382,7 +385,7 @@ mod tests {
             NodePatch {
                 header: rename("z"),
                 body: Some(BodyPatch::Task(TaskPatch {
-                    status: Some(TaskStatus::Finished),
+                    done_at: Some(Some(at(14, 0))),
                     ..Default::default()
                 })),
             },
@@ -390,7 +393,7 @@ mod tests {
         .unwrap();
         let b = t.get(&[1, 0]).unwrap();
         assert_eq!(b.name(), "z");
-        assert_eq!(b.as_task().unwrap().status, TaskStatus::Finished);
+        assert_eq!(b.as_task().unwrap().done_at, Some(at(14, 0)));
     }
 
     #[test]
@@ -643,39 +646,46 @@ mod tests {
         assert_eq!(data.children, vec![gone]);
     }
 
-    // ---------- set_task_status ----------
+    // ---------- set_task_done ----------
 
     #[tokio::test]
-    async fn set_task_status_updates_tree_and_file() {
+    async fn set_task_done_updates_tree_and_file() {
         let tmp = tempfile::tempdir().unwrap();
         let mut t = disk_tree_in(tmp.path()).await; // root: [a, ws: [b]]
 
-        t.set_task_status(&[1, 0], TaskStatus::Finished)
-            .await
-            .unwrap();
+        t.set_task_done(&[1, 0], Some(at(14, 0))).await.unwrap();
 
         let b = t.get(&[1, 0]).unwrap();
-        assert_eq!(b.as_task().unwrap().status, TaskStatus::Finished);
+        assert_eq!(b.as_task().unwrap().done_at, Some(at(14, 0)));
         assert_eq!(b.name(), "b"); // nothing else changed
 
         let ws = ContainerData::load(&tmp.path().join("ws")).await.unwrap();
-        assert_eq!(ws.tasks[0].task.status, TaskStatus::Finished);
+        assert_eq!(ws.tasks[0].task.done_at, Some(at(14, 0)));
     }
 
     #[tokio::test]
-    async fn set_task_status_rejects_container() {
+    async fn set_task_done_none_reopens() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut t = disk_tree_in(tmp.path()).await;
+        t.set_task_done(&[0], Some(at(14, 0))).await.unwrap();
+
+        t.set_task_done(&[0], None).await.unwrap();
+
+        let data = ContainerData::load(tmp.path()).await.unwrap();
+        assert_eq!(data.tasks[0].task.done_at, None);
+    }
+
+    #[tokio::test]
+    async fn set_task_done_rejects_container() {
         let mut t = tree(); // in memory: root: [a, inner: [b]]
-        let err = t
-            .set_task_status(&[1], TaskStatus::Finished)
-            .await
-            .unwrap_err();
+        let err = t.set_task_done(&[1], Some(at(14, 0))).await.unwrap_err();
         assert!(err.to_string().contains("only tasks"));
     }
 
     #[tokio::test]
-    async fn set_task_status_rejects_missing_path() {
+    async fn set_task_done_rejects_missing_path() {
         let mut t = tree();
-        assert!(t.set_task_status(&[9], TaskStatus::Finished).await.is_err());
+        assert!(t.set_task_done(&[9], Some(at(14, 0))).await.is_err());
     }
 
     // ---------- set_settings (disk_tree: root: [a, ws: [b]]) ----------

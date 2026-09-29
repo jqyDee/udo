@@ -7,8 +7,6 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-use crate::model::task::TaskStatus::{self, Finished, InProgress, Pending, Stale};
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Quit,
@@ -20,7 +18,7 @@ pub enum Action {
     Toggle,
     CollapseAll,
     ExpandAll,
-    SetStatus(TaskStatus),
+    ToggleDone,
     Edit,
     Delete,
     NewContainer,
@@ -61,10 +59,7 @@ pub const KEYMAP: &[Section] = &[
         Binding { keys: &[KeyCode::Char('Z')], action: Action::ExpandAll, help: "unfold all" },
     ]},
     Section { title: "task", bindings: &[
-        Binding { keys: &[KeyCode::Char('x')], action: Action::SetStatus(Finished), help: "mark done" },
-        Binding { keys: &[KeyCode::Char('p')], action: Action::SetStatus(InProgress), help: "mark in progress" },
-        Binding { keys: &[KeyCode::Char('s')], action: Action::SetStatus(Stale), help: "mark stale" },
-        Binding { keys: &[KeyCode::Char('u')], action: Action::SetStatus(Pending), help: "mark to do" },
+        Binding { keys: &[KeyCode::Char('x')], action: Action::ToggleDone, help: "done / reopen" },
         Binding { keys: &[KeyCode::Char('e')], action: Action::Edit, help: "edit" },
         Binding { keys: &[KeyCode::Char('d')], action: Action::Delete, help: "remove from udo" },
     ]},
@@ -169,20 +164,12 @@ mod tests {
         assert_eq!(action_for(press(KeyCode::Left)), Some(Action::Out));
     }
 
+    /// Only "done" is set by hand; `p`, `s`, `u` are gone (`s`: the timer).
     #[test]
-    fn status_keys() {
-        let cases = [
-            ('x', Finished),
-            ('p', InProgress),
-            ('s', Stale),
-            ('u', Pending),
-        ];
-        for (key, status) in cases {
-            assert_eq!(
-                action_for(press(KeyCode::Char(key))),
-                Some(Action::SetStatus(status)),
-                "key {key:?}"
-            );
+    fn done_key() {
+        assert_eq!(action_for(press(KeyCode::Char('x'))), Some(Action::ToggleDone));
+        for gone in ['p', 's', 'u'] {
+            assert_eq!(action_for(press(KeyCode::Char(gone))), None, "key {gone:?}");
         }
     }
 

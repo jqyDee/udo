@@ -8,10 +8,13 @@ use crate::{
         container::ContainerKind,
         node::Node,
         settings::{TaskFolderSetting, view::SETTINGS},
+        task::TaskStatus,
         time::DeadlineRule,
         tree::Tree,
     },
-    test_util::{container, container_at, fake_trash, press, state_at, task, test_app, tree_with},
+    test_util::{
+        at, container, container_at, fake_trash, press, state_at, task, test_app, tree_with,
+    },
     tui::{
         form::{FieldId, FieldInput, FolderMode, FormAction, TextInput},
         toast::ToastKind,
@@ -183,7 +186,7 @@ async fn tab_in_a_form_moves_between_fields_not_tabs() {
 }
 
 #[tokio::test]
-async fn set_status_on_container_shows_error_toast() {
+async fn x_on_container_shows_error_toast() {
     let t = tree();
     let mut app = test_app(t, state_at(&[1])); // "ws": fails before any save
 
@@ -194,20 +197,69 @@ async fn set_status_on_container_shows_error_toast() {
     assert!(toast.msg.contains("only tasks"), "got: {}", toast.msg);
 }
 
-#[tokio::test]
-async fn set_status_on_task_updates_and_shows_info_toast() {
+/// An app on a saved tree with one task "sheet" (saving works), cursor on
+/// it. Keep the `TempDir` alive.
+async fn sheet_app() -> (tempfile::TempDir, App<'static>) {
     let tmp = tempfile::tempdir().unwrap();
-    let mut t = Tree::load_from(tmp.path()).await.unwrap(); // real root: saving works
+    let mut t = Tree::load_from(tmp.path()).await.unwrap();
     let path = t.create(&[], task("sheet")).await.unwrap();
-    let mut app = test_app(t, state_at(&path));
+    (tmp, test_app(t, state_at(&path)))
+}
+
+fn sheet_status(app: &App) -> TaskStatus {
+    let node = app.core.tree().get(&[0]).expect("no sheet");
+    let t = node.as_task().expect("expected a task");
+    t.status(app.with_sessions.contains(&node.id()))
+}
+
+#[tokio::test]
+async fn x_marks_done_and_shows_info_toast() {
+    let (_tmp, mut app) = sheet_app().await;
 
     app.handle_key(key('x')).await;
 
     let toast = app.toast.as_ref().expect("no toast");
     assert_eq!(toast.kind, ToastKind::Info);
     assert_eq!(toast.msg, "sheet -> done");
-    let sheet = app.core.tree().get(&path).and_then(Node::as_task);
-    assert_eq!(sheet.expect("expected a task").status, TaskStatus::Finished);
+    assert_eq!(sheet_status(&app), TaskStatus::Done);
+}
+
+#[tokio::test]
+async fn x_again_reopens_to_do_without_sessions() {
+    let (_tmp, mut app) = sheet_app().await;
+
+    app.handle_key(key('x')).await;
+    app.handle_key(key('x')).await;
+
+    assert_eq!(app.toast.as_ref().expect("no toast").msg, "sheet -> to do");
+    assert_eq!(sheet_status(&app), TaskStatus::ToDo);
+}
+
+#[tokio::test]
+async fn x_again_reopens_started_with_sessions() {
+    let (_tmp, mut app) = sheet_app().await;
+    app.core
+        .add_session(&[0], at(9, 0), at(10, 0))
+        .await
+        .unwrap();
+
+    app.handle_key(key('x')).await;
+    app.handle_key(key('x')).await;
+
+    assert_eq!(app.toast.as_ref().expect("no toast").msg, "sheet -> started");
+    assert_eq!(sheet_status(&app), TaskStatus::Started);
+}
+
+#[tokio::test]
+async fn old_status_keys_do_nothing() {
+    let (_tmp, mut app) = sheet_app().await;
+
+    for c in ['p', 'u'] {
+        app.handle_key(key(c)).await;
+    }
+
+    assert!(app.toast.is_none());
+    assert_eq!(sheet_status(&app), TaskStatus::ToDo);
 }
 
 // ---------- delete + confirm ----------

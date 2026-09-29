@@ -17,7 +17,10 @@ use crate::{
         settings::view::EffectiveSetting,
         tree::Tree,
     },
-    tui::{app::details::DetailsTab, view::LABEL_WIDTH},
+    tui::{
+        app::details::DetailsTab,
+        view::{LABEL_WIDTH, TaskInfo},
+    },
 };
 
 /// Every tab starts with the same header (`header_lines`), then its own
@@ -30,10 +33,11 @@ pub fn draw(
     node: Option<&Node>,
     tab: DetailsTab,
     settings: &[EffectiveSetting],
+    info: &TaskInfo,
 ) {
     let mut lines = header_lines(node);
     lines.extend(match tab {
-        DetailsTab::Info => node.map(detail_lines).unwrap_or_default(),
+        DetailsTab::Info => node.map(|n| detail_lines(n, info)).unwrap_or_default(),
         DetailsTab::Settings => setting_lines(tree, settings),
     });
     let titles: Vec<Span> = DetailsTab::ALL
@@ -58,7 +62,7 @@ fn header_lines(node: Option<&Node>) -> Vec<Line<'_>> {
 }
 
 /// Info tab: the node's own fields (below the shared header).
-fn detail_lines(node: &Node) -> Vec<Line<'_>> {
+fn detail_lines<'a>(node: &'a Node, info: &TaskInfo) -> Vec<Line<'a>> {
     let kind = match node.body {
         NodeBody::Container(_) => "container",
         NodeBody::Task(_) => "task",
@@ -98,14 +102,19 @@ fn detail_lines(node: &Node) -> Vec<Line<'_>> {
             }
         }
         NodeBody::Task(t) => lines.extend([
-            field("status", t.status.to_string()),
+            field("status", info.status(node, t).to_string()),
             // shown in the current local time (same as entered in the form)
             field(
                 "due",
-                t.due_date
-                    .with_timezone(&Local)
-                    .format(DATE_FMT)
-                    .to_string(),
+                format!(
+                    "{}{}",
+                    t.due_date.with_timezone(&Local).format(DATE_FMT),
+                    if t.is_overdue(info.now) {
+                        " (overdue)"
+                    } else {
+                        ""
+                    }
+                ),
             ),
             field(
                 "dir",

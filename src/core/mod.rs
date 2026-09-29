@@ -19,6 +19,7 @@ mod tests;
 mod timer;
 
 pub use nodes::TaskDefaults;
+pub use timer::IsDone;
 
 /// The tree and the stores, opened once at startup.
 pub struct Core {

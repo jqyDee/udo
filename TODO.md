@@ -3,7 +3,10 @@
 Priorities as of 2026-09-29, in order. Background and older plans:
 `roadmap.txt` (phase numbers below refer to it).
 
-**Next up:** time tracking in the TUI (section 2): `w` to start / stop,
+**Next up:** task status from sessions (only "done" stored, "overdue"
+computed:
+`docs/superpowers/specs/2026-09-29-task-status-cleanup-design.md`), then
+time tracking in the TUI (section 2): `s` to start / stop,
 the running timer in the status line, open sessions left by a crash. The
 CLI side is done (CLI rework stages 1-5, `udo.db` wired in through `Core`);
 the TUI has no timer yet.
@@ -97,9 +100,10 @@ the TUI has no timer yet.
       ...) and whether it was edited.
 - [x] **Manual start/stop in the CLI:** `udo start [NODE]`, `udo stop`,
       `udo status [--short]`. One timer; starting another task stops the
-      current one; starting sets the status to "in progress" (`Core` rules,
-      shared with the TUI).
-- [ ] **Manual start/stop in the TUI:** `w` on a task, through the same
+      current one (`Core` rules, shared with the TUI). Today starting sets
+      "in progress"; with the status change a task is "started" once it
+      has a session.
+- [ ] **Manual start/stop in the TUI:** `s` on a task, through the same
       `Core::start` / `stop`.
 - [x] **Timer survives closing udo:** a session is written to `udo.db` as
       "open" the moment it starts.
@@ -208,7 +212,7 @@ around your calendar and shows the result on your phone.
       (inherited setting).
 - [ ] **Privacy:** optional generic block titles ("udo: cs101" instead of the
       task name); encryption maybe later.
-- [ ] Start a planned block from the 7-day view (`w` starts the timer).
+- [ ] Start a planned block from the 7-day view (`s` starts the timer).
 
 ## 4. Run configurations
 

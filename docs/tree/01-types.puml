@@ -63,9 +63,11 @@ class Container {
 class Task {
   + name : String
   + dir : Option<PathBuf>
-  + status : TaskStatus
+  + done_at : Option<Time>
   + due_date : DateTime<Utc>
   --
+  + status(has_sessions) : TaskStatus
+  + is_overdue(now) : bool
   + update(TaskPatch)
 }
 
@@ -75,11 +77,10 @@ enum ContainerKind {
   Project
 }
 
-enum TaskStatus {
-  Pending
-  Stale
-  InProgress
-  Finished
+enum "TaskStatus  <<computed>>" as TaskStatus {
+  ToDo
+  Started
+  Done
 }
 
 class ContainerSettings {

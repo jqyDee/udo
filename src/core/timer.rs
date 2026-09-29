@@ -1,31 +1,50 @@
 //! Timing tasks by hand: start and stop the one timer.
 
+use std::fmt;
+
 use crate::{
     Res,
     core::Core,
     model::{
         id::NodeId,
+        node::Node,
         sessions::{Session, SessionSource, SessionStore, TaskRef},
-        task::TaskStatus,
         time::Time,
     },
 };
 
+/// `start` on a done task (the task's name). A type of its own, so the TUI
+/// and the CLI can add how to reopen it there.
+#[derive(Debug)]
+pub struct IsDone(pub String);
+
+impl fmt::Display for IsDone {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} is done", self.0)
+    }
+}
+
+impl std::error::Error for IsDone {}
+
 impl Core {
     /// Start timing the task at `path` at `at` (a running one is stopped
-    /// first) and mark it in progress. The session comes first: a failed
-    /// status write never loses recorded time. Callers pass `time::now()`.
+    /// first). The session itself makes the task "started". A done task is
+    /// refused: reopen it first. Callers pass `time::now()`.
     pub async fn start(&mut self, path: &[usize], at: Time) -> Res<Session> {
         let task = self.task_ref(path)?;
-        let session = self
+        if self
+            .tree
+            .get(path)
+            .and_then(Node::as_task)
+            .is_some_and(|t| t.done_at.is_some())
+        {
+            return Err(IsDone(task.name).into());
+        }
+        Ok(self
             .storage
             .sessions
             .start(task, SessionSource::Manual, at)
-            .await?;
-        self.tree
-            .set_task_status(path, TaskStatus::InProgress)
-            .await?;
-        Ok(session)
+            .await?)
     }
 
     /// What a session on the task at `path` remembers of it. Not a task
@@ -57,18 +76,10 @@ impl Core {
 mod tests {
     use crate::{
         core::Core,
-        model::{
-            node::Node,
-            sessions::{Session, SessionQuery, SessionStore},
-            task::TaskStatus,
-            tree::Tree,
-        },
+        core::IsDone,
+        model::sessions::{Session, SessionQuery, SessionStore},
         test_util::{at, core},
     };
-
-    fn status(tree: &Tree, path: &[usize]) -> TaskStatus {
-        tree.get(path).and_then(Node::as_task).unwrap().status
-    }
 
     async fn all(core: &Core) -> Vec<Session> {
         core.sessions()
@@ -78,7 +89,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn start_times_the_task_and_marks_it_in_progress() {
+    async fn start_times_the_task() {
         let (tmp, mut core) = core().await;
 
         let session = core.start(&[1, 0], at(14, 0)).await.unwrap();
@@ -88,17 +99,18 @@ mod tests {
         assert_eq!(session.task.container_dir, tmp.path().join("ws"));
         assert_eq!(session.start, at(14, 0));
         assert_eq!(core.sessions().running().await.unwrap(), Some(session));
-        assert_eq!(status(core.tree(), &[1, 0]), TaskStatus::InProgress);
     }
 
     #[tokio::test]
-    async fn the_status_is_saved() {
-        let (tmp, mut core) = core().await;
+    async fn a_done_task_is_refused() {
+        let (_tmp, mut core) = core().await;
+        core.set_done(&[0], true, at(13, 0)).await.unwrap();
 
-        core.start(&[0], at(14, 0)).await.unwrap();
+        let err = core.start(&[0], at(14, 0)).await.unwrap_err();
 
-        let reloaded = Tree::load_from(tmp.path()).await.unwrap();
-        assert_eq!(status(&reloaded, &[0]), TaskStatus::InProgress);
+        assert_eq!(err.to_string(), "a is done");
+        assert!(err.downcast_ref::<IsDone>().is_some());
+        assert!(all(&core).await.is_empty());
     }
 
     /// A task directly in the root: the root is its container.
@@ -122,8 +134,6 @@ mod tests {
         assert_eq!(core.sessions().running().await.unwrap(), Some(second));
         let first = all(&core).await.into_iter().find(|s| s.id == first.id);
         assert_eq!(first.unwrap().end, Some(at(15, 0)));
-        // stopped, not finished: it stays in progress
-        assert_eq!(status(core.tree(), &[0]), TaskStatus::InProgress);
     }
 
     #[tokio::test]
@@ -143,20 +153,6 @@ mod tests {
 
         assert!(core.start(&[7], at(14, 0)).await.is_err());
         assert!(all(&core).await.is_empty());
-    }
-
-    /// The session comes first: a start the store refuses leaves the status
-    /// alone.
-    #[tokio::test]
-    async fn a_refused_start_keeps_the_status() {
-        let (_tmp, mut core) = core().await;
-        core.start(&[0], at(14, 0)).await.unwrap();
-        core.stop(at(15, 0)).await.unwrap();
-
-        let inside = core.start(&[1, 0], at(14, 30)).await;
-
-        assert!(inside.is_err()); // over the recorded 14:00-15:00
-        assert_eq!(status(core.tree(), &[1, 0]), TaskStatus::Pending);
     }
 
     #[tokio::test]

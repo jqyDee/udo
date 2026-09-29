@@ -30,7 +30,8 @@ pub struct ShowArgs {
     pub node: Option<String>,
 }
 
-/// One node in detail. Containers have `kind`, tasks `status` + `due`.
+/// One node in detail. Containers have `kind`, tasks `status`, `due` and
+/// `overdue`.
 #[derive(Serialize)]
 pub struct Shown {
     pub path: String,
@@ -41,6 +42,8 @@ pub struct Shown {
     pub status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub due: Option<Time>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overdue: Option<bool>,
     pub dir: Option<PathBuf>,
     pub description: Option<String>,
     /// Whole minutes over all sessions, a running one up to now.
@@ -74,9 +77,13 @@ pub async fn run(core: &Core, cwd: &Path, now: Time, args: &ShowArgs) -> Res<Sho
     let minutes = sessions.iter().map(|s| s.duration(now).get()).sum();
     let running = sessions.iter().any(|s| s.end.is_none());
 
-    let (kind, status, due) = match &node.body {
-        NodeBody::Container(c) => (Some(c.kind.to_string()), None, None),
-        NodeBody::Task(t) => (None, Some(t.status.to_string()), Some(t.due_date)),
+    let (kind, status, due, overdue) = match &node.body {
+        NodeBody::Container(c) => (Some(c.kind.to_string()), None, None, None),
+        NodeBody::Task(t) => {
+            let with_sessions = core.tasks_with_sessions().await?;
+            let status = t.status(with_sessions.contains(&node.id()));
+            (None, Some(status.to_string()), Some(t.due_date), Some(t.is_overdue(now)))
+        }
     };
     Ok(Shown {
         path: path_text(tree, &path),
@@ -84,6 +91,7 @@ pub async fn run(core: &Core, cwd: &Path, now: Time, args: &ShowArgs) -> Res<Sho
         kind,
         status,
         due,
+        overdue,
         dir: node.dir().map(Path::to_path_buf),
         description: node.header.description.clone(),
         minutes,
@@ -106,7 +114,13 @@ impl fmt::Display for Shown {
             line(f, "status", status)?;
         }
         if let Some(due) = &self.due {
-            line(f, "due", &due.with_timezone(&Local).format(DATE_FMT))?;
+            let overdue = if self.overdue == Some(true) {
+                " (overdue)"
+            } else {
+                ""
+            };
+            let due = format!("{}{overdue}", due.with_timezone(&Local).format(DATE_FMT));
+            line(f, "due", &due)?;
         }
         if let Some(dir) = &self.dir {
             line(f, "folder", &dir.display())?;
@@ -132,7 +146,10 @@ impl Report for Shown {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_util::{at, core}; // core: disk_tree, root: [a, ws: [b]]
+    use crate::{
+        cli::report::render,
+        test_util::{at, core, local}, // core: disk_tree, root: [a, ws: [b]]
+    };
 
     fn named(node: &str) -> ShowArgs {
         ShowArgs {
@@ -152,7 +169,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(shown.path, "ws/b");
-        assert_eq!(shown.status.as_deref(), Some("in progress"));
+        assert_eq!(shown.status.as_deref(), Some("started"));
         assert_eq!((shown.minutes, shown.sessions, shown.running), (72, 2, true));
     }
 
@@ -175,6 +192,35 @@ mod tests {
         assert_eq!((root.minutes, root.sessions), (60, 2));
     }
 
+    /// Past due and not done: overdue, in the JSON too. Done: not overdue.
+    #[tokio::test]
+    async fn a_task_past_due_is_overdue_until_done() {
+        let (tmp, mut core) = core().await;
+        let due = core.tree().get(&[0]).unwrap().as_task().unwrap().due_date;
+        let later = due + chrono::TimeDelta::minutes(1);
+
+        let shown = run(&core, tmp.path(), later, &named("a")).await.unwrap();
+        assert_eq!((shown.status.as_deref(), shown.overdue), (Some("to do"), Some(true)));
+        let json: serde_json::Value = serde_json::from_str(&render(&shown, true).unwrap()).unwrap();
+        assert_eq!(json["overdue"], true);
+
+        core.set_done(&[0], true, later).await.unwrap();
+        let shown = run(&core, tmp.path(), later, &named("a")).await.unwrap();
+        assert_eq!((shown.status.as_deref(), shown.overdue), (Some("done"), Some(false)));
+    }
+
+    #[tokio::test]
+    async fn a_container_has_no_overdue() {
+        let (tmp, core) = core().await;
+
+        let shown = run(&core, tmp.path(), at(12, 0), &named("ws"))
+            .await
+            .unwrap();
+
+        let json: serde_json::Value = serde_json::from_str(&render(&shown, true).unwrap()).unwrap();
+        assert!(json.get("overdue").is_none());
+    }
+
     #[test]
     fn text_has_one_labelled_line_per_field() {
         let shown = Shown {
@@ -183,6 +229,7 @@ mod tests {
             kind: None,
             status: Some("to do".into()),
             due: None,
+            overdue: None,
             dir: Some(PathBuf::from("/uni/lab_3")),
             description: Some("sheet 3".into()),
             minutes: 72,
@@ -198,6 +245,30 @@ mod tests {
              folder:      /uni/lab_3\n\
              description: sheet 3\n\
              tracked:     1h12 in 1 session, running"
+        );
+    }
+
+    #[test]
+    fn an_overdue_due_line_says_so() {
+        let shown = Shown {
+            path: "lab 3".into(),
+            name: "lab 3".into(),
+            kind: None,
+            status: Some("started".into()),
+            due: Some(local(22, 0)),
+            overdue: Some(true),
+            dir: None,
+            description: None,
+            minutes: 0,
+            sessions: 0,
+            running: false,
+        };
+
+        assert!(
+            shown
+                .to_string()
+                .contains("\ndue:         2026-10-15 22:00 (overdue)\n"),
+            "{shown}"
         );
     }
 }

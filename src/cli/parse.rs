@@ -6,30 +6,9 @@ use crate::{
     DATE_FMT, Res,
     model::{
         container::ContainerKind,
-        task::TaskStatus,
         time::{DeadlineRule, Minutes, Time, local_to_fixed},
     },
 };
-
-/// `udo mark STATUS`: the statuses as they are typed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub enum StatusArg {
-    Todo,
-    InProgress,
-    Stale,
-    Done,
-}
-
-impl From<StatusArg> for TaskStatus {
-    fn from(arg: StatusArg) -> Self {
-        match arg {
-            StatusArg::Todo => Self::Pending,
-            StatusArg::InProgress => Self::InProgress,
-            StatusArg::Stale => Self::Stale,
-            StatusArg::Done => Self::Finished,
-        }
-    }
-}
 
 /// `udo edit --kind`: the kinds a container can be changed to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]

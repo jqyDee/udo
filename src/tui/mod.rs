@@ -24,6 +24,7 @@ use ratatui::DefaultTerminal;
 use crate::{
     Res,
     core::Core,
+    model::time,
     tui::{
         app::{App, Flow},
         tree_state::TreeState,
@@ -35,6 +36,7 @@ use crate::{
 pub async fn run(core: &mut Core) -> Res<()> {
     let tree_state = TreeState::load(core.tree()).await;
     let mut app = App::new(core, tree_state);
+    app.reload().await;
     let mut terminal = ratatui::init();
     let result = event_loop(&mut terminal, &mut app).await;
     ratatui::restore(); // always, even if the loop failed
@@ -46,7 +48,7 @@ pub async fn run(core: &mut Core) -> Res<()> {
 async fn event_loop(terminal: &mut DefaultTerminal, app: &mut App<'_>) -> Res<()> {
     let mut events = EventStream::new();
     loop {
-        terminal.draw(|f| view::draw(f, app))?;
+        terminal.draw(|f| view::draw(f, app, time::now()))?;
         match next_wake(&mut events, app.toast_deadline()).await {
             Wake::Closed => return Ok(()),
             Wake::Timeout => app.expire_toast(Instant::now()),

@@ -7,7 +7,7 @@ use serde::Serialize;
 use crate::cli::{report::Report, resolve::resolve};
 use crate::{
     Res,
-    core::Core,
+    core::{Core, IsDone},
     model::{
         sessions::{Session, SessionStore},
         time::{Minutes, Time},
@@ -74,7 +74,13 @@ pub struct Status {
 /// Start timing `args.node` at `now` (a running session is stopped first).
 pub async fn start(core: &mut Core, cwd: &Path, now: Time, args: &StartArgs) -> Res<Started> {
     let path = resolve(core.tree(), args.node.as_deref(), cwd)?;
-    let session = core.start(&path, now).await?;
+    let session = core
+        .start(&path, now)
+        .await
+        .map_err(|e| match e.downcast_ref::<IsDone>() {
+            Some(done) => format!("{done}: use udo done --undo").into(),
+            None => e,
+        })?;
     Ok(Started(SessionLine::of(&session, now)))
 }
 
@@ -150,6 +156,17 @@ mod tests {
 
         assert_eq!(started.to_string(), "running: b (0m)");
         assert_eq!(later.to_string(), "running: b (1h12)");
+    }
+
+    #[tokio::test]
+    async fn a_done_task_says_how_to_reopen_it() {
+        let (tmp, mut core) = core().await;
+        core.set_done(&[1, 0], true, at(13, 0)).await.unwrap();
+
+        let result = start(&mut core, tmp.path(), at(14, 0), &named("b")).await;
+
+        let err = result.err().expect("started a done task");
+        assert_eq!(err.to_string(), "b is done: use udo done --undo");
     }
 
     /// No argument: the node of the current folder ("ws" here, which is a

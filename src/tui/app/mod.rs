@@ -13,7 +13,7 @@ mod forms;
 #[cfg(test)]
 mod tests;
 
-use std::time::Instant;
+use std::{collections::HashSet, time::Instant};
 
 use crossterm::event::{KeyEvent, KeyEventKind};
 
@@ -22,7 +22,8 @@ pub use confirm::{Confirm, ConfirmStage, PurgeOption};
 use crate::{
     core::Core,
     model::{
-        task::TaskStatus,
+        id::NodeId,
+        node::Node,
         time,
         tree::{TrashFn, system_trash},
     },
@@ -70,11 +71,15 @@ pub struct App<'a> {
     /// How a full delete moves folders away: `system_trash`; tests swap in
     /// a fake so they never touch the real Trash.
     pub trash: TrashFn,
+    /// Tasks with sessions ("started" when not done), reloaded after every
+    /// key (`reload`).
+    pub with_sessions: HashSet<NodeId>,
 }
 
 impl<'a> App<'a> {
     /// Starts on `tree_state`'s cursor (`[]` = the root row).
-    /// `TreeState::load` picks where a fresh start begins.
+    /// `TreeState::load` picks where a fresh start begins. Call `reload`
+    /// before the first draw.
     pub fn new(core: &'a mut Core, tree_state: TreeState) -> Self {
         Self {
             core,
@@ -83,14 +88,30 @@ impl<'a> App<'a> {
             details_tab: DetailsTab::default(),
             toast: None,
             trash: system_trash,
+            with_sessions: HashSet::new(),
         }
     }
 
-    /// Handle one key according to the current mode.
+    /// Read again what the views need from the stores. A failed read keeps
+    /// the old values and says so.
+    pub async fn reload(&mut self) {
+        match self.core.tasks_with_sessions().await {
+            Ok(with_sessions) => self.with_sessions = with_sessions,
+            Err(e) => self.error(e.to_string()),
+        }
+    }
+
+    /// Handle one key according to the current mode, then `reload`.
     pub async fn handle_key(&mut self, key: KeyEvent) -> Flow {
         if key.kind != KeyEventKind::Press {
             return Flow::Continue;
         }
+        let flow = self.dispatch(key).await;
+        self.reload().await;
+        flow
+    }
+
+    async fn dispatch(&mut self, key: KeyEvent) -> Flow {
         match self.mode {
             Mode::Help => {
                 self.mode = Mode::Normal; // any key closes the help
@@ -118,7 +139,7 @@ impl<'a> App<'a> {
             Action::Toggle => self.tree_state.toggle_collapse(self.core.tree()),
             Action::CollapseAll => self.tree_state.collapse_all(self.core.tree()),
             Action::ExpandAll => self.tree_state.expand_all(),
-            Action::SetStatus(status) => self.set_status(status).await,
+            Action::ToggleDone => self.toggle_done().await,
             Action::Edit => match self.details_tab {
                 DetailsTab::Info => self.open_edit_form(),
                 DetailsTab::Settings => self.open_settings_form(),
@@ -132,11 +153,24 @@ impl<'a> App<'a> {
         Flow::Continue
     }
 
-    async fn set_status(&mut self, status: TaskStatus) {
+    /// Done -> reopened (to do / started), else done. Not a task: error.
+    async fn toggle_done(&mut self) {
         let path = self.tree_state.cursor.clone();
-        match self.core.set_status(&path, status, time::now()).await {
+        let done = self
+            .core
+            .tree()
+            .get(&path)
+            .and_then(Node::as_task)
+            .is_some_and(|t| t.done_at.is_some());
+        match self.core.set_done(&path, !done, time::now()).await {
             Ok(stopped) => {
-                let name = self.core.tree().get(&path).map_or("", |n| n.name());
+                // set_done succeeded: a task
+                let node = self.core.tree().get(&path);
+                let status = node
+                    .and_then(|n| Some((n, n.as_task()?)))
+                    .map(|(n, t)| t.status(self.with_sessions.contains(&n.id())).to_string());
+                let name = node.map_or("", |n| n.name());
+                let status = status.unwrap_or_default();
                 self.info(format!("{name} -> {status}{}", timer_note(stopped.is_some())));
             }
             Err(e) => self.error(e.to_string()),

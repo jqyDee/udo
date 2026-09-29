@@ -16,10 +16,10 @@ use crate::{
         task::{Task, TaskStatus},
         tree::{Row, Tree},
     },
-    tui::tree_state::TreeState,
+    tui::{tree_state::TreeState, view::TaskInfo},
 };
 
-pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree, state: &mut TreeState) {
+pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree, state: &mut TreeState, info: &TaskInfo) {
     let rows = state.rows(tree);
     state
         .list
@@ -27,7 +27,7 @@ pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree, state: &mut TreeState) {
 
     let mut lines: Vec<Line> = rows
         .iter()
-        .map(|r| row_line(r, state.is_collapsed(r.node)))
+        .map(|r| row_line(r, state.is_collapsed(r.node), info))
         .collect();
     // only the root row: say how to start (after the rows, so list indexes
     // still match `rows`)
@@ -40,7 +40,7 @@ pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree, state: &mut TreeState) {
     frame.render_stateful_widget(list_widget, area, &mut state.list);
 }
 
-fn row_line<'a>(row: &Row<'a>, folded: bool) -> Line<'a> {
+fn row_line<'a>(row: &Row<'a>, folded: bool, info: &TaskInfo) -> Line<'a> {
     let name = row.node.name();
     // the root: a header row, not a sibling of its children
     if row.path.is_empty() {
@@ -64,31 +64,36 @@ fn row_line<'a>(row: &Row<'a>, folded: bool) -> Line<'a> {
                 Span::raw(format!("{name}/")).bold(),
             ])
         }
-        NodeBody::Task(t) => Line::from(vec![
-            indent,
-            Span::raw(format!("{} ", status_icon(&t.status))),
-            task_name(name, t),
-            // shown in the current local time (same as entered in the form)
-            Span::raw("  "),
-            Span::raw(format!("{}", t.due_date.with_timezone(&Local).format(DATE_FMT))).dim(),
-        ]),
+        NodeBody::Task(t) => {
+            let status = info.status(row.node, t);
+            Line::from(vec![
+                indent,
+                Span::raw(format!("{} ", status_icon(status))),
+                task_name(name, t, status, info),
+                // shown in the current local time (same as entered in the form)
+                Span::raw("  "),
+                Span::raw(format!("{}", t.due_date.with_timezone(&Local).format(DATE_FMT))).dim(),
+            ])
+        }
     }
 }
 
-fn task_name<'a>(name: &'a str, t: &Task) -> Span<'a> {
+/// Done: dimmed + crossed out; overdue: red (a done task is never overdue).
+fn task_name<'a>(name: &'a str, t: &Task, status: TaskStatus, info: &TaskInfo) -> Span<'a> {
     let name = Span::raw(name);
-    match t.status {
-        TaskStatus::Finished => name.dim().crossed_out(),
-        TaskStatus::Stale => name.red(),
-        _ => name,
+    if status == TaskStatus::Done {
+        name.dim().crossed_out()
+    } else if t.is_overdue(info.now) {
+        name.red()
+    } else {
+        name
     }
 }
 
-fn status_icon(s: &TaskStatus) -> &'static str {
+fn status_icon(s: TaskStatus) -> &'static str {
     match s {
-        TaskStatus::Pending => "○",
-        TaskStatus::InProgress => "◐",
-        TaskStatus::Finished => "●",
-        TaskStatus::Stale => "!",
+        TaskStatus::ToDo => "○",
+        TaskStatus::Started => "◐",
+        TaskStatus::Done => "●",
     }
 }
