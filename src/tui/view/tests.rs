@@ -2,6 +2,7 @@ use ratatui::{
     Terminal,
     backend::TestBackend,
     buffer::Buffer,
+    layout::Rect,
     style::{Color, Modifier},
 };
 
@@ -329,7 +330,7 @@ fn tabs_tree() -> Tree {
 }
 
 #[test]
-fn details_title_names_both_tabs() {
+fn details_title_names_every_tab() {
     let t = tabs_tree();
     let screen = render(&mut test_app(t, state_at(&[0, 0, 0])));
     for tab in DetailsTab::ALL {
@@ -371,6 +372,39 @@ fn settings_form_on(app: &mut App, key: &str) {
         Form::edit_settings(vec![0], "uni", &ContainerSettings::default(), |_| String::new(), None);
     form.active_field = SETTINGS.iter().position(|i| i.key == key).unwrap();
     app.mode = Mode::Form(Box::new(form));
+}
+
+// ---------- sessions tab: page length ----------
+
+#[test]
+fn page_len_leaves_room_for_borders_header_and_page_line() {
+    assert_eq!(details::page_len(Rect::new(0, 0, 50, 20)), 15);
+    assert_eq!(details::page_len(Rect::new(0, 0, 50, 3)), 1); // never 0
+}
+
+/// Screen height minus the bottom line (1), the details borders and header
+/// (4) and the page line (1).
+#[test]
+fn page_len_follows_the_terminal_height() {
+    let mut app = test_app(tree_with(vec![task("exam")]), state_at(&[0]));
+
+    render_rows_sized(&mut app, 80, 24);
+    assert_eq!(app.session_list.page_len, 24 - 6);
+
+    render_rows_sized(&mut app, 80, 40);
+    assert_eq!(app.session_list.page_len, 40 - 6);
+}
+
+#[test]
+fn an_open_form_leaves_less_room() {
+    let mut app = test_app(tabs_tree(), state_at(&[0]));
+    render_rows(&mut app);
+    let full = app.session_list.page_len;
+
+    settings_form_on(&mut app, "estimate");
+    render_rows(&mut app);
+
+    assert!(app.session_list.page_len < full, "{} vs {full}", app.session_list.page_len);
 }
 
 #[test]

@@ -3,15 +3,17 @@ pub enum DetailsTab {
     #[default]
     Info,
     Settings,
+    Sessions,
 }
 
 impl DetailsTab {
-    pub const ALL: [Self; 2] = [Self::Info, Self::Settings];
+    pub const ALL: [Self; 3] = [Self::Info, Self::Settings, Self::Sessions];
 
     pub fn title(self) -> &'static str {
         match self {
             Self::Info => "details",
             Self::Settings => "settings",
+            Self::Sessions => "sessions",
         }
     }
 

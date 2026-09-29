@@ -21,7 +21,7 @@ use crate::{
     },
     tui::{
         app::details::DetailsTab,
-        view::{LABEL_WIDTH, TaskInfo},
+        view::{LABEL_WIDTH, ViewInfo},
     },
 };
 
@@ -35,7 +35,7 @@ pub fn draw(
     node: Option<&Node>,
     tab: DetailsTab,
     settings: &[EffectiveSetting],
-    info: &TaskInfo,
+    info: &ViewInfo,
 ) {
     let mut lines = header_lines(node);
     lines.extend(match tab {
@@ -43,18 +43,33 @@ pub fn draw(
             .map(|n| detail_lines(tree, n, info))
             .unwrap_or_default(),
         DetailsTab::Settings => setting_lines(tree, settings),
+        DetailsTab::Sessions => Vec::new(), // the rows: stage 2, step 4
     });
-    let titles: Vec<Span> = DetailsTab::ALL
-        .iter()
-        .map(|t| {
-            let s = Span::raw(format!(" {} ", t.title()));
-            if *t == tab { s.reversed() } else { s.dim() }
-        })
-        .collect();
+    let mut titles: Vec<Span> = Vec::new();
+    for (i, t) in DetailsTab::ALL.iter().enumerate() {
+        if i > 0 {
+            titles.push(Span::raw("│").dim());
+        }
+        let spacer = Span::raw(" ");
+        let s = Span::raw(format!("{}", t.title()));
+        titles.push(spacer.clone());
+        titles.push(if *t == tab { s.reversed() } else { s.dim() });
+        titles.push(spacer);
+    }
     frame.render_widget(
         Paragraph::new(lines).block(Block::bordered().title(Line::from(titles))),
         area,
     );
+}
+
+/// Lines of a details tab around its content: top + bottom border, and the
+/// header (`header_lines`: name + blank line).
+const CHROME: u16 = 2 + 2;
+
+/// How many session rows the sessions tab has room for in `area` (one line
+/// is kept for `page x/y`). At least 1, so paging never divides by 0.
+pub fn page_len(area: Rect) -> usize {
+    area.height.saturating_sub(CHROME + 1).max(1) as usize
 }
 
 /// Top of every tab: the node's name, then a blank line.
@@ -66,7 +81,7 @@ fn header_lines(node: Option<&Node>) -> Vec<Line<'_>> {
 }
 
 /// Info tab: the node's own fields (below the shared header).
-fn detail_lines<'a>(tree: &Tree, node: &'a Node, info: &TaskInfo) -> Vec<Line<'a>> {
+fn detail_lines<'a>(tree: &Tree, node: &'a Node, info: &ViewInfo) -> Vec<Line<'a>> {
     let kind = match node.body {
         NodeBody::Container(_) => "container",
         NodeBody::Task(_) => "task",
@@ -157,7 +172,7 @@ fn setting_lines(tree: &Tree, settings: &[EffectiveSetting]) -> Vec<Line<'static
 }
 
 /// Estimate, duration and what is left (tasks); only duration (containers).
-fn time_lines(tree: &Tree, node: &Node, info: &TaskInfo) -> Vec<Line<'static>> {
+fn time_lines(tree: &Tree, node: &Node, info: &ViewInfo) -> Vec<Line<'static>> {
     let time = TimeSummary::of(info.sessions, info.now);
     let duration = field("duration", time.to_string());
     let Some(task) = node.as_task() else {

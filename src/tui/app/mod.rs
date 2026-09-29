@@ -34,6 +34,7 @@ use crate::{
         app::details::DetailsTab,
         form::Form,
         keys::{Action, action_for},
+        session_list::SessionList,
         toast::Toast,
         tree_state::TreeState,
     },
@@ -81,8 +82,11 @@ pub struct App<'a> {
     /// tick (`reload`).
     pub running: Option<Session>,
     /// Sessions of the node at the cursor (a container: of every task below
-    /// it), oldest first; for the details time rows. Reloaded with the rest.
+    /// it), oldest first; for the details time rows and the sessions tab.
+    /// Reloaded with the rest.
     pub sessions: Vec<Session>,
+    /// Page of the sessions tab; `page_len` is set by every draw.
+    pub session_list: SessionList,
 }
 
 impl<'a> App<'a> {
@@ -100,6 +104,7 @@ impl<'a> App<'a> {
             with_sessions: HashSet::new(),
             running: None,
             sessions: Vec::new(),
+            session_list: SessionList::default(),
         }
     }
 
@@ -162,6 +167,7 @@ impl<'a> App<'a> {
             Action::Edit => match self.details_tab {
                 DetailsTab::Info => self.open_edit_form(),
                 DetailsTab::Settings => self.open_settings_form(),
+                DetailsTab::Sessions => {} // stage 3: moves the cursor into the list
             },
             Action::Delete => self.ask_delete(),
             Action::ToggleTimer => self.toggle_timer().await,

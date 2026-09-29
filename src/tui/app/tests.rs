@@ -162,9 +162,11 @@ async fn tab_keys_switch_the_details_tab() {
     app.handle_key(press(KeyCode::Tab)).await;
     assert_eq!(app.details_tab, DetailsTab::Settings);
     app.handle_key(press(KeyCode::Tab)).await;
+    assert_eq!(app.details_tab, DetailsTab::Sessions);
+    app.handle_key(press(KeyCode::Tab)).await;
     assert_eq!(app.details_tab, DetailsTab::Info); // wraps
     app.handle_key(press(KeyCode::BackTab)).await;
-    assert_eq!(app.details_tab, DetailsTab::Settings);
+    assert_eq!(app.details_tab, DetailsTab::Sessions); // wraps back
 
     assert_eq!(app.tree_state.cursor, vec![0]); // the tree is untouched
     assert!(app.toast.is_none());

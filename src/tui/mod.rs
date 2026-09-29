@@ -2,6 +2,8 @@
 //!
 //! - `app`:   state + key handling (tested without a terminal)
 //! - `keys`:  key -> action table
+//! - `session_list`: page of the sessions tab
+//! - `tick`:  when the loop wakes up without a key (timer, changes elsewhere)
 //! - `toast`: expiring messages
 //! - `tree_state`: cursor + folding of the tree pane
 //! - `view`:  drawing
@@ -11,6 +13,7 @@
 pub mod app;
 pub mod form;
 pub mod keys;
+pub mod session_list;
 pub mod tick;
 pub mod toast;
 pub mod tree_state;

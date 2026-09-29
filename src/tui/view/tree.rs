@@ -16,10 +16,10 @@ use crate::{
         task::{Task, TaskStatus},
         tree::{Row, Tree},
     },
-    tui::{tree_state::TreeState, view::TaskInfo},
+    tui::{tree_state::TreeState, view::ViewInfo},
 };
 
-pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree, state: &mut TreeState, info: &TaskInfo) {
+pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree, state: &mut TreeState, info: &ViewInfo) {
     let rows = state.rows(tree);
     state
         .list
@@ -40,7 +40,7 @@ pub fn draw(frame: &mut Frame, area: Rect, tree: &Tree, state: &mut TreeState, i
     frame.render_stateful_widget(list_widget, area, &mut state.list);
 }
 
-fn row_line<'a>(row: &Row<'a>, folded: bool, info: &TaskInfo) -> Line<'a> {
+fn row_line<'a>(row: &Row<'a>, folded: bool, info: &ViewInfo) -> Line<'a> {
     let name = row.node.name();
     // the root: a header row, not a sibling of its children
     if row.path.is_empty() {
@@ -82,7 +82,7 @@ fn row_line<'a>(row: &Row<'a>, folded: bool, info: &TaskInfo) -> Line<'a> {
 }
 
 /// Done: dimmed + crossed out; overdue: red (a done task is never overdue).
-fn task_name<'a>(name: &'a str, t: &Task, status: TaskStatus, info: &TaskInfo) -> Span<'a> {
+fn task_name<'a>(name: &'a str, t: &Task, status: TaskStatus, info: &ViewInfo) -> Span<'a> {
     let name = Span::raw(name);
     if status == TaskStatus::Done {
         name.dim().crossed_out()
