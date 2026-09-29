@@ -8,11 +8,14 @@ use ratatui::{
 
 use std::path::PathBuf;
 
+use chrono::{Local, TimeDelta};
+
 use super::*;
 use crate::{
     model::{
         id::NodeId,
         node::{Node, NodeBody},
+        sessions::SessionPatch,
         settings::{ContainerSettings, view::SETTINGS},
         task::Task,
         time::{DeadlineRule, Minutes, Time},
@@ -765,4 +768,161 @@ fn help_overlay_switches_to_two_columns_when_short() {
         })
         .collect();
     assert!(cols.iter().any(|&c| c != cols[0]), "still one column: {cols:?}");
+}
+
+// ---------- sessions tab: rows ----------
+
+/// App on the sessions tab with the cursor on `cursor`, `n` sessions on
+/// "lab" ([0, 0]) of `estimate_tree` (root: [uni: [lab, sheet]]): 10
+/// minutes each, 20 minutes apart, from midnight.
+async fn sessions_tab(cursor: &[usize], n: i64) -> App<'static> {
+    let mut app = test_app(estimate_tree(None), state_at(cursor));
+    for i in 0..n {
+        let start = at(0, 0) + TimeDelta::minutes(i * 20);
+        app.core
+            .add_session(&[0, 0], start, start + TimeDelta::minutes(10))
+            .await
+            .unwrap();
+    }
+    app.reload().await;
+    app.details_tab = DetailsTab::Sessions;
+    app
+}
+
+/// The details pane's part of a screen row (between its two borders).
+fn pane(row: &str) -> &str {
+    row.rsplit('│').nth(1).unwrap_or("")
+}
+
+/// Session rows on screen, details pane only (only they have the `–` of a
+/// time range).
+fn session_rows(rows: &[String]) -> Vec<String> {
+    rows.iter()
+        .map(|r| pane(r).trim().to_string())
+        .filter(|r| r.contains('–'))
+        .collect()
+}
+
+/// `h:m` of `at(h, m)` in the local zone, as the rows show it.
+fn clock(h: u32, m: u32) -> String {
+    at(h, m).with_timezone(&Local).format("%H:%M").to_string()
+}
+
+#[tokio::test]
+async fn sessions_are_newest_first() {
+    let mut app = sessions_tab(&[0, 0], 3).await;
+
+    let rows = session_rows(&render_rows(&mut app));
+
+    assert_eq!(rows.len(), 3, "{rows:?}");
+    assert!(rows[0].contains(&format!("{}–{}", clock(0, 40), clock(0, 50))), "{rows:?}");
+    assert!(rows[2].contains(&format!("{}–{}", clock(0, 0), clock(0, 10))), "{rows:?}");
+}
+
+#[tokio::test]
+async fn a_running_session_shows_now() {
+    let mut app = sessions_tab(&[0, 0], 2).await;
+    app.core.start(&[0, 0], at(11, 0)).await.unwrap();
+    app.reload().await;
+
+    let rows = session_rows(&render_rows(&mut app));
+
+    assert!(rows[0].contains("–now") && rows[0].ends_with('▶'), "{rows:?}");
+    assert!(!rows[1].contains('▶'));
+}
+
+#[tokio::test]
+async fn an_edited_session_is_marked() {
+    let mut app = sessions_tab(&[0, 0], 2).await;
+    let oldest = app.sessions[0].id;
+    let patch = SessionPatch {
+        start: Some(at(0, 5)),
+        ..Default::default()
+    };
+    app.core.edit_session(oldest, patch).await.unwrap();
+    app.reload().await;
+
+    let rows = session_rows(&render_rows(&mut app));
+
+    assert!(rows[1].ends_with("edited"), "{rows:?}"); // the oldest: last row
+    assert!(!rows[0].contains("edited"));
+}
+
+#[tokio::test]
+async fn a_task_has_no_name_column() {
+    let mut app = sessions_tab(&[0, 0], 1).await;
+
+    let rows = session_rows(&render_rows(&mut app));
+
+    assert!(rows[0].starts_with("Thu 15.10"), "{rows:?}");
+}
+
+#[tokio::test]
+async fn a_container_names_the_task() {
+    let mut app = sessions_tab(&[0], 1).await; // "lab" at 00:00-00:10
+    app.core
+        .add_session(&[0, 1], at(1, 0), at(1, 30))
+        .await
+        .unwrap();
+    app.reload().await;
+
+    let rows = session_rows(&render_rows(&mut app));
+
+    assert!(rows[0].starts_with("sheet  "), "{rows:?}"); // newest first
+    assert!(rows[1].starts_with("lab    "), "{rows:?}"); // padded to "sheet"
+}
+
+#[tokio::test]
+async fn a_long_task_name_is_cut() {
+    let t = tree_with(vec![container("uni", vec![task("a very long task name here")])]);
+    let mut app = test_app(t, state_at(&[0]));
+    app.core
+        .add_session(&[0, 0], at(9, 0), at(10, 0))
+        .await
+        .unwrap();
+    app.reload().await;
+    app.details_tab = DetailsTab::Sessions;
+
+    let rows = session_rows(&render_rows(&mut app));
+
+    assert!(rows[0].starts_with("a very long tas…  "), "{rows:?}"); // 16 columns
+}
+
+#[tokio::test]
+async fn no_sessions_says_so() {
+    let mut app = sessions_tab(&[0, 0], 0).await;
+
+    let screen = render(&mut app);
+
+    assert!(screen.contains("no session recorded yet"), "{screen}");
+}
+
+#[tokio::test]
+async fn one_page_has_no_page_line() {
+    let mut app = sessions_tab(&[0, 0], 2).await;
+
+    assert!(!render(&mut app).contains("page "));
+}
+
+#[tokio::test]
+async fn many_sessions_are_paged() {
+    let mut app = sessions_tab(&[0, 0], 30).await;
+
+    let rows = render_rows(&mut app); // 24 rows: page_len 18
+
+    assert_eq!(session_rows(&rows).len(), app.session_list.page_len);
+    assert!(rows.concat().contains("page 1/2"));
+}
+
+/// The short last page is filled up: the page line does not move.
+#[tokio::test]
+async fn the_page_line_stays_at_the_bottom() {
+    let mut app = sessions_tab(&[0, 0], 30).await;
+    let first = find(&render_rows(&mut app), "page 1/2").unwrap();
+
+    app.session_list.page = 1; // 12 of 18 rows
+    let rows = render_rows(&mut app);
+
+    assert_eq!(session_rows(&rows).len(), 12);
+    assert_eq!(find(&rows, "page 2/2").unwrap(), first);
 }

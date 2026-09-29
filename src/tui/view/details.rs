@@ -14,9 +14,9 @@ use crate::{
     DATE_FMT,
     model::{
         node::{Node, NodeBody},
-        sessions::TimeSummary,
+        sessions::{Session, SessionSource, TimeSummary},
         settings::view::EffectiveSetting,
-        time::Left,
+        time::{Left, Time},
         tree::Tree,
     },
     tui::{
@@ -43,7 +43,7 @@ pub fn draw(
             .map(|n| detail_lines(tree, n, info))
             .unwrap_or_default(),
         DetailsTab::Settings => setting_lines(tree, settings),
-        DetailsTab::Sessions => Vec::new(), // the rows: stage 2, step 4
+        DetailsTab::Sessions => node.map(|n| session_lines(n, info)).unwrap_or_default(),
     });
     let mut titles: Vec<Span> = Vec::new();
     for (i, t) in DetailsTab::ALL.iter().enumerate() {
@@ -51,7 +51,7 @@ pub fn draw(
             titles.push(Span::raw("│").dim());
         }
         let spacer = Span::raw(" ");
-        let s = Span::raw(format!("{}", t.title()));
+        let s = Span::raw(t.title());
         titles.push(spacer.clone());
         titles.push(if *t == tab { s.reversed() } else { s.dim() });
         titles.push(spacer);
@@ -65,6 +65,10 @@ pub fn draw(
 /// Lines of a details tab around its content: top + bottom border, and the
 /// header (`header_lines`: name + blank line).
 const CHROME: u16 = 2 + 2;
+
+/// Widest task name column in the sessions tab; longer names end in `…`,
+/// so the time columns stay visible in a narrow pane.
+const NAME_MAX: usize = 16;
 
 /// How many session rows the sessions tab has room for in `area` (one line
 /// is kept for `page x/y`). At least 1, so paging never divides by 0.
@@ -197,4 +201,79 @@ fn time_lines(tree: &Tree, node: &Node, info: &ViewInfo) -> Vec<Line<'static>> {
         );
     }
     lines
+}
+
+/// Sessions tab: the cursor node's sessions, newest first, one page (the
+/// page line only with several pages). A container: with the task name in
+/// front.
+fn session_lines(node: &Node, info: &ViewInfo) -> Vec<Line<'static>> {
+    if info.sessions.is_empty() {
+        return vec![Line::from("no session recorded yet").dim()];
+    }
+    let newest_first: Vec<&Session> = info.sessions.iter().rev().collect();
+    let list = info.session_list;
+    let page = &newest_first[list.range(newest_first.len())];
+
+    // container / root: a name column, as wide as the longest name on the page
+    let name_width = node.as_container().map(|_| {
+        page.iter()
+            .map(|s| s.task.name.chars().count())
+            .max()
+            .unwrap_or(0)
+            .min(NAME_MAX)
+    });
+    let mut lines: Vec<Line> = page
+        .iter()
+        .map(|s| session_row(s, name_width, info.now))
+        .collect();
+
+    let pages = list.pages(newest_first.len());
+    if pages > 1 {
+        // a short last page: blank rows, so the page line stays in place
+        lines.resize(list.page_len.max(lines.len()), Line::default());
+        let current = list.page.min(pages - 1) + 1; // same clamp as `range`
+        lines.push(
+            Line::from(format!("page {current}/{pages}"))
+                .dim()
+                .right_aligned(),
+        );
+    }
+    lines
+}
+
+/// `lab 3   Thu 15.10  14:00–15:12   1h12  edited`; running: `–now` + `▶`.
+fn session_row(s: &Session, name_width: Option<usize>, now: Time) -> Line<'static> {
+    let start = s.start.with_timezone(&Local);
+    let end = s
+        .end
+        .map_or_else(|| "now".to_string(), |e| e.with_timezone(&Local).format("%H:%M").to_string());
+    let mut spans = Vec::new();
+    if let Some(w) = name_width {
+        spans.push(Span::raw(format!("{:<w$}  ", fit(&s.task.name, w))));
+    }
+    spans.push(Span::raw(format!(
+        "{}  {}–{end:<5}  {:>5}",
+        start.format("%a"),
+        start.format(DATE_FMT),
+        s.duration(now).to_string(),
+    )));
+    if s.end.is_none() {
+        spans.push(Span::raw("  ▶").green());
+    }
+    if s.edited_at.is_some() {
+        spans.push(Span::raw("  edited").dim());
+    }
+    if s.source != SessionSource::Manual {
+        spans.push(Span::raw(format!("  {}", s.source)).dim());
+    }
+    Line::from(spans)
+}
+
+/// `name` cut to `width` characters, the last one `…` if it was longer.
+fn fit(name: &str, width: usize) -> String {
+    if name.chars().count() <= width {
+        return name.to_string();
+    }
+    let cut: String = name.chars().take(width.saturating_sub(1)).collect();
+    format!("{cut}…")
 }
