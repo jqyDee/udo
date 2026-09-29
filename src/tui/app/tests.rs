@@ -7,6 +7,7 @@ use crate::{
     model::{
         container::ContainerKind,
         node::Node,
+        sessions::{Session, SessionError, SessionId},
         settings::{TaskFolderSetting, view::SETTINGS},
         task::TaskStatus,
         time::DeadlineRule,
@@ -1057,15 +1058,9 @@ async fn tree_keys_do_nothing_in_the_list() {
     app.handle_key(key('e')).await;
     let selected = app.session_list.selected;
 
-    // (`j` `k` `h` `l` move in the list: see the moving tests)
-    for k in [
-        key('x'),
-        key('d'),
-        key('s'),
-        key('t'),
-        key('q'),
-        press(KeyCode::Tab),
-    ] {
+    // (`j` `k` `h` `l` move, `e` edits, `q` quits in the list too: see
+    // their tests)
+    for k in [key('x'), key('d'), key('s'), key('t'), press(KeyCode::Tab)] {
         app.handle_key(k).await;
     }
 
@@ -1092,12 +1087,11 @@ async fn e_on_a_later_page_selects_its_first_row() {
 }
 
 #[tokio::test]
-async fn q_does_not_quit_in_the_list() {
+async fn q_quits_from_the_list_too() {
     let mut app = list_app(3).await;
     app.handle_key(key('e')).await;
 
-    assert_eq!(app.handle_key(key('q')).await, Flow::Continue);
-    assert_eq!(app.mode, Mode::Sessions);
+    assert_eq!(app.handle_key(key('q')).await, Flow::Quit);
 }
 
 // ---------- moving in the list (7 sessions, 3 per page) ----------
@@ -1259,4 +1253,156 @@ async fn a_reload_on_the_same_node_keeps_the_page() {
     app.reload().await;
 
     assert_eq!(app.session_list.page, 2);
+}
+
+// ---------- the session form (`e` in the list) ----------
+// "now" is 20:00 on the test day: the sessions are in the past, tomorrow is
+// the future (the real clock would call the whole test day the future).
+
+/// `list_app(n)` with a fixed clock, in the list on the newest session,
+/// its form open.
+async fn session_form_app(n: i64) -> App<'static> {
+    let mut app = list_app(n).await;
+    app.clock = || at(20, 0);
+    app.handle_key(key('e')).await; // into the list
+    app.handle_key(key('e')).await; // the form
+    app
+}
+
+/// The session `id` as the store has it now.
+async fn stored(app: &App<'_>, id: SessionId) -> Session {
+    let all = app.core.sessions_of(&[]).await.unwrap();
+    all.into_iter().find(|s| s.id == id).expect("session gone")
+}
+
+/// The date field's minute segment (it starts on the day).
+async fn to_minute_segment(app: &mut App<'_>) {
+    app.handle_key(press(KeyCode::Right)).await; // hour
+    app.handle_key(press(KeyCode::Right)).await; // minute
+}
+
+#[tokio::test]
+async fn e_in_the_list_opens_the_session_form() {
+    let app = session_form_app(2).await;
+
+    let Mode::Form(form) = &app.mode else {
+        panic!("no form open: {:?}", app.mode);
+    };
+    let id = app.session_list.selected.unwrap();
+    assert_eq!(form.action, FormAction::EditSession { id });
+}
+
+#[tokio::test]
+async fn esc_in_the_session_form_goes_back_to_the_list() {
+    let mut app = session_form_app(2).await;
+    let selected = app.session_list.selected;
+
+    app.handle_key(press(KeyCode::Esc)).await;
+
+    assert_eq!(app.mode, Mode::Sessions);
+    assert_eq!(app.session_list.selected, selected);
+}
+
+/// 00:00-00:10, start one step (1 minute) later: saved, back in the list,
+/// the cursor still on it, the new times in the toast.
+#[tokio::test]
+async fn saving_a_changed_start_moves_the_session() {
+    let mut app = session_form_app(1).await;
+    let id = app.session_list.selected.unwrap();
+
+    to_minute_segment(&mut app).await;
+    app.handle_key(press(KeyCode::Up)).await;
+    app.handle_key(press(KeyCode::Enter)).await;
+
+    let s = stored(&app, id).await;
+    assert_eq!((s.start, s.end), (at(0, 1), Some(at(0, 10))));
+    assert!(s.edited_at.is_some());
+    assert_eq!(app.mode, Mode::Sessions);
+    assert_eq!(app.session_list.selected, Some(id));
+    let toast = app.toast.as_ref().expect("no toast");
+    assert_eq!(toast.kind, ToastKind::Info);
+    assert!(toast.msg.starts_with("a: ") && toast.msg.ends_with("(9m)"), "{}", toast.msg);
+}
+
+#[tokio::test]
+async fn saving_an_unchanged_form_is_no_edit() {
+    let mut app = session_form_app(1).await;
+    let id = app.session_list.selected.unwrap();
+
+    app.handle_key(press(KeyCode::Enter)).await;
+
+    assert_eq!(app.mode, Mode::Sessions);
+    assert_eq!(stored(&app, id).await.edited_at, None); // no `edited` marker
+    assert!(app.toast.is_none(), "{:?}", app.toast);
+}
+
+/// The end one day later is tomorrow: refused by `Core`, the form stays
+/// open, nothing saved.
+#[tokio::test]
+async fn a_future_end_is_refused_and_keeps_the_form() {
+    let mut app = session_form_app(1).await;
+    let id = app.session_list.selected.unwrap();
+    let before = stored(&app, id).await;
+
+    app.handle_key(press(KeyCode::Tab)).await; // end, on its day
+    app.handle_key(press(KeyCode::Up)).await; // tomorrow
+    app.handle_key(press(KeyCode::Enter)).await;
+
+    let toast = app.toast.as_ref().expect("no toast");
+    assert_eq!(toast.kind, ToastKind::Error);
+    assert!(toast.msg.contains("future"), "{}", toast.msg);
+    assert!(matches!(app.mode, Mode::Form(_)));
+    assert_eq!(stored(&app, id).await, before);
+}
+
+/// 00:00-00:10 and 00:20-00:30: the older end moved to 00:21 overlaps; the
+/// store's refusal as a toast, the form stays open.
+#[tokio::test]
+async fn an_overlap_is_refused_and_keeps_the_form() {
+    let mut app = list_app(2).await;
+    app.clock = || at(20, 0);
+    app.handle_key(key('e')).await; // list, on the newest
+    app.handle_key(key('j')).await; // the older one
+    app.handle_key(key('e')).await; // its form
+    let id = app.session_list.selected.unwrap();
+
+    app.handle_key(press(KeyCode::Tab)).await; // end
+    to_minute_segment(&mut app).await;
+    for _ in 0..11 {
+        app.handle_key(press(KeyCode::Up)).await; // 00:21
+    }
+    app.handle_key(press(KeyCode::Enter)).await;
+
+    let toast = app.toast.as_ref().expect("no toast");
+    assert_eq!(
+        (toast.kind, toast.msg.clone()),
+        (ToastKind::Error, SessionError::Overlap.to_string())
+    );
+    assert!(matches!(app.mode, Mode::Form(_)));
+    assert_eq!(stored(&app, id).await.end, Some(at(0, 10)));
+}
+
+/// A running session: only its start, moved a minute back; it keeps
+/// running.
+#[tokio::test]
+async fn a_running_session_only_moves_its_start() {
+    let mut app = list_app(0).await;
+    app.clock = || at(20, 0);
+    app.core.start(&[0], at(9, 0)).await.unwrap();
+    app.reload().await;
+    app.handle_key(key('e')).await; // list
+    app.handle_key(key('e')).await; // form
+    let id = app.session_list.selected.unwrap();
+    let Mode::Form(form) = &app.mode else {
+        panic!("no form open");
+    };
+    assert_eq!(form.fields.len(), 1);
+
+    to_minute_segment(&mut app).await;
+    app.handle_key(press(KeyCode::Down)).await; // 08:59
+    app.handle_key(press(KeyCode::Enter)).await;
+
+    let s = stored(&app, id).await;
+    assert_eq!((s.start, s.end), (at(8, 59), None));
+    assert!(app.toast.as_ref().unwrap().msg.ends_with("–now"));
 }

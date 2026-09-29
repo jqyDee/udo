@@ -12,7 +12,9 @@ use crate::{
     core::Core,
     model::{
         container::{Container, ContainerKind},
+        id::NodeId,
         node::Node,
+        sessions::{Session, SessionId, SessionSource, TaskRef},
         task::Task,
         time::{self, Time},
         tree::Tree,
@@ -58,6 +60,29 @@ pub fn dt(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> NaiveDateTime {
 /// `Time` from RFC 3339 text, e.g. `2026-10-15T09:00:00+02:00`.
 pub fn parse_time(rfc3339: &str) -> Time {
     DateTime::parse_from_rfc3339(rfc3339).unwrap()
+}
+
+// ---------- sessions ----------
+
+/// A manual session on task "lab 3" (in `/uni`) from `start` to `end`
+/// (`None`: running), without a store: for code that only reads sessions.
+pub fn session(start: Time, end: Option<Time>) -> Session {
+    Session {
+        id: SessionId::new(),
+        task: TaskRef {
+            id: NodeId::new(),
+            name: "lab 3".into(),
+            description: String::new(),
+            container_dir: PathBuf::from("/uni"),
+            container_id: NodeId::new(),
+        },
+        start,
+        end,
+        source: SessionSource::Manual,
+        created_at: start,
+        edited_at: None,
+        deleted_at: None,
+    }
 }
 
 // ---------- nodes + trees ----------

@@ -13,7 +13,13 @@ use crate::{DATE_FMT, tui::keys::is_text_input};
 pub struct DateInput {
     pub value: NaiveDateTime,
     pub segment: Segment,
+    /// Minutes one ↑/↓ on the minute segment moves: `DEFAULT_MINUTE_STEP`
+    /// for due dates, 1 for session times (`with_minute_step`).
+    pub minute_step: i64,
 }
+
+/// Minute step of a new `DateInput`: due dates rarely need finer.
+pub const DEFAULT_MINUTE_STEP: i64 = 5;
 
 /// One editable part of a `DATE_FMT` string.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,12 +67,19 @@ impl Segment {
 }
 
 impl DateInput {
-    /// Starts on `Segment::Day`.
+    /// Starts on `Segment::Day`, minutes in `DEFAULT_MINUTE_STEP`s.
     pub fn new(value: NaiveDateTime) -> Self {
         Self {
             value,
             segment: Segment::Day,
+            minute_step: DEFAULT_MINUTE_STEP,
         }
+    }
+
+    /// The same input, ↑/↓ on the minutes moving `minutes` (at least 1).
+    pub fn with_minute_step(mut self, minutes: i64) -> Self {
+        self.minute_step = minutes.max(1);
+        self
     }
 
     pub fn next_segment(&mut self) {
@@ -77,12 +90,12 @@ impl DateInput {
         self.segment = self.segment.prev();
     }
 
-    /// +1 / -1 on the current segment (minutes: ±5).
+    /// +1 / -1 on the current segment (minutes: ±`minute_step`).
     /// Year/month: `checked_add_months` / `checked_sub_months` (clamps the
     /// day, Jan 31 + 1 month = Feb 28/29). Day/hour/minute:
     /// `checked_add_signed(TimeDelta)` (carries, 23:55 + 5 min = next day
     /// 00:00). Always `checked_*`, never `+`: `+` panics on overflow, here
-    /// overflow -> unchanged.
+    /// overflow -> unchanged. Seconds are kept.
     pub fn step(&mut self, up: bool) {
         let sign: i64 = if up { 1 } else { -1 };
 
@@ -91,7 +104,9 @@ impl DateInput {
             Segment::Month => self.shift_months(1, up),
             Segment::Day => self.value.checked_add_signed(TimeDelta::days(sign)),
             Segment::Hour => self.value.checked_add_signed(TimeDelta::hours(sign)),
-            Segment::Minute => self.value.checked_add_signed(TimeDelta::minutes(sign * 5)),
+            Segment::Minute => self
+                .value
+                .checked_add_signed(TimeDelta::minutes(sign * self.minute_step)),
         };
 
         self.value = stepped.unwrap_or(self.value);
@@ -215,7 +230,10 @@ mod tests {
 
     /// `value` stepped once on `segment`.
     fn stepped(value: NaiveDateTime, segment: Segment, up: bool) -> NaiveDateTime {
-        let mut d = DateInput { value, segment };
+        let mut d = DateInput {
+            segment,
+            ..DateInput::new(value)
+        };
         d.step(up);
         assert_eq!(d.segment, segment, "step must not change the segment");
         d.value
@@ -257,6 +275,42 @@ mod tests {
         assert_eq!(stepped(v, Segment::Hour, false), dt(2026, 6, 15, 11, 30));
         assert_eq!(stepped(v, Segment::Minute, true), dt(2026, 6, 15, 12, 35));
         assert_eq!(stepped(v, Segment::Minute, false), dt(2026, 6, 15, 12, 25));
+    }
+
+    #[test]
+    fn the_minute_step_is_a_parameter() {
+        let mut d = DateInput::new(dt(2026, 6, 15, 12, 30)).with_minute_step(1);
+        d.segment = Segment::Minute;
+
+        d.step(true);
+        assert_eq!(d.value, dt(2026, 6, 15, 12, 31));
+        d.step(false);
+        d.step(false);
+        assert_eq!(d.value, dt(2026, 6, 15, 12, 29));
+    }
+
+    #[test]
+    fn a_new_input_steps_minutes_by_the_default() {
+        let d = DateInput::new(dt(2026, 6, 15, 12, 30));
+
+        assert_eq!(d.minute_step, DEFAULT_MINUTE_STEP);
+    }
+
+    /// 0 or negative would freeze or invert ↑/↓: at least 1.
+    #[test]
+    fn a_minute_step_below_one_counts_as_one() {
+        assert_eq!(
+            DateInput::new(dt(2026, 6, 15, 12, 30))
+                .with_minute_step(0)
+                .minute_step,
+            1
+        );
+        assert_eq!(
+            DateInput::new(dt(2026, 6, 15, 12, 30))
+                .with_minute_step(-3)
+                .minute_step,
+            1
+        );
     }
 
     #[test]
@@ -316,8 +370,8 @@ mod tests {
     #[test]
     fn set_today_keeps_time_and_segment() {
         let mut d = DateInput {
-            value: dt(2000, 1, 1, 9, 45),
             segment: Segment::Hour,
+            ..DateInput::new(dt(2000, 1, 1, 9, 45))
         };
 
         let before = Local::now().date_naive();

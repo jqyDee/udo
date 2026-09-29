@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use super::*;
 use crate::{
     model::settings::TaskFolderSetting,
-    test_util::{dt, press, task_form},
+    test_util::{at, dt, parse_time, press, session, task_form},
 };
 
 fn test_form() -> Form {
@@ -561,4 +561,82 @@ fn settings_form_on_the_root_adds_root_settings() {
 
     retype(&mut form, theme, ""); // cleared: still sent, as unset
     assert_eq!(form.settings().unwrap().1, Some(RootSettings::default()));
+}
+
+// --------------- Session form ---------------
+
+/// `t` as the form shows it: local, naive.
+fn local_naive(t: crate::model::time::Time) -> NaiveDateTime {
+    t.with_timezone(&Local).naive_local()
+}
+
+#[test]
+fn session_form_has_start_and_end_in_local_time() {
+    let s = session(at(9, 0), Some(at(10, 30)));
+
+    let form = Form::edit_session(&s);
+
+    assert_eq!(form.session_times(), (local_naive(at(9, 0)), Some(local_naive(at(10, 30)))));
+    assert_eq!(form.action, FormAction::EditSession { id: s.id });
+    assert_eq!(form.title, "edit session · lab 3");
+}
+
+#[test]
+fn a_running_session_has_no_end_field() {
+    let form = Form::edit_session(&session(at(9, 0), None));
+
+    assert_eq!(form.fields.len(), 1);
+    assert_eq!(form.session_times().1, None);
+    assert_eq!(form.title, "edit session · lab 3 (running)");
+}
+
+#[test]
+fn session_form_starts_on_the_start_and_tabs_to_the_end() {
+    let mut form = Form::edit_session(&session(at(9, 0), Some(at(10, 0))));
+    assert_eq!(form.fields[form.active_field].id, FieldId::Start);
+
+    form.handle_key(press(KeyCode::Tab));
+    assert_eq!(form.fields[form.active_field].id, FieldId::End);
+    form.handle_key(press(KeyCode::Tab));
+    assert_eq!(form.fields[form.active_field].id, FieldId::Start); // wraps
+}
+
+/// Like the due field: ←/→ pick the segment, ↑/↓ change it; minutes by
+/// `SESSION_MINUTE_STEP` (1), not the due field's 5.
+#[test]
+fn keys_change_the_start_by_single_minutes() {
+    let mut form = Form::edit_session(&session(at(9, 0), Some(at(10, 0))));
+
+    form.handle_key(press(KeyCode::Right)); // day -> hour
+    form.handle_key(press(KeyCode::Right)); // -> minute
+    form.handle_key(press(KeyCode::Up));
+
+    assert_eq!(form.session_times().0, local_naive(at(9, 1)));
+    assert_eq!(form.session_times().1, Some(local_naive(at(10, 0)))); // end untouched
+}
+
+/// Enter / Esc end the form like every other form.
+#[test]
+fn enter_submits_and_esc_cancels() {
+    let mut form = Form::edit_session(&session(at(9, 0), Some(at(10, 0))));
+
+    assert_eq!(form.handle_key(press(KeyCode::Enter)), FormOutcome::Submit);
+    assert_eq!(form.handle_key(press(KeyCode::Esc)), FormOutcome::Cancel);
+}
+
+/// The value keeps the seconds of the session (the field shows minutes
+/// only), also after a step: "unchanged" can compare values directly.
+#[test]
+fn seconds_are_kept_also_after_a_step() {
+    let start = parse_time("2026-10-15T14:00:40+02:00");
+    let mut form = Form::edit_session(&session(start, Some(at(15, 0))));
+
+    assert_eq!(form.session_times().0, local_naive(start)); // untouched
+
+    form.handle_key(press(KeyCode::Right));
+    form.handle_key(press(KeyCode::Right)); // minute
+    form.handle_key(press(KeyCode::Up));
+
+    let stepped = local_naive(start) + chrono::TimeDelta::minutes(1);
+    assert_eq!(form.session_times().0, stepped); // 14:01:40
 }

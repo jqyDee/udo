@@ -34,12 +34,13 @@ use crate::{
         NodePath,
         container::{Container, ContainerKind},
         node::{Node, NodeBody},
+        sessions::{Session, SessionId},
         settings::{
             ContainerSettings, RootSettings,
             view::{ROOT_SETTINGS, SETTINGS, SettingInfo},
         },
         task::Task,
-        time::{local_to_fixed, now},
+        time::{Time, local_to_fixed, now},
     },
     naming::normalize_name,
 };
@@ -64,20 +65,24 @@ pub enum FieldId {
     Setting(usize),
     /// Index into `ROOT_SETTINGS`.
     RootSetting(usize),
+    Start,
+    End,
 }
 
 impl FieldId {
     /// Shown in front of the value.
     pub fn label(self) -> &'static str {
         match self {
-            Self::Name => "name",
-            Self::Due => "due",
-            Self::Dir => "dir",
-            Self::Folder => "folder",
-            Self::Kind => "kind",
-            Self::Description => "description",
-            Self::Setting(idx) => SETTINGS[idx].label,
-            Self::RootSetting(idx) => ROOT_SETTINGS[idx].label,
+            FieldId::Name => "name",
+            FieldId::Due => "due",
+            FieldId::Dir => "dir",
+            FieldId::Folder => "folder",
+            FieldId::Kind => "kind",
+            FieldId::Description => "description",
+            FieldId::Setting(idx) => SETTINGS[idx].label,
+            FieldId::RootSetting(idx) => ROOT_SETTINGS[idx].label,
+            FieldId::Start => "start",
+            FieldId::End => "end",
         }
     }
 
@@ -116,7 +121,15 @@ pub enum FormAction {
     EditSettings {
         path: NodePath,
     },
+    /// Start / end of a session (`Form::session_times`).
+    EditSession {
+        id: SessionId,
+    },
 }
+
+/// Minute step of the session form's dates: corrections are often a few
+/// minutes (due dates keep `DEFAULT_MINUTE_STEP`).
+pub const SESSION_MINUTE_STEP: i64 = 1;
 
 pub struct TaskDefaults {
     pub due: NaiveDateTime,
@@ -309,6 +322,36 @@ impl Form {
         }
     }
 
+    /// Edit form of a session: start and end as dates (local, to the
+    /// minute; ↑/↓ on the minutes by `SESSION_MINUTE_STEP`). A running
+    /// session has only a start (stop the timer to end it).
+    pub fn edit_session(session: &Session) -> Self {
+        let field = |id, t: Time| FormField {
+            id,
+            input: FieldInput::Date(
+                DateInput::new(t.with_timezone(&Local).naive_local())
+                    .with_minute_step(SESSION_MINUTE_STEP),
+            ),
+        };
+        let mut fields = vec![field(FieldId::Start, session.start)];
+        if let Some(end) = session.end {
+            fields.push(field(FieldId::End, end));
+        }
+        let running = if session.end.is_none() {
+            " (running)"
+        } else {
+            ""
+        };
+
+        Self {
+            title: format!("edit session · {}{running}", session.task.name),
+            fields,
+            parent_dir: None,
+            active_field: 0,
+            action: FormAction::EditSession { id: session.id },
+        }
+    }
+
     /// Fields for `node`, prefilled with its values. Same fields in the same
     /// order for creating and editing: task = name, description, [folder,
     /// dir], due; container = name, description, kind, [folder, dir].
@@ -372,6 +415,16 @@ impl Form {
             due: self.date_value(FieldId::Due),
             kind: self.container_kind(),
         }
+    }
+
+    /// Start and end of a session form, local as shown (end: None for a
+    /// running session). Converted and checked on submit (`App`).
+    pub fn session_times(&self) -> (NaiveDateTime, Option<NaiveDateTime>) {
+        (
+            self.date_value(FieldId::Start)
+                .expect("session forms always have a start"),
+            self.date_value(FieldId::End),
+        )
     }
 
     /// What a settings form says right now, parsed by the `set` of each

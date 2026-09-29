@@ -84,7 +84,12 @@ pub const LIST_KEYMAP: &[Section] = &[
         Binding { keys: &[KeyCode::Char('k'), KeyCode::Up], action: Action::Up, help: "previous (newer) session" },
         Binding { keys: &[KeyCode::Char('l'), KeyCode::Right], action: Action::In, help: "next page" },
         Binding { keys: &[KeyCode::Char('h'), KeyCode::Left], action: Action::Out, help: "previous page" },
+        Binding { keys: &[KeyCode::Char('e')], action: Action::Edit, help: "edit session" },
         Binding { keys: &[KeyCode::Esc], action: Action::Back, help: "back to the tree" },
+    ]},
+    Section { title: "app", bindings: &[
+        // Binding { keys: &[KeyCode::Char('?')], action: Action::Help, help: "toggle this help" },
+        Binding { keys: &[KeyCode::Char('q')], action: Action::Quit, help: "quit" },
     ]},
 ];
 

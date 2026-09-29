@@ -52,6 +52,16 @@ impl SessionList {
         self.page = i / self.page_len.max(1);
     }
 
+    /// A new page length from drawing (resize, a form opened or closed).
+    /// The page follows the selection, so it stays on screen; nothing
+    /// selected: the page stays.
+    pub fn set_page_len(&mut self, page_len: usize, ids: &[SessionId]) {
+        self.page_len = page_len;
+        if let Some(i) = self.index(ids) {
+            self.select(ids, i);
+        }
+    }
+
     /// `j` / `k`: `delta` rows down (older) or up (newer); stops at the ends.
     pub fn move_by(&mut self, ids: &[SessionId], delta: isize) {
         let Some(i) = self.index(ids) else { return };
@@ -253,6 +263,29 @@ mod tests {
 
         assert_eq!(l.index(&ids), None);
         assert_eq!(l.page, 1);
+    }
+
+    /// Shorter pages (a form opened): the page follows the selection.
+    #[test]
+    fn a_new_page_len_keeps_the_selection_on_screen() {
+        let ids = ids();
+        let mut l = at_row(&ids, 4); // 3 per page: page 1
+
+        l.set_page_len(2, &ids);
+        assert_eq!((l.page_len, l.page), (2, 2)); // rows 4-5
+        l.set_page_len(6, &ids);
+        assert_eq!(l.page, 0); // rows 0-5
+        assert_eq!(l.index(&ids), Some(4));
+    }
+
+    #[test]
+    fn a_new_page_len_without_selection_keeps_the_page() {
+        let ids = ids();
+        let mut l = list(1, 3);
+
+        l.set_page_len(2, &ids);
+
+        assert_eq!((l.page_len, l.page), (2, 1));
     }
 
     // ---------- follow (after a reload) ----------

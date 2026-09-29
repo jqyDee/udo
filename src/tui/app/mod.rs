@@ -29,7 +29,7 @@ use crate::{
         id::NodeId,
         node::Node,
         sessions::Session,
-        time,
+        time::{self, Clock},
         tree::{TrashFn, system_trash},
     },
     tui::{
@@ -69,6 +69,9 @@ pub enum Flow {
 }
 
 pub struct App<'a> {
+    /// Where "now" comes from for session corrections (`time::now`); tests set
+    /// a fixed time, the future check depends on it.
+    pub clock: Clock,
     /// The tree and the stores; every change goes through it.
     pub core: &'a mut Core,
     /// Cursor, folding and scroll of the tree pane.
@@ -100,6 +103,7 @@ impl<'a> App<'a> {
     /// before the first draw.
     pub fn new(core: &'a mut Core, tree_state: TreeState) -> Self {
         Self {
+            clock: time::now,
             core,
             tree_state,
             mode: Mode::default(),

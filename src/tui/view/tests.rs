@@ -928,6 +928,31 @@ async fn l_shows_the_next_page_with_its_first_row_selected() {
     );
 }
 
+/// The form takes most of the right pane, so a page holds fewer rows: the
+/// page follows, the selected session stays on screen (reversed).
+#[tokio::test]
+async fn the_selected_session_stays_visible_with_the_form_open() {
+    let mut app = sessions_tab(&[0, 0], 30).await;
+    render_rows(&mut app); // 18 rows per page
+    app.handle_key(press(KeyCode::Char('e'))).await;
+    for _ in 0..12 {
+        app.handle_key(press(KeyCode::Char('j'))).await; // row 12, page 1 of 2
+    }
+    app.handle_key(press(KeyCode::Char('e'))).await; // the form
+
+    let buf = render_buffer(&mut app, 80, 24);
+    let rows = rows_of(&buf);
+
+    // row 12, newest first = session 17 (oldest first): 17 * 20 minutes
+    let needle = format!("{}–", clock(5, 40));
+    let (y, x) = find(&rows, &needle).unwrap_or_else(|| panic!("row 12 not on screen"));
+    assert!(
+        buf[(x as u16, y as u16)]
+            .modifier
+            .contains(Modifier::REVERSED)
+    );
+}
+
 /// The list cursor's row is reversed, the others are not.
 #[tokio::test]
 async fn the_selected_session_is_reversed() {

@@ -58,7 +58,9 @@ pub fn due(input: &str) -> Result<Due, String> {
 }
 
 /// A session time (`list --from / --to`, `add`, `edit`, `split`, `cut`),
-/// all local. Sessions record what happened: `resolve` refuses the future.
+/// all local. Sessions record what happened, but `resolve` does not check
+/// that: `Core` refuses the future (`add`, `edit`, `cut`), so a range for
+/// `list` may still reach into it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionTime {
     /// `2026-10-15 14:00`
@@ -215,12 +217,9 @@ mod tests {
     }
 
     #[test]
-    fn a_future_time_is_refused() {
-        let future =
-            SessionTime::After(Minutes::new(60)).resolve(now(), Some(test_util::at(19, 30)));
-        assert!(future.unwrap_err().to_string().contains("future"));
+    fn a_future_time_is_not_refused() {
         let tomorrow = SessionTime::At(dt(2026, 10, 16, 9, 0)).resolve(now(), None);
-        assert!(tomorrow.is_err());
+        assert!(tomorrow.is_ok());
     }
 
     #[test]

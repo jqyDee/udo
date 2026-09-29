@@ -1,10 +1,11 @@
 //! Forms: `t` / `T` new task, `c` / `C` new container, `e` edit (on the
-//! settings tab: the container's settings). Opening
+//! settings tab: the container's settings; in the sessions list: the
+//! session, saved in `sessions`). Opening
 //! picks the parent (or the node), the form edits itself
 //! (`Form::handle_key`), submit calls the tree (which checks names and
 //! creates dirs).
 
-use chrono::Local;
+use chrono::{Local, NaiveDateTime};
 use crossterm::event::KeyEvent;
 
 use super::{App, Flow, Mode};
@@ -15,7 +16,7 @@ use crate::{
         node::{BodyPatch, HeaderPatch, Node, NodePatch},
         settings::{ContainerSettings, view::SettingInfo},
         task::{Task, TaskPatch},
-        time::local_to_fixed,
+        time::{Time, local_to_fixed},
         tree::Tree,
     },
     tui::form::{FolderMode, Form, FormAction, FormOutcome, TaskDefaults},
@@ -103,7 +104,7 @@ impl App<'_> {
         };
         match form.handle_key(key) {
             FormOutcome::Continue => {}
-            FormOutcome::Cancel => self.mode = Mode::Normal,
+            FormOutcome::Cancel => self.mode = mode_after(&form.action),
             FormOutcome::Submit => self.submit_form().await,
         }
         Flow::Continue
@@ -112,21 +113,23 @@ impl App<'_> {
     /// Create or edit the node. The input is read and checked once, then each
     /// action only builds a node (create) or a patch (edit) for the tree.
     /// Success: close the form, select the node. Error: toast, form stays
-    /// open so the input can be fixed.
+    /// open so the input can be fixed. A session form has its own path
+    /// (`submit_session_form`): none of the node rules apply.
     async fn submit_form(&mut self) {
         let Mode::Form(form) = &self.mode.clone() else {
             return;
         };
+        if let FormAction::EditSession { id } = form.action {
+            return self.submit_session_form(id, form).await;
+        }
+
         // name rules (empty, `/`, `..`, duplicates) are checked by the tree
         let v = form.values();
         let description = Some(v.description);
         // only task forms have a due date
-        let due = match v.due.map(local_to_fixed) {
-            Some(None) => {
-                self.error("that time doesn't exist (DST switch)");
-                return;
-            }
-            due => due.flatten(),
+        let due = match v.due.map(to_time).transpose() {
+            Ok(due) => due,
+            Err(e) => return self.error(e),
         };
         // by folder mode (create forms only); clashes are checked by the tree
         let dir = match form.chosen_dir() {
@@ -208,6 +211,7 @@ impl App<'_> {
                     .await
                     .map(|()| (cursor, "saved settings".to_string()))
             }
+            FormAction::EditSession { .. } => return, // saved at the top
         };
 
         match saved {
@@ -219,4 +223,19 @@ impl App<'_> {
             Err(e) => self.error(e.to_string()),
         }
     }
+}
+
+/// Where the keys go when `action`'s form closes: the list it came from
+/// (sessions), else the tree.
+fn mode_after(action: &FormAction) -> Mode {
+    match action {
+        FormAction::EditSession { .. } => Mode::Sessions,
+        _ => Mode::Normal,
+    }
+}
+
+/// A date from a form (local, as shown) as a `Time`. A local time a DST
+/// switch skips: the error for the toast.
+pub(super) fn to_time(local: NaiveDateTime) -> Result<Time, &'static str> {
+    local_to_fixed(local).ok_or("that time doesn't exist (DST switch)")
 }

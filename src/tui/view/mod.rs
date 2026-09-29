@@ -81,8 +81,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, now: Time) {
         _ => (right, None),
     };
     // before `info`, which copies the list state; stored so the keys page
-    // by what is on screen
-    app.session_list.page_len = details::page_len(details_area);
+    // by what is on screen, and the page follows the selection
+    let ids = app.newest_ids();
+    app.session_list
+        .set_page_len(details::page_len(details_area), &ids);
 
     let tree = app.core.tree();
     let info = ViewInfo {
