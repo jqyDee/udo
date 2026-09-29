@@ -11,7 +11,7 @@ use crate::{
         time::DeadlineRule,
         tree::Tree,
     },
-    test_util::{container, container_at, press, state_at, task, test_app, tree_with},
+    test_util::{container, container_at, fake_trash, press, state_at, task, test_app, tree_with},
     tui::{
         form::{FieldId, FieldInput, FolderMode, FormAction, TextInput},
         toast::ToastKind,
@@ -297,11 +297,6 @@ async fn y_removes_node_from_tree_and_disk() {
 
 // ---------- full delete (D) ----------
 // Every test that can reach `purge` sets `app.trash = fake_trash`.
-
-/// Fake Trash: deletes for real (inside the tempdir only).
-fn fake_trash(p: &Path) -> Result<(), String> {
-    std::fs::remove_dir_all(p).map_err(|e| e.to_string())
-}
 
 /// `D` as terminals send it: with SHIFT.
 fn shift_d() -> KeyEvent {

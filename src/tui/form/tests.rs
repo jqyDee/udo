@@ -1,16 +1,10 @@
 use std::path::PathBuf;
 
-use chrono::NaiveDate;
-
 use super::*;
-use crate::{model::settings::TaskFolderSetting, test_util::press};
-
-fn dt(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> NaiveDateTime {
-    NaiveDate::from_ymd_opt(y, mo, d)
-        .unwrap()
-        .and_hms_opt(h, mi, 0)
-        .unwrap()
-}
+use crate::{
+    model::settings::TaskFolderSetting,
+    test_util::{dt, press, task_form},
+};
 
 fn test_form() -> Form {
     Form {
@@ -76,10 +70,7 @@ fn form_active_field_mut() {
 
 #[test]
 fn new_task_initialization() {
-    let fixed_date = NaiveDate::from_ymd_opt(2026, 10, 15)
-        .unwrap()
-        .and_hms_opt(14, 30, 0)
-        .unwrap();
+    let fixed_date = dt(2026, 10, 15, 14, 30);
     let defaults = TaskDefaults {
         due: fixed_date,
         folder: FolderMode::Auto,
@@ -264,19 +255,6 @@ fn handle_key_reaches_date_fields() {
 }
 
 // --------------- Folder / Dir Tests ---------------
-
-/// Task form in `/uni/cs101` with `mode`, name typed in.
-fn task_form(mode: FolderMode, name: &str) -> Form {
-    let defaults = TaskDefaults {
-        due: dt(2026, 6, 15, 12, 0),
-        folder: mode,
-    };
-    let mut form = Form::new_task(vec![0], "cs101", Some("/uni/cs101".into()), defaults);
-    for c in name.chars() {
-        form.handle_key(press(KeyCode::Char(c)));
-    }
-    form
-}
 
 fn active_id(form: &Form) -> FieldId {
     form.fields[form.active_field].id

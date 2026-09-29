@@ -51,33 +51,16 @@ impl Core {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{FixedOffset, TimeZone};
-
     use crate::{
         core::Core,
         model::{
             node::Node,
             sessions::{Session, SessionQuery, SessionStore},
             task::TaskStatus,
-            time::Time,
             tree::Tree,
         },
-        storage::Storage,
-        test_util::disk_tree,
+        test_util::{at, core},
     };
-
-    /// 2026-10-15 at `h:m`, offset +02:00.
-    fn at(h: u32, m: u32) -> Time {
-        FixedOffset::east_opt(2 * 3600)
-            .unwrap()
-            .with_ymd_and_hms(2026, 10, 15, h, m, 0)
-            .unwrap()
-    }
-
-    async fn core() -> (tempfile::TempDir, Core) {
-        let (tmp, tree) = disk_tree().await;
-        (tmp, Core::new(tree, Storage::in_memory()))
-    }
 
     fn status(tree: &Tree, path: &[usize]) -> TaskStatus {
         tree.get(path).and_then(Node::as_task).unwrap().status

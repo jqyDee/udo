@@ -40,6 +40,7 @@ mod tests {
     use serde::{Deserialize, Serialize};
 
     use super::*;
+    use crate::test_util;
 
     #[derive(Serialize, Deserialize)]
     struct Row {
@@ -49,7 +50,7 @@ mod tests {
     #[test]
     fn offset_survives_a_toml_round_trip() {
         // `==` ignores the offset, so compare it on its own
-        let at = DateTime::parse_from_rfc3339("2026-10-15T14:30:00+02:00").unwrap();
+        let at = test_util::at(14, 30);
         let text = toml::to_string(&Row { at }).unwrap();
         let back: Row = toml::from_str(&text).unwrap();
         assert_eq!(back.at, at);

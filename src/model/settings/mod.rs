@@ -111,20 +111,8 @@ mod tests {
     use super::*;
     use crate::{
         model::{node::Node, tree::Tree},
-        test_util::{container, task, tree_with},
+        test_util::uni_tree,
     };
-
-    /// root
-    /// ├─ uni          [0]
-    /// │  └─ cs        [0,0]
-    /// │     └─ lab    [0,0,0]  (task)
-    /// └─ work         [1]
-    fn tree() -> Tree {
-        tree_with(vec![
-            container("uni", vec![container("cs", vec![task("lab")])]),
-            container("work", vec![]),
-        ])
-    }
 
     // ---------- task_folders ----------
 
@@ -143,7 +131,7 @@ mod tests {
         assert!(builtin.is_some(), "task_folders needs a built-in default");
 
         assert_eq!(
-            folders(&tree(), &[0, 0]),
+            folders(&uni_tree(), &[0, 0]),
             Some(Resolved {
                 value: builtin.unwrap(),
                 source: Source::Default,
@@ -153,7 +141,7 @@ mod tests {
 
     #[test]
     fn task_folders_none_on_the_parent_is_inherited() {
-        let mut t = tree();
+        let mut t = uni_tree();
         set_folders(&mut t, &[0], TaskFolderSetting::None);
 
         assert_eq!(
@@ -167,7 +155,7 @@ mod tests {
 
     #[test]
     fn task_folders_child_switches_back_on() {
-        let mut t = tree();
+        let mut t = uni_tree();
         set_folders(&mut t, &[0], TaskFolderSetting::None);
         set_folders(&mut t, &[0, 0], TaskFolderSetting::Auto);
 
@@ -234,7 +222,7 @@ mod tests {
     #[test]
     fn default_deadline_builtin_is_tomorrow_noon() {
         assert_eq!(
-            deadline(&tree(), &[0, 0]),
+            deadline(&uni_tree(), &[0, 0]),
             Some(Resolved {
                 value: "+1d 12:00".parse().unwrap(),
                 source: Source::Default,
@@ -244,7 +232,7 @@ mod tests {
 
     #[test]
     fn default_deadline_is_inherited() {
-        let mut t = tree();
+        let mut t = uni_tree();
         let uni = t.get_mut(&[0]).and_then(Node::as_container_mut).unwrap();
         uni.settings.default_deadline = Some("fri 22:00".parse().unwrap());
 

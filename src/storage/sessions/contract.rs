@@ -1,24 +1,18 @@
 use std::path::PathBuf;
 
-use chrono::{FixedOffset, TimeDelta, TimeZone};
+use chrono::{FixedOffset, TimeDelta};
 
-use crate::model::{
-    id::NodeId,
-    sessions::{
-        Session, SessionError, SessionId, SessionPatch, SessionQuery, SessionSource, SessionStore,
-        TaskRef,
+use crate::{
+    model::{
+        id::NodeId,
+        sessions::{
+            Session, SessionError, SessionId, SessionPatch, SessionQuery, SessionSource,
+            SessionStore, TaskRef,
+        },
+        time::Time,
     },
-    time::Time,
+    test_util::at,
 };
-
-/// 2026-10-15 at `h:m`, offset +02:00. Fixed, never `time::now()`: results
-/// must not depend on when the test runs.
-fn at(h: u32, m: u32) -> Time {
-    FixedOffset::east_opt(2 * 3600)
-        .unwrap()
-        .with_ymd_and_hms(2026, 10, 15, h, m, 0)
-        .unwrap()
-}
 
 /// "Now" for every store in the contract (their `Clock`): after all event
 /// times used here, so a bookkeeping time taken from the wrong place stands

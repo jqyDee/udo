@@ -211,12 +211,9 @@ mod tests {
             node::{BodyPatch, HeaderPatch, NodeHeader, NodePatch},
             settings::{ContainerSettings, RootSettings},
             task::{TaskPatch, TaskStatus},
-            tree::{
-                Tree,
-                tests::{disk_tree, new_container, new_task, tree},
-            },
+            tree::{Tree, tests::tree},
         },
-        test_util::{container, container_at, task},
+        test_util::{container, container_at, disk_tree_in, new_container, new_task, task},
     };
 
     // ---------- create ----------
@@ -224,7 +221,7 @@ mod tests {
     #[tokio::test]
     async fn create_trims_description_and_saves_it() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await; // root: [a, ws: [b]]
+        let mut t = disk_tree_in(tmp.path()).await; // root: [a, ws: [b]]
         let node = new_task("c", None).with_description(Some("  two\nlines  ".into()));
 
         let p = t.create(&[1], node).await.unwrap();
@@ -237,7 +234,7 @@ mod tests {
     #[tokio::test]
     async fn create_turns_blank_description_into_none() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await;
+        let mut t = disk_tree_in(tmp.path()).await;
         let node = new_task("c", None).with_description(Some(" \n ".into()));
 
         let p = t.create(&[1], node).await.unwrap();
@@ -290,7 +287,7 @@ mod tests {
     #[tokio::test]
     async fn edit_renames_task_in_parent_file() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await;
+        let mut t = disk_tree_in(tmp.path()).await;
 
         t.edit(&[1, 0], header_patch(rename("b2"))).await.unwrap();
 
@@ -302,7 +299,7 @@ mod tests {
     #[tokio::test]
     async fn edit_renames_container_in_own_file_and_keeps_dir() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await;
+        let mut t = disk_tree_in(tmp.path()).await;
 
         t.edit(&[1], header_patch(rename("Uni WS26")))
             .await
@@ -317,7 +314,7 @@ mod tests {
     #[tokio::test]
     async fn edit_keeps_own_name_but_rejects_a_siblings() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await;
+        let mut t = disk_tree_in(tmp.path()).await;
 
         t.edit(&[0], header_patch(rename("a"))).await.unwrap(); // unchanged: fine
         assert!(t.edit(&[0], header_patch(rename("ws"))).await.is_err()); // sibling
@@ -327,7 +324,7 @@ mod tests {
     #[tokio::test]
     async fn edit_rejects_bad_names_root_and_missing_paths() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await;
+        let mut t = disk_tree_in(tmp.path()).await;
 
         for bad in ["", "..", "a/b"] {
             assert!(t.edit(&[0], header_patch(rename(bad))).await.is_err(), "{bad:?}");
@@ -340,7 +337,7 @@ mod tests {
     #[tokio::test]
     async fn edit_cleans_sets_and_removes_description() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await;
+        let mut t = disk_tree_in(tmp.path()).await;
         let desc = |d: Option<&str>| {
             header_patch(HeaderPatch {
                 description: Some(d.map(String::from)),
@@ -364,7 +361,7 @@ mod tests {
     #[tokio::test]
     async fn edit_rejects_dir_changes() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await;
+        let mut t = disk_tree_in(tmp.path()).await;
         let patch = NodePatch {
             body: Some(BodyPatch::Task(TaskPatch {
                 dir: Some(tmp.path().join("elsewhere")),
@@ -456,7 +453,7 @@ mod tests {
     #[tokio::test]
     async fn delete_task_drops_row_from_parent_file() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await;
+        let mut t = disk_tree_in(tmp.path()).await;
 
         t.delete(&[0]).await.unwrap();
 
@@ -469,7 +466,7 @@ mod tests {
     #[tokio::test]
     async fn delete_container_unregisters_but_keeps_dir() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await;
+        let mut t = disk_tree_in(tmp.path()).await;
 
         t.delete(&[1]).await.unwrap();
 
@@ -536,7 +533,7 @@ mod tests {
     #[tokio::test]
     async fn create_container_rejects_task_parent() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await; // [0] is task "a"
+        let mut t = disk_tree_in(tmp.path()).await; // [0] is task "a"
 
         let x = new_container("x", &tmp.path().join("x"), ContainerKind::Project);
         let r = t.create(&[0], x).await;
@@ -548,7 +545,7 @@ mod tests {
     #[tokio::test]
     async fn create_container_refuses_existing_udo_dir() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await; // tmp/ws already has a .udo.toml
+        let mut t = disk_tree_in(tmp.path()).await; // tmp/ws already has a .udo.toml
 
         let other = new_container("other", &tmp.path().join("ws"), ContainerKind::Workspace);
         let r = t.create(&[], other).await;
@@ -576,7 +573,7 @@ mod tests {
     #[tokio::test]
     async fn create_task_saves_row_in_parent_file() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await; // root: [a, ws: [b]]
+        let mut t = disk_tree_in(tmp.path()).await; // root: [a, ws: [b]]
 
         let p = t.create(&[1], new_task("c", None)).await.unwrap();
 
@@ -590,7 +587,7 @@ mod tests {
     #[tokio::test]
     async fn create_task_creates_its_dir() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await;
+        let mut t = disk_tree_in(tmp.path()).await;
         let task_dir = tmp.path().join("ws").join("c");
 
         t.create(&[1], new_task("c", Some(task_dir.clone())))
@@ -603,7 +600,7 @@ mod tests {
     #[tokio::test]
     async fn create_task_rejects_duplicate_name() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await;
+        let mut t = disk_tree_in(tmp.path()).await;
 
         assert!(t.create(&[1], new_task("b", None)).await.is_err()); // "b" exists in ws
         assert!(t.create(&[], new_task("ws", None)).await.is_err()); // clashes with container
@@ -613,7 +610,7 @@ mod tests {
     #[tokio::test]
     async fn create_task_rejects_task_parent() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await;
+        let mut t = disk_tree_in(tmp.path()).await;
 
         assert!(t.create(&[0], new_task("x", None)).await.is_err()); // [0] is task "a"
     }
@@ -651,7 +648,7 @@ mod tests {
     #[tokio::test]
     async fn set_task_status_updates_tree_and_file() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await; // root: [a, ws: [b]]
+        let mut t = disk_tree_in(tmp.path()).await; // root: [a, ws: [b]]
 
         t.set_task_status(&[1, 0], TaskStatus::Finished)
             .await
@@ -699,7 +696,7 @@ mod tests {
     #[tokio::test]
     async fn set_settings_saves_the_containers_own_file() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await;
+        let mut t = disk_tree_in(tmp.path()).await;
 
         t.set_settings(&[1], deadline("fri 22:00"), None)
             .await
@@ -714,7 +711,7 @@ mod tests {
     #[tokio::test]
     async fn set_settings_replaces_all_so_unset_fields_are_removed() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await;
+        let mut t = disk_tree_in(tmp.path()).await;
         t.set_settings(&[1], deadline("fri 22:00"), None)
             .await
             .unwrap();
@@ -730,7 +727,7 @@ mod tests {
     #[tokio::test]
     async fn set_settings_on_the_root_with_root_settings_survives_reload() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await;
+        let mut t = disk_tree_in(tmp.path()).await;
 
         t.set_settings(&[], deadline("+7d 23:59"), Some(theme("dark")))
             .await
@@ -745,7 +742,7 @@ mod tests {
     #[tokio::test]
     async fn set_settings_without_root_settings_keeps_them() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await;
+        let mut t = disk_tree_in(tmp.path()).await;
         t.set_settings(&[], ContainerSettings::default(), Some(theme("dark")))
             .await
             .unwrap();
@@ -784,7 +781,7 @@ mod tests {
     #[tokio::test]
     async fn create_rejects_names_that_are_not_one_path_component() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut t = disk_tree(tmp.path()).await; // root: [a, ws: [b]]
+        let mut t = disk_tree_in(tmp.path()).await; // root: [a, ws: [b]]
 
         for bad in ["", ".", "..", "a/b", "../x", "a\\b"] {
             let task = new_task(bad, None);

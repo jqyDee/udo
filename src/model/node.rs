@@ -192,35 +192,25 @@ pub fn clean_description(desc: String) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::container::ContainerKind;
-    use std::path::PathBuf;
-
-    fn task(name: &str, dir: Option<PathBuf>) -> Node {
-        Node::task(name.into(), Task::new(dir, time::now()))
-    }
-    fn container(name: &str, children: Vec<Node>) -> Node {
-        let mut c = Container::new("/tmp/x".into(), ContainerKind::Workspace);
-        c.children = children;
-        Node::container(name.into(), c)
-    }
+    use crate::test_util::{container, new_task, task};
 
     #[test]
     fn container_has_children_task_has_none() {
-        let n = container("ws", vec![task("a", None)]);
+        let n = container("ws", vec![task("a")]);
         assert_eq!(n.children().len(), 1);
-        assert!(task("a", None).children().is_empty());
+        assert!(task("a").children().is_empty());
     }
 
     #[test]
     fn dir_none_when_task_has_no_dir() {
-        assert!(task("a", None).dir().is_none());
-        assert_eq!(task("a", Some("/tmp/t".into())).dir(), Some(Path::new("/tmp/t")));
+        assert!(task("a").dir().is_none());
+        assert_eq!(new_task("a", Some("/tmp/t".into())).dir(), Some(Path::new("/tmp/t")));
     }
 
     #[test]
     fn children_mut_can_push_on_container() {
         let mut n = container("ws", vec![]);
-        n.children_mut().unwrap().push(task("a", None));
+        n.children_mut().unwrap().push(task("a"));
         assert_eq!(n.children().len(), 1);
     }
 
@@ -233,7 +223,7 @@ mod tests {
 
     #[test]
     fn update_renames_any_node() {
-        let mut n = task("old", None);
+        let mut n = task("old");
         n.update(NodePatch {
             header: rename("new"),
             ..Default::default()
@@ -244,7 +234,7 @@ mod tests {
 
     #[test]
     fn update_rejects_mismatched_patch_and_changes_nothing() {
-        let mut n = task("t", None);
+        let mut n = task("t");
         let patch = NodePatch {
             header: rename("new"),
             body: Some(BodyPatch::Container(ContainerPatch::default())),

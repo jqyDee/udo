@@ -46,10 +46,7 @@ mod tests {
     use rusqlite::Connection;
 
     use super::*;
-
-    fn time(rfc3339: &str) -> Time {
-        DateTime::parse_from_rfc3339(rfc3339).unwrap()
-    }
+    use crate::test_util::parse_time;
 
     /// Read (ms, offset) back as it would come out of two columns.
     fn read(ms: Option<i64>, offset: Option<i32>) -> rusqlite::Result<Option<Time>> {
@@ -67,11 +64,11 @@ mod tests {
     #[test]
     fn round_trip_keeps_instant_and_offset() {
         for t in [
-            time("2026-10-15T14:30:00+02:00"), // summer, Vienna
-            time("2026-12-15T14:30:00+01:00"), // winter
-            time("2026-10-15T08:30:00-04:00"), // west of UTC
-            time("2026-10-15T20:00:00+05:45"), // quarter-hour zone (Nepal)
-            time("1969-07-20T20:17:00+00:00"), // before 1970: negative ms
+            parse_time("2026-10-15T14:30:00+02:00"), // summer, Vienna
+            parse_time("2026-12-15T14:30:00+01:00"), // winter
+            parse_time("2026-10-15T08:30:00-04:00"), // west of UTC
+            parse_time("2026-10-15T20:00:00+05:45"), // quarter-hour zone (Nepal)
+            parse_time("1969-07-20T20:17:00+00:00"), // before 1970: negative ms
         ] {
             let back = round_trip(t);
             assert_eq!(back, t);
@@ -81,12 +78,12 @@ mod tests {
 
     #[test]
     fn stored_to_the_millisecond() {
-        let t = time("2026-10-15T14:30:00+02:00") + TimeDelta::nanoseconds(123_456_789);
+        let t = parse_time("2026-10-15T14:30:00+02:00") + TimeDelta::nanoseconds(123_456_789);
 
         let back = round_trip(t);
 
         assert_ne!(back, t); // sub-ms part dropped
-        assert_eq!(back, time("2026-10-15T14:30:00.123+02:00"));
+        assert_eq!(back, parse_time("2026-10-15T14:30:00.123+02:00"));
     }
 
     #[test]

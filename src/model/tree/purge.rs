@@ -258,7 +258,7 @@ mod tests {
     use crate::{
         Res,
         model::{container::ContainerKind, id::NodeId, node::Node, task::Task, time, tree::Tree},
-        test_util::{container_at, task},
+        test_util::{container_at, fake_trash, task},
     };
 
     use super::{PurgePlan, PurgeReport, TrashFn};
@@ -546,11 +546,6 @@ mod tests {
     }
 
     // ---------- execution ----------
-
-    /// Fake Trash: deletes for real (inside the tempdir only).
-    fn fake_trash(p: &Path) -> Result<(), String> {
-        std::fs::remove_dir_all(p).map_err(|e| e.to_string())
-    }
 
     /// Fake Trash that fails for folders called `data`.
     fn fails_on_data(p: &Path) -> Result<(), String> {

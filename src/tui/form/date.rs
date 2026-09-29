@@ -138,10 +138,11 @@ impl DateInput {
 
 #[cfg(test)]
 mod tests {
-    use chrono::NaiveDate;
     use crossterm::event::KeyModifiers;
 
     use super::*;
+    use crate::test_util::dt;
+
     // --------------- Segment Tests ---------------
 
     const SEGMENTS: [Segment; 5] = [
@@ -188,10 +189,7 @@ mod tests {
 
     #[test]
     fn segment_range_slices_formatted_date() {
-        let date = NaiveDate::from_ymd_opt(2026, 3, 7)
-            .unwrap()
-            .and_hms_opt(9, 5, 0)
-            .unwrap();
+        let date = dt(2026, 3, 7, 9, 5);
         // real DATE_FMT output, zero padding included
         let s = date.format(DATE_FMT).to_string();
         assert_eq!(s, "2026-03-07 09:05");
@@ -214,13 +212,6 @@ mod tests {
     }
 
     // --------------- DateInput Tests ---------------
-
-    fn dt(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> NaiveDateTime {
-        NaiveDate::from_ymd_opt(y, mo, d)
-            .unwrap()
-            .and_hms_opt(h, mi, 0)
-            .unwrap()
-    }
 
     /// `value` stepped once on `segment`.
     fn stepped(value: NaiveDateTime, segment: Segment, up: bool) -> NaiveDateTime {

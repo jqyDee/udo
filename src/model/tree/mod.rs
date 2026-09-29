@@ -86,43 +86,13 @@ impl Tree {
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
-
     use crate::{
-        model::{container::ContainerKind, node::Node, task::Task, time, tree::Tree},
-        test_util::{container, container_at, task, tree_with},
+        model::tree::Tree,
+        test_util::{container, task, tree_with},
     };
 
     pub(super) fn tree() -> Tree {
         tree_with(vec![task("a"), container("inner", vec![task("b")])])
-    }
-
-    /// root (tmp) -> [task "a", ws (tmp/ws) -> [task "b"]], both files saved.
-    pub(super) async fn disk_tree(root_dir: &Path) -> Tree {
-        let ws_dir = root_dir.join("ws");
-        std::fs::create_dir(&ws_dir).unwrap();
-        let t = Tree::new(container_at(
-            "root",
-            root_dir,
-            ContainerKind::Root,
-            vec![
-                task("a"),
-                container_at("ws", &ws_dir, ContainerKind::Workspace, vec![task("b")]),
-            ],
-        ));
-        t.save(&[]).await.unwrap();
-        t.save(&[1]).await.unwrap();
-        t
-    }
-
-    /// Task node with an optional dir, due now (for `create`).
-    pub(super) fn new_task(name: &str, dir: Option<PathBuf>) -> Node {
-        Node::task(name.into(), Task::new(dir, time::now()))
-    }
-
-    /// Empty container node at `dir` (for `create`).
-    pub(super) fn new_container(name: &str, dir: &Path, kind: ContainerKind) -> Node {
-        container_at(name, dir, kind, vec![])
     }
 
     // ---------- lookup (tree() = root: [a, inner: [b]]) ----------

@@ -53,24 +53,7 @@ fn walk<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_util::{container, task, tree_with};
-
-    /// root
-    /// ├─ a                [0]
-    /// ├─ inner            [1]
-    /// │  ├─ b             [1,0]
-    /// │  └─ deep          [1,1]
-    /// │     └─ c          [1,1,0]
-    /// ├─ z                [2]
-    /// └─ empty (no kids)  [3]
-    fn tree() -> Tree {
-        tree_with(vec![
-            task("a"),
-            container("inner", vec![task("b"), container("deep", vec![task("c")])]),
-            task("z"),
-            container("empty", vec![]),
-        ])
-    }
+    use crate::test_util::{deep_tree, tree_with};
 
     fn names(rows: &[Row]) -> Vec<String> {
         rows.iter().map(|r| r.node.name().to_string()).collect()
@@ -78,20 +61,20 @@ mod tests {
 
     #[test]
     fn rows_are_depth_first() {
-        let t = tree();
+        let t = deep_tree();
         assert_eq!(names(&t.rows()), vec!["a", "inner", "b", "deep", "c", "z", "empty"]);
     }
 
     #[test]
     fn rows_have_depths() {
-        let t = tree();
+        let t = deep_tree();
         let depths: Vec<_> = t.rows().iter().map(|r| r.depth).collect();
         assert_eq!(depths, vec![0, 0, 1, 1, 2, 0, 0]);
     }
 
     #[test]
     fn rows_have_paths_matching_get() {
-        let t = tree();
+        let t = deep_tree();
         let rows = t.rows();
         let paths: Vec<_> = rows.iter().map(|r| r.path.clone()).collect();
         assert_eq!(
@@ -118,7 +101,7 @@ mod tests {
 
     #[test]
     fn rows_where_skips_children_of_closed_nodes() {
-        let t = tree();
+        let t = deep_tree();
         let rows = t.rows_where(|n| n.name() != "inner");
         assert_eq!(names(&rows), vec!["a", "inner", "z", "empty"]);
     }

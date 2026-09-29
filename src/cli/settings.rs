@@ -230,12 +230,11 @@ mod tests {
     use clap::Parser;
 
     use super::*;
-    use crate::{cli::Cli, model::tree::Tree, storage::Storage, test_util::disk_tree};
-
-    async fn core() -> (tempfile::TempDir, Core) {
-        let (tmp, tree) = disk_tree().await; // root: [a, ws (tmp/ws): [b]]
-        (tmp, Core::new(tree, Storage::in_memory()))
-    }
+    use crate::{
+        cli::Cli,
+        model::tree::Tree,
+        test_util::core, // disk_tree, root: [a, ws (tmp/ws): [b]]
+    };
 
     fn set(args: &[&str]) -> SettingsAction {
         SettingsAction::Set {

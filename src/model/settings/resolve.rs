@@ -91,20 +91,8 @@ mod tests {
     use crate::{
         UDO_FILE_NAME,
         model::{container::ContainerKind, settings::TaskFolderSetting},
-        test_util::{container, container_at, task, tree_with},
+        test_util::{container_at, uni_tree},
     };
-
-    /// root
-    /// ├─ uni          [0]
-    /// │  └─ cs        [0,0]
-    /// │     └─ lab    [0,0,0]  (task)
-    /// └─ work         [1]
-    fn tree() -> Tree {
-        tree_with(vec![
-            container("uni", vec![container("cs", vec![task("lab")])]),
-            container("work", vec![]),
-        ])
-    }
 
     /// Set `archive_dir` on the container at `path`.
     fn set_archive(t: &mut Tree, path: &[usize], dir: &str) {
@@ -127,7 +115,7 @@ mod tests {
 
     #[test]
     fn own_value_wins_over_the_parent() {
-        let mut t = tree();
+        let mut t = uni_tree();
         set_archive(&mut t, &[0], "/uni");
         set_archive(&mut t, &[0, 0], "/cs");
 
@@ -136,7 +124,7 @@ mod tests {
 
     #[test]
     fn inherited_from_the_parent() {
-        let mut t = tree();
+        let mut t = uni_tree();
         set_archive(&mut t, &[0], "/uni");
 
         assert_eq!(archive(&t, &[0, 0]), resolved("/uni", Source::Inherited(vec![0])));
@@ -144,7 +132,7 @@ mod tests {
 
     #[test]
     fn nearest_ancestor_wins() {
-        let mut t = tree();
+        let mut t = uni_tree();
         set_archive(&mut t, &[], "/root");
         set_archive(&mut t, &[0], "/uni");
 
@@ -153,7 +141,7 @@ mod tests {
 
     #[test]
     fn root_value_reaches_every_container() {
-        let mut t = tree();
+        let mut t = uni_tree();
         set_archive(&mut t, &[], "/root");
 
         for path in [&[0][..], &[0, 0], &[1]] {
@@ -164,7 +152,7 @@ mod tests {
 
     #[test]
     fn a_task_gets_its_containers_value() {
-        let mut t = tree();
+        let mut t = uni_tree();
         set_archive(&mut t, &[0, 0], "/cs");
 
         // tasks have no settings: the value is always inherited
@@ -173,7 +161,7 @@ mod tests {
 
     #[test]
     fn siblings_do_not_inherit_from_each_other() {
-        let mut t = tree();
+        let mut t = uni_tree();
         set_archive(&mut t, &[0], "/uni");
 
         assert_eq!(archive(&t, &[1]), None); // "work" is next to "uni", not below
@@ -181,12 +169,12 @@ mod tests {
 
     #[test]
     fn set_nowhere_and_no_default_is_none() {
-        assert_eq!(archive(&tree(), &[0, 0]), None);
+        assert_eq!(archive(&uni_tree(), &[0, 0]), None);
     }
 
     #[test]
     fn missing_path_is_none() {
-        let mut t = tree();
+        let mut t = uni_tree();
         set_archive(&mut t, &[], "/root");
 
         assert_eq!(archive(&t, &[9]), None);
@@ -201,7 +189,7 @@ mod tests {
 
     #[test]
     fn inherited_skips_the_own_value() {
-        let mut t = tree();
+        let mut t = uni_tree();
         set_archive(&mut t, &[0], "/uni");
         set_archive(&mut t, &[0, 0], "/cs");
 
@@ -211,7 +199,7 @@ mod tests {
 
     #[test]
     fn inherited_comes_from_further_up() {
-        let mut t = tree();
+        let mut t = uni_tree();
         set_archive(&mut t, &[], "/root");
         set_archive(&mut t, &[0, 0], "/cs");
 
@@ -220,7 +208,7 @@ mod tests {
 
     #[test]
     fn inherited_on_the_root_is_the_builtin() {
-        let mut t = tree();
+        let mut t = uni_tree();
         set_archive(&mut t, &[], "/root");
         let root = t.get_mut(&[]).and_then(Node::as_container_mut).unwrap();
         root.settings.task_folders = Some(TaskFolderSetting::Auto);
@@ -238,7 +226,7 @@ mod tests {
 
     #[test]
     fn inherited_of_a_task_or_a_missing_path_is_none() {
-        let mut t = tree();
+        let mut t = uni_tree();
         set_archive(&mut t, &[], "/root");
 
         assert_eq!(inherited_archive(&t, &[0, 0, 0]), None); // task "lab"

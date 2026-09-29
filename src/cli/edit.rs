@@ -114,22 +114,13 @@ impl Report for Edited {}
 
 #[cfg(test)]
 mod tests {
-    use chrono::{Local, NaiveDate};
+    use chrono::Local;
 
     use super::*;
-    use crate::{model::container::ContainerKind, storage::Storage, test_util::disk_tree};
-
-    async fn core() -> (tempfile::TempDir, Core) {
-        let (tmp, tree) = disk_tree().await; // root: [a, ws: [b]]
-        (tmp, Core::new(tree, Storage::in_memory()))
-    }
-
-    fn thursday_noon() -> NaiveDateTime {
-        NaiveDate::from_ymd_opt(2026, 10, 15)
-            .unwrap()
-            .and_hms_opt(12, 0, 0)
-            .unwrap()
-    }
+    use crate::{
+        model::container::ContainerKind,
+        test_util::{core, dt, thursday_noon}, // core: disk_tree, root: [a, ws: [b]]
+    };
 
     fn edit(node: &str) -> EditArgs {
         EditArgs {
@@ -193,10 +184,7 @@ mod tests {
             .unwrap();
 
         let a = core.tree().get(&[0]).and_then(|n| n.as_task()).unwrap();
-        let friday = NaiveDate::from_ymd_opt(2026, 10, 16)
-            .unwrap()
-            .and_hms_opt(22, 0, 0)
-            .unwrap();
+        let friday = dt(2026, 10, 16, 22, 0);
         assert_eq!(a.due_date.with_timezone(&Local).naive_local(), friday);
     }
 

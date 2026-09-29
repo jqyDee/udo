@@ -78,22 +78,11 @@ impl Report for Marked {}
 
 #[cfg(test)]
 mod tests {
-    use chrono::{FixedOffset, TimeZone};
-
     use super::*;
-    use crate::{model::sessions::SessionStore, storage::Storage, test_util::disk_tree};
-
-    fn at(h: u32, m: u32) -> Time {
-        FixedOffset::east_opt(2 * 3600)
-            .unwrap()
-            .with_ymd_and_hms(2026, 10, 15, h, m, 0)
-            .unwrap()
-    }
-
-    async fn core() -> (tempfile::TempDir, Core) {
-        let (tmp, tree) = disk_tree().await; // root: [a, ws: [b]]
-        (tmp, Core::new(tree, Storage::in_memory()))
-    }
+    use crate::{
+        model::sessions::SessionStore,
+        test_util::{at, core}, // core: disk_tree, root: [a, ws: [b]]
+    };
 
     #[tokio::test]
     async fn mark_sets_the_status() {

@@ -140,28 +140,15 @@ impl Report for Added {}
 
 #[cfg(test)]
 mod tests {
-    use chrono::{Local, NaiveDate};
+    use chrono::Local;
     use clap::Parser;
 
     use super::*;
     use crate::{
         cli::Cli,
         model::settings::{ContainerSettings, TaskFolderSetting},
-        storage::Storage,
-        test_util::disk_tree,
+        test_util::{core, dt, thursday_noon}, // core: disk_tree, root: [a, ws: [b]]
     };
-
-    async fn core() -> (tempfile::TempDir, Core) {
-        let (tmp, tree) = disk_tree().await; // root: [a, ws: [b]]
-        (tmp, Core::new(tree, Storage::in_memory()))
-    }
-
-    fn thursday_noon() -> NaiveDateTime {
-        NaiveDate::from_ymd_opt(2026, 10, 15)
-            .unwrap()
-            .and_hms_opt(12, 0, 0)
-            .unwrap()
-    }
 
     fn task_args(node: &str) -> AddTaskArgs {
         AddTaskArgs {
@@ -192,11 +179,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(added.to_string(), "added task ws/lab 4");
-        let expected = NaiveDate::from_ymd_opt(2026, 10, 20)
-            .unwrap()
-            .and_hms_opt(9, 0, 0)
-            .unwrap();
-        assert_eq!(local_due(&core, &[1, 1]), expected);
+        assert_eq!(local_due(&core, &[1, 1]), dt(2026, 10, 20, 9, 0));
     }
 
     #[tokio::test]

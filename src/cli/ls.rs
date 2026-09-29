@@ -139,12 +139,7 @@ mod tests {
     use chrono::TimeZone;
 
     use super::*;
-    use crate::{storage::Storage, test_util::disk_tree};
-
-    async fn core() -> (tempfile::TempDir, Core) {
-        let (tmp, tree) = disk_tree().await; // root: [a, ws: [b]]
-        (tmp, Core::new(tree, Storage::in_memory()))
-    }
+    use crate::test_util::core; // disk_tree, root: [a, ws: [b]]
 
     fn names(listing: &Listing) -> Vec<(usize, &str)> {
         listing

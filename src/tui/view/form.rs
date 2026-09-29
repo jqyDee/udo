@@ -210,10 +210,7 @@ fn choice_spans(c: &ChoiceInput, is_active: bool) -> Vec<Span<'static>> {
 mod tests {
     use ratatui::style::Modifier;
 
-    use crate::{
-        model::container::ContainerKind,
-        tui::form::{FOLDER_CHOICES, TaskDefaults},
-    };
+    use crate::{model::container::ContainerKind, test_util::task_form, tui::form::FOLDER_CHOICES};
 
     use super::*;
 
@@ -355,22 +352,6 @@ mod tests {
     }
 
     // --------------- Dir Preview Tests ---------------
-
-    fn task_form(mode: FolderMode, name: &str) -> Form {
-        let defaults = TaskDefaults {
-            due: chrono::NaiveDate::from_ymd_opt(2026, 6, 15)
-                .unwrap()
-                .and_hms_opt(12, 0, 0)
-                .unwrap(),
-            folder: mode,
-        };
-        let mut form = Form::new_task(vec![0], "cs101", Some("/uni/cs101".into()), defaults);
-        let FieldInput::Text(t) = &mut form.fields[0].input else {
-            panic!("name is not a text field");
-        };
-        *t = TextInput::new(name);
-        form
-    }
 
     /// Text of the dir row's preview, None if the row is a normal field.
     fn preview(form: &Form) -> Option<String> {

@@ -63,17 +63,10 @@ pub struct SessionQuery {
 mod tests {
     use std::path::PathBuf;
 
-    use chrono::{FixedOffset, TimeDelta, TimeZone};
+    use chrono::TimeDelta;
 
     use super::*;
-
-    /// 2026-10-15 at `h:m`, offset +02:00.
-    fn at(h: u32, m: u32) -> Time {
-        FixedOffset::east_opt(2 * 3600)
-            .unwrap()
-            .with_ymd_and_hms(2026, 10, 15, h, m, 0)
-            .unwrap()
-    }
+    use crate::test_util::at;
 
     fn session(start: Time, end: Option<Time>) -> Session {
         Session {

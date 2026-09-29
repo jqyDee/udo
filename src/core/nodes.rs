@@ -115,7 +115,7 @@ impl Core {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{FixedOffset, NaiveDate, TimeZone};
+    use chrono::{FixedOffset, TimeZone};
 
     use super::*;
     use crate::{
@@ -125,28 +125,14 @@ mod tests {
             settings::ContainerSettings,
             task::Task,
         },
-        storage::Storage,
-        test_util::disk_tree,
+        test_util::{at, core, dt, thursday_noon},
     };
-
-    /// Thursday 2026-10-15, 12:00 local.
-    fn thursday_noon() -> NaiveDateTime {
-        NaiveDate::from_ymd_opt(2026, 10, 15)
-            .unwrap()
-            .and_hms_opt(12, 0, 0)
-            .unwrap()
-    }
 
     fn due() -> Time {
         FixedOffset::east_opt(2 * 3600)
             .unwrap()
             .with_ymd_and_hms(2026, 10, 16, 22, 0, 0)
             .unwrap()
-    }
-
-    async fn core() -> (tempfile::TempDir, Core) {
-        let (tmp, tree) = disk_tree().await;
-        (tmp, Core::new(tree, Storage::in_memory()))
     }
 
     #[tokio::test]
@@ -182,14 +168,6 @@ mod tests {
         core.delete(&[0], due()).await.unwrap();
 
         assert_eq!(core.tree().get(&[0]).unwrap().name(), "ws"); // "a" is gone
-    }
-
-    /// 2026-10-15 at `h:m`, offset +02:00.
-    fn at(h: u32, m: u32) -> Time {
-        FixedOffset::east_opt(2 * 3600)
-            .unwrap()
-            .with_ymd_and_hms(2026, 10, 15, h, m, 0)
-            .unwrap()
     }
 
     #[tokio::test]
@@ -260,10 +238,7 @@ mod tests {
 
         let defaults = core.task_defaults(&[1], thursday_noon()); // ws inherits
 
-        let friday_10pm = NaiveDate::from_ymd_opt(2026, 10, 16)
-            .unwrap()
-            .and_hms_opt(22, 0, 0)
-            .unwrap();
+        let friday_10pm = dt(2026, 10, 16, 22, 0);
         assert_eq!(
             defaults,
             TaskDefaults {
@@ -281,11 +256,7 @@ mod tests {
 
         let defaults = core.task_defaults(&[1], thursday_noon());
 
-        let friday_noon = NaiveDate::from_ymd_opt(2026, 10, 16)
-            .unwrap()
-            .and_hms_opt(12, 0, 0)
-            .unwrap();
-        assert_eq!(defaults.due, friday_noon);
+        assert_eq!(defaults.due, dt(2026, 10, 16, 12, 0)); // friday noon
         assert_eq!(defaults.task_folders, TaskFolderSetting::None);
     }
 

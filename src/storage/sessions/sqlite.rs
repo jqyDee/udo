@@ -589,25 +589,18 @@ fn cut(
 
 #[cfg(test)]
 mod tests {
-    use chrono::DateTime;
-
     use super::*;
-    use crate::{model::id::NodeId, storage::sqlite};
+    use crate::{
+        model::id::NodeId,
+        storage::sqlite,
+        test_util::{at, parse_time},
+    };
 
     // The edit log is SQLite's own (the contract cannot see it): what gets
     // written there is tested here.
 
-    fn time(rfc3339: &str) -> Time {
-        DateTime::parse_from_rfc3339(rfc3339).unwrap()
-    }
-
-    /// 2026-10-15 at `hh:mm`, +02:00.
-    fn at(hh_mm: &str) -> Time {
-        time(&format!("2026-10-15T{hh_mm}:00+02:00"))
-    }
-
     fn store() -> SqliteSessions {
-        SqliteSessions::new(sqlite::open_in_memory().unwrap(), || at("20:00"))
+        SqliteSessions::new(sqlite::open_in_memory().unwrap(), || at(20, 0))
     }
 
     fn task() -> TaskRef {
@@ -664,15 +657,15 @@ mod tests {
     #[tokio::test]
     async fn recording_is_not_logged() {
         let s = store();
-        s.add(task(), at("09:00"), at("10:00")).await.unwrap();
-        s.start(task(), SessionSource::Manual, at("14:00"))
+        s.add(task(), at(9, 0), at(10, 0)).await.unwrap();
+        s.start(task(), SessionSource::Manual, at(14, 0))
             .await
             .unwrap();
-        s.stop(at("15:00")).await.unwrap();
-        s.start(task(), SessionSource::Manual, at("16:00"))
+        s.stop(at(15, 0)).await.unwrap();
+        s.start(task(), SessionSource::Manual, at(16, 0))
             .await
             .unwrap();
-        assert!(s.stop(at("13:00")).await.is_err()); // a clock error, not a correction
+        assert!(s.stop(at(13, 0)).await.is_err()); // a clock error, not a correction
 
         assert!(edits(&s).is_empty());
     }
@@ -680,11 +673,11 @@ mod tests {
     #[tokio::test]
     async fn every_correction_logs_one_row_per_piece_with_its_kind() {
         let s = store();
-        let a = s.add(task(), at("09:00"), at("17:00")).await.unwrap();
+        let a = s.add(task(), at(9, 0), at(17, 0)).await.unwrap();
 
-        s.edit(a.id, patch_end(at("16:00"))).await.unwrap();
-        let (a, b) = s.split(a.id, at("12:00")).await.unwrap().unwrap();
-        let c = s.cut(b.id, at("13:00"), at("14:00")).await.unwrap()[1].clone();
+        s.edit(a.id, patch_end(at(16, 0))).await.unwrap();
+        let (a, b) = s.split(a.id, at(12, 0)).await.unwrap().unwrap();
+        let c = s.cut(b.id, at(13, 0), at(14, 0)).await.unwrap()[1].clone();
         s.delete(c.id).await.unwrap();
 
         let logged: Vec<_> = edits(&s).iter().map(|e| (e.session, e.kind)).collect();
@@ -704,25 +697,25 @@ mod tests {
     #[tokio::test]
     async fn log_keeps_old_and_new_times_with_their_offsets() {
         let s = store();
-        let a = s.add(task(), at("09:00"), at("11:00")).await.unwrap();
-        let new_end = time("2026-10-15T06:00:00-04:00"); // 12:00 here, another offset
+        let a = s.add(task(), at(9, 0), at(11, 0)).await.unwrap();
+        let new_end = parse_time("2026-10-15T06:00:00-04:00"); // 12:00 here, another offset
 
         s.edit(a.id, patch_end(new_end)).await.unwrap();
-        let (_, second) = s.split(a.id, at("10:00")).await.unwrap().unwrap();
+        let (_, second) = s.split(a.id, at(10, 0)).await.unwrap().unwrap();
         s.delete(second.id).await.unwrap();
 
         let log = edits(&s);
         // edit: 9–11 -> 9–12
-        assert_eq!(log[0].old, Some((at("09:00"), Some(at("11:00")))));
-        assert_eq!(log[0].new, Some((at("09:00"), Some(new_end))));
+        assert_eq!(log[0].old, Some((at(9, 0), Some(at(11, 0)))));
+        assert_eq!(log[0].new, Some((at(9, 0), Some(new_end))));
         let logged_end = log[0].new.unwrap().1.unwrap();
         assert_eq!(logged_end.offset(), new_end.offset()); // `==` alone ignores it
         // split: the new piece did not exist before
         assert_eq!(log[2].session, second.id);
         assert_eq!(log[2].old, None);
-        assert_eq!(log[2].new, Some((at("10:00"), Some(new_end))));
+        assert_eq!(log[2].new, Some((at(10, 0), Some(new_end))));
         // delete: gone afterwards
-        assert_eq!(log[3].old, Some((at("10:00"), Some(new_end))));
+        assert_eq!(log[3].old, Some((at(10, 0), Some(new_end))));
         assert_eq!(log[3].new, None);
     }
 }

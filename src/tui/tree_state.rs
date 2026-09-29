@@ -291,25 +291,12 @@ mod tests {
     use super::*;
     use crate::{
         model::container::ContainerKind,
-        test_util::{container, container_at, state_at, task, tree_with},
+        test_util::{container, container_at, deep_tree, state_at, task, tree_with},
     };
 
-    /// root
-    /// ├─ a                [0]
-    /// ├─ inner            [1]
-    /// │  ├─ b             [1,0]
-    /// │  └─ deep          [1,1]
-    /// │     └─ c          [1,1,0]
-    /// ├─ z                [2]
-    /// └─ empty (no kids)  [3]
+    /// `deep_tree` with the cursor on `cursor`.
     fn setup(cursor: &[usize]) -> (Tree, TreeState) {
-        let t = tree_with(vec![
-            task("a"),
-            container("inner", vec![task("b"), container("deep", vec![task("c")])]),
-            task("z"),
-            container("empty", vec![]),
-        ]);
-        (t, state_at(cursor))
+        (deep_tree(), state_at(cursor))
     }
 
     fn empty() -> (Tree, TreeState) {

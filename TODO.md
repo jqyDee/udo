@@ -233,6 +233,15 @@ around your calendar and shows the result on your phone.
 - [ ] **Shell completion** after the CLI rework: `clap_complete` with
       dynamic node names from the tree (`udo start la<Tab>` -> `lab 3`),
       using the same resolver as the commands.
+- [ ] **More filters for `udo session list`** (beyond NODE, `--from` /
+      `--to` / `--all` / `--deleted`): e.g. by source (`manual`, `nvim`,
+      …), edited only, longer than X; maybe the same filters for `ls`
+      (status, due before).
+- [ ] **Test helper leftovers** (after centralising `test_util.rs`): shared
+      `task_ref` for the session store tests, local date helpers built on
+      `dt`, clearer names for `rm.rs` `fake_trash` and `app/tests.rs`
+      `disk_tree`. Plan:
+      `docs/superpowers/plans/2026-09-29-test-util-leftovers.md`.
 - [ ] `roadmap.txt` 6.1 status is out of date (event loop is async, TUI
       writes: status, delete, create, edit, settings; details tabs, root
       row).
