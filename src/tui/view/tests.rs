@@ -11,10 +11,10 @@ use super::*;
 use crate::{
     model::{
         id::NodeId,
-        node::Node,
+        node::{Node, NodeBody},
         settings::{ContainerSettings, view::SETTINGS},
         task::Task,
-        time::{DeadlineRule, Time},
+        time::{DeadlineRule, Minutes, Time},
         tree::{PurgePlan, Tree},
     },
     test_util::{at, container, state_at, task, test_app, tree_with},
@@ -192,6 +192,130 @@ async fn the_timed_task_is_bold_and_green_in_the_tree() {
     assert_eq!(cell.fg, Color::Green);
     assert!(cell.modifier.contains(Modifier::BOLD));
     assert_ne!(fg_of(&mut app, "other"), Color::Green);
+}
+
+// ---------- details: time rows (rendered at `at(12, 0)`) ----------
+
+/// root: [uni: [lab, sheet]], uni sets `estimate` to `estimate`.
+fn estimate_tree(estimate: Option<u32>) -> Tree {
+    let mut t = tree_with(vec![container("uni", vec![task("lab"), task("sheet")])]);
+    let uni = t.get_mut(&[0]).and_then(Node::as_container_mut).unwrap();
+    uni.settings.estimate = estimate.map(Minutes::new);
+    t
+}
+
+/// App on `tree` with the cursor on `cursor`, sessions added through
+/// `Core` (path, from, to) and reloaded.
+async fn app_with_sessions(
+    tree: Tree,
+    cursor: &[usize],
+    sessions: &[(&[usize], Time, Time)],
+) -> App<'static> {
+    let mut app = test_app(tree, state_at(cursor));
+    for (path, from, to) in sessions {
+        app.core.add_session(path, *from, *to).await.unwrap();
+    }
+    app.reload().await;
+    app
+}
+
+/// The screen row of the details field `label` (labels are padded to
+/// `LABEL_WIDTH`), trimmed; None: no such row.
+fn field_row(rows: &[String], label: &str) -> Option<String> {
+    let padded = format!("{label:<LABEL_WIDTH$}");
+    let row = rows.iter().find(|r| r.contains(&padded))?;
+    let value = &row[row.find(&padded).unwrap() + padded.len()..];
+    Some(value.trim_end_matches(['│', ' ']).to_string())
+}
+
+#[tokio::test]
+async fn task_time_rows_show_estimate_duration_and_left() {
+    let sessions: &[(&[usize], _, _)] = &[
+        (&[0, 0], at(9, 0), at(9, 30)),
+        (&[0, 0], at(10, 0), at(10, 42)),
+    ];
+    let mut app = app_with_sessions(estimate_tree(Some(120)), &[0, 0], sessions).await;
+
+    let rows = render_rows(&mut app);
+
+    assert_eq!(field_row(&rows, "estimate").as_deref(), Some("2h (from uni)"));
+    assert_eq!(field_row(&rows, "duration").as_deref(), Some("1h12 in 2 sessions"));
+    assert_eq!(field_row(&rows, "left").as_deref(), Some("48m"));
+}
+
+#[tokio::test]
+async fn one_session_is_singular() {
+    let sessions: &[(&[usize], _, _)] = &[(&[0, 0], at(9, 0), at(9, 45))];
+    let mut app = app_with_sessions(estimate_tree(None), &[0, 0], sessions).await;
+
+    let rows = render_rows(&mut app);
+
+    assert_eq!(field_row(&rows, "duration").as_deref(), Some("45m in 1 session"));
+}
+
+#[tokio::test]
+async fn no_estimate_shows_dashes() {
+    let mut app = app_with_sessions(estimate_tree(None), &[0, 0], &[]).await;
+
+    let rows = render_rows(&mut app);
+
+    assert_eq!(field_row(&rows, "estimate").as_deref(), Some("-"));
+    assert_eq!(field_row(&rows, "duration").as_deref(), Some("0m in 0 sessions"));
+    assert_eq!(field_row(&rows, "left").as_deref(), Some("-"));
+}
+
+#[tokio::test]
+async fn over_the_estimate_is_red() {
+    let sessions: &[(&[usize], _, _)] = &[(&[0, 0], at(9, 0), at(10, 20))];
+    let mut app = app_with_sessions(estimate_tree(Some(60)), &[0, 0], sessions).await;
+
+    let rows = render_rows(&mut app);
+
+    assert_eq!(field_row(&rows, "left").as_deref(), Some("over by 20m"));
+    assert_eq!(fg_of(&mut app, "over by"), Color::Red);
+}
+
+#[tokio::test]
+async fn a_running_timer_says_so() {
+    let mut app = app_with_sessions(estimate_tree(Some(120)), &[0, 0], &[]).await;
+    app.core.start(&[0, 0], at(11, 30)).await.unwrap();
+    app.reload().await;
+
+    let rows = render_rows(&mut app);
+
+    let duration = field_row(&rows, "duration").unwrap();
+    assert!(duration.ends_with(", running"), "{duration}");
+    assert!(duration.starts_with("30m"), "{duration}");
+}
+
+#[tokio::test]
+async fn a_done_task_has_no_left_row() {
+    let mut t = estimate_tree(Some(120));
+    let NodeBody::Task(lab) = &mut t.get_mut(&[0, 0]).unwrap().body else {
+        panic!("lab is a task");
+    };
+    lab.done_at = Some(at(11, 0));
+    let mut app = app_with_sessions(t, &[0, 0], &[]).await;
+
+    let rows = render_rows(&mut app);
+
+    assert!(field_row(&rows, "estimate").is_some());
+    assert_eq!(field_row(&rows, "left"), None);
+}
+
+#[tokio::test]
+async fn a_container_shows_only_the_duration_of_the_tasks_below() {
+    let sessions: &[(&[usize], _, _)] = &[
+        (&[0, 0], at(9, 0), at(10, 0)),
+        (&[0, 1], at(10, 0), at(10, 30)),
+    ];
+    let mut app = app_with_sessions(estimate_tree(Some(120)), &[0], sessions).await;
+
+    let rows = render_rows(&mut app);
+
+    assert_eq!(field_row(&rows, "duration").as_deref(), Some("1h30 in 2 sessions"));
+    assert_eq!(field_row(&rows, "estimate"), None);
+    assert_eq!(field_row(&rows, "left"), None);
 }
 
 // ---------- details tabs ----------

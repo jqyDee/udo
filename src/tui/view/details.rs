@@ -14,7 +14,9 @@ use crate::{
     DATE_FMT,
     model::{
         node::{Node, NodeBody},
+        sessions::TimeSummary,
         settings::view::EffectiveSetting,
+        time::Left,
         tree::Tree,
     },
     tui::{
@@ -37,7 +39,9 @@ pub fn draw(
 ) {
     let mut lines = header_lines(node);
     lines.extend(match tab {
-        DetailsTab::Info => node.map(|n| detail_lines(n, info)).unwrap_or_default(),
+        DetailsTab::Info => node
+            .map(|n| detail_lines(tree, n, info))
+            .unwrap_or_default(),
         DetailsTab::Settings => setting_lines(tree, settings),
     });
     let titles: Vec<Span> = DetailsTab::ALL
@@ -62,7 +66,7 @@ fn header_lines(node: Option<&Node>) -> Vec<Line<'_>> {
 }
 
 /// Info tab: the node's own fields (below the shared header).
-fn detail_lines<'a>(node: &'a Node, info: &TaskInfo) -> Vec<Line<'a>> {
+fn detail_lines<'a>(tree: &Tree, node: &'a Node, info: &TaskInfo) -> Vec<Line<'a>> {
     let kind = match node.body {
         NodeBody::Container(_) => "container",
         NodeBody::Task(_) => "task",
@@ -124,6 +128,8 @@ fn detail_lines<'a>(node: &'a Node, info: &TaskInfo) -> Vec<Line<'a>> {
             ),
         ]),
     }
+    lines.push(Line::default());
+    lines.extend(time_lines(tree, node, info));
     lines
 }
 
@@ -148,4 +154,32 @@ fn setting_lines(tree: &Tree, settings: &[EffectiveSetting]) -> Vec<Line<'static
             }
         })
         .collect()
+}
+
+/// Estimate, duration and what is left (tasks); only duration (containers).
+fn time_lines(tree: &Tree, node: &Node, info: &TaskInfo) -> Vec<Line<'static>> {
+    let time = TimeSummary::of(info.sessions, info.now);
+    let duration = field("duration", time.to_string());
+    let Some(task) = node.as_task() else {
+        return vec![duration]; // container: no estimate, no left
+    };
+    let estimate = match &info.estimate {
+        Some(e) => format!("{} ({})", e.value, tree.source_text(&e.source)),
+        None => "-".into(),
+    };
+    let mut lines = vec![field("estimate", estimate), duration];
+    if task.done_at.is_none() {
+        lines.push(
+            match info
+                .estimate
+                .as_ref()
+                .map(|e| Left::of(e.value, time.duration))
+            {
+                Some(Left::Left(m)) => field("left", m.to_string()),
+                Some(Left::Over(m)) => field("left", format!("over by {m}")).red(),
+                None => field("left", "-".into()),
+            },
+        );
+    }
+    lines
 }

@@ -10,6 +10,7 @@ mod duration;
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone};
 pub use deadline::DeadlineRule;
+pub use duration::Left;
 pub use duration::Minutes;
 
 /// A point in time: the instant plus the local offset when it was recorded.

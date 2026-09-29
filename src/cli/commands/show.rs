@@ -17,9 +17,8 @@ use crate::{
     DATE_FMT, Res,
     core::Core,
     model::{
-        id::NodeId,
         node::NodeBody,
-        sessions::{SessionQuery, SessionStore},
+        sessions::TimeSummary,
         time::{Minutes, Time},
     },
 };
@@ -59,23 +58,8 @@ pub async fn run(core: &Core, cwd: &Path, now: Time, args: &ShowArgs) -> Res<Sho
     let path = resolve(tree, args.node.as_deref(), cwd)?;
     let node = tree.get(&path).ok_or("no such node")?;
 
-    // the task itself, or every task below the container
-    let tasks: Vec<NodeId> = match &node.body {
-        NodeBody::Task(_) => vec![node.id()],
-        NodeBody::Container(_) => tree
-            .rows()
-            .into_iter()
-            .filter(|r| r.path.starts_with(&path) && r.node.as_task().is_some())
-            .map(|r| r.node.id())
-            .collect(),
-    };
-    let query = SessionQuery {
-        tasks: Some(tasks.clone()),
-        ..Default::default()
-    };
-    let sessions = core.sessions().query(&query).await?;
-    let minutes = sessions.iter().map(|s| s.duration(now).get()).sum();
-    let running = sessions.iter().any(|s| s.end.is_none());
+    let sessions = core.sessions_of(&path).await?;
+    let summary = TimeSummary::of(&sessions, now);
 
     let (kind, status, due, overdue) = match &node.body {
         NodeBody::Container(c) => (Some(c.kind.to_string()), None, None, None),
@@ -94,9 +78,9 @@ pub async fn run(core: &Core, cwd: &Path, now: Time, args: &ShowArgs) -> Res<Sho
         overdue,
         dir: node.dir().map(Path::to_path_buf),
         description: node.header.description.clone(),
-        minutes,
-        sessions: sessions.len(),
-        running,
+        minutes: summary.duration.get(),
+        sessions: summary.sessions,
+        running: summary.running,
     })
 }
 
@@ -129,14 +113,11 @@ impl fmt::Display for Shown {
             line(f, "description", description)?;
         }
 
-        let sessions = if self.sessions == 1 {
-            "session"
-        } else {
-            "sessions"
+        let tracked = TimeSummary {
+            duration: Minutes::new(self.minutes),
+            sessions: self.sessions,
+            running: self.running,
         };
-        let running = if self.running { ", running" } else { "" };
-        let tracked =
-            format!("{} in {} {sessions}{running}", Minutes::new(self.minutes), self.sessions);
         line(f, "tracked", &tracked)
     }
 }

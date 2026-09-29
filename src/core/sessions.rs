@@ -1,16 +1,28 @@
-//! Correcting recorded time: add, edit, split, cut and delete sessions.
-//! Thin: the store keeps its own rules (overlap, outside, running).
+//! Reading and correcting recorded time: the sessions of a node; add, edit,
+//! split, cut and delete sessions. Thin: the store keeps its own rules
+//! (overlap, outside, running).
 
 use crate::{
     Res,
     core::Core,
     model::{
-        sessions::{Session, SessionId, SessionPatch, SessionStore},
+        sessions::{Session, SessionId, SessionPatch, SessionQuery, SessionStore},
         time::Time,
     },
 };
 
 impl Core {
+    /// Sessions of the node at `path` (a task: its own; a container: every
+    /// task below it), oldest first, removed ones left out. No such node:
+    /// none.
+    pub async fn sessions_of(&self, path: &[usize]) -> Res<Vec<Session>> {
+        let query = SessionQuery {
+            tasks: Some(self.tree.task_ids_below(path)),
+            ..Default::default()
+        };
+        Ok(self.storage.sessions.query(&query).await?)
+    }
+
     /// Record a session on the task at `path` by hand (source `manual`).
     pub async fn add_session(&self, path: &[usize], start: Time, end: Time) -> Res<Session> {
         let task = self.task_ref(path)?;

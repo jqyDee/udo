@@ -77,6 +77,25 @@ impl From<Minutes> for String {
     }
 }
 
+/// Estimate minus time so far (the details' `left` row).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Left {
+    /// This much is left (exactly on the estimate: `0m`).
+    Left(Minutes),
+    /// The estimate is exceeded by this much.
+    Over(Minutes),
+}
+
+impl Left {
+    /// What is left of `estimate` after `duration`.
+    pub fn of(estimate: Minutes, duration: Minutes) -> Self {
+        match estimate.get().checked_sub(duration.get()) {
+            Some(left) => Self::Left(Minutes::new(left)),
+            None => Self::Over(Minutes::new(duration.get() - estimate.get())),
+        }
+    }
+}
+
 /// Digits only: no sign, no decimals, not empty.
 fn number(s: &str) -> Result<u32, String> {
     if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
@@ -91,6 +110,18 @@ mod tests {
 
     fn parse(s: &str) -> Result<Minutes, String> {
         s.parse()
+    }
+
+    fn m(minutes: u32) -> Minutes {
+        Minutes::new(minutes)
+    }
+
+    #[test]
+    fn left_of_the_estimate() {
+        assert_eq!(Left::of(m(120), m(72)), Left::Left(m(48)));
+        assert_eq!(Left::of(m(60), m(60)), Left::Left(m(0))); // exactly on it
+        assert_eq!(Left::of(m(60), m(80)), Left::Over(m(20)));
+        assert_eq!(Left::of(m(0), m(5)), Left::Over(m(5)));
     }
 
     #[test]

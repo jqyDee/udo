@@ -7,11 +7,12 @@ mod error;
 mod id;
 mod source;
 mod store;
+mod summary;
 mod task_ref;
 
 pub use crate::model::sessions::{
     error::SessionError, id::SessionId, source::SessionSource, store::SessionStore,
-    task_ref::TaskRef,
+    summary::TimeSummary, task_ref::TaskRef,
 };
 
 #[derive(Debug, Clone, PartialEq)]

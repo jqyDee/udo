@@ -136,9 +136,15 @@ the TUI has no timer yet.
       is an "at least"). Averages are calculated from the sessions, not
       stored as settings.
 - [ ] Show estimate vs. actual per task and container (roadmap 5.2).
-- [ ] **Time tab** in the details pane (a third `DetailsTab`): running
-      session, sessions per task with corrections, 7-day view of the
-      schedule; estimate, time so far, remaining, number of sessions.
+- [ ] **Time tab** in the details pane (a third `DetailsTab`), a pure
+      sessions page: sessions newest first (a container: all tasks below
+      it, with task names), paged (page length from the space left,
+      `h` / `l` switch pages); `e` moves the cursor into the list, `e`
+      again edits the session, `esc` goes back to the tree. Estimate,
+      duration and left go into the details tab. Spec:
+      `docs/superpowers/specs/2026-09-29-tui-time-tab-design.md`.
+- [ ] **Filter the Time tab's sessions** (later): e.g. by date range,
+      source, edited / not edited.
 - [ ] **Better local estimates, step by step** (each measured against the
       recorded actual times; build the next only if needed):
       robust stats (median, recency weighting, a range instead of one

@@ -24,8 +24,10 @@ use crate::{
     model::{
         id::NodeId,
         node::Node,
+        sessions::Session,
+        settings::Resolved,
         task::{Task, TaskStatus},
-        time::Time,
+        time::{Minutes, Time},
     },
     tui::app::{App, Mode},
 };
@@ -35,12 +37,17 @@ const HINT: &str = " ? help · q quit";
 const LABEL_WIDTH: usize = 15;
 
 /// What the task views need besides the tree: which tasks have sessions
-/// (status), which task is running (if any) and the time to compare due
-/// dates with (overdue).
+/// (status), which task is running (if any), the time to compare due dates
+/// with (overdue), and the cursor node's sessions and estimate (details
+/// time rows).
 pub struct TaskInfo<'a> {
     pub with_sessions: &'a HashSet<NodeId>,
     pub running: Option<NodeId>,
     pub now: Time,
+    /// Sessions of the node at the cursor (details: time rows).
+    pub sessions: &'a [Session],
+    /// The `estimate` setting at the cursor (a task: its container's).
+    pub estimate: Option<Resolved<Minutes>>,
 }
 
 impl TaskInfo<'_> {
@@ -61,6 +68,8 @@ pub fn draw(frame: &mut Frame, app: &mut App, now: Time) {
         with_sessions: &app.with_sessions,
         running: app.running.as_ref().map(|s| s.task.id),
         now,
+        sessions: &app.sessions,
+        estimate: tree.setting(&app.tree_state.cursor, |s| s.estimate),
     };
     tree::draw(frame, left, tree, &mut app.tree_state, &info);
 

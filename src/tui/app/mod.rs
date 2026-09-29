@@ -5,7 +5,7 @@
 //! - `confirm`: "remove?" prompt (`d`) and full delete (`D`)
 //! - `details`: `DetailsTab`, which tab the right pane shows (Tab / Shift+Tab)
 //! - `forms`:   create forms (`t` `T` `c` `C`), the edit form (`e`) and the
-//!              settings form (`e` on the settings tab)
+//!   settings form (`e` on the settings tab)
 //! - `timer`:   start / stop the timer on the task at the cursor (`s`)
 
 mod confirm;
@@ -77,8 +77,12 @@ pub struct App<'a> {
     /// Tasks with sessions ("started" when not done), reloaded after every
     /// key (`reload`).
     pub with_sessions: HashSet<NodeId>,
-    /// Stores the running session, reloaded after every key and on a tick timer.
+    /// The running session, if any; reloaded after every key and on every
+    /// tick (`reload`).
     pub running: Option<Session>,
+    /// Sessions of the node at the cursor (a container: of every task below
+    /// it), oldest first; for the details time rows. Reloaded with the rest.
+    pub sessions: Vec<Session>,
 }
 
 impl<'a> App<'a> {
@@ -95,12 +99,17 @@ impl<'a> App<'a> {
             trash: system_trash,
             with_sessions: HashSet::new(),
             running: None,
+            sessions: Vec::new(),
         }
     }
 
     /// Read again what the views need from the stores. A failed read keeps
     /// the old values and says so.
     pub async fn reload(&mut self) {
+        match self.core.sessions_of(&self.tree_state.cursor).await {
+            Ok(sessions) => self.sessions = sessions,
+            Err(e) => self.error(e.to_string()),
+        }
         match self.core.tasks_with_sessions().await {
             Ok(with_sessions) => self.with_sessions = with_sessions,
             Err(e) => self.error(e.to_string()),

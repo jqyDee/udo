@@ -1,4 +1,9 @@
-use crate::model::{NodePath, node::Node, settings::RootSettings};
+use crate::model::{
+    NodePath,
+    id::NodeId,
+    node::{Node, NodeBody},
+    settings::RootSettings,
+};
 
 mod edit;
 mod folders;
@@ -82,17 +87,71 @@ impl Tree {
             .expect("the root is a container")
             .root_settings
     }
+
+    /// Ids of the tasks at or below `path`: a task is just itself, a
+    /// container every task below it (at any depth), in tree order. No such
+    /// node: empty.
+    pub fn task_ids_below(&self, path: &[usize]) -> Vec<NodeId> {
+        let Some(node) = self.get(path) else {
+            return vec![];
+        };
+
+        match &node.body {
+            NodeBody::Task(_) => vec![node.id()],
+            NodeBody::Container(_) => self
+                .rows()
+                .into_iter()
+                .filter(|r| r.path.starts_with(path) && r.node.as_task().is_some())
+                .map(|r| r.node.id())
+                .collect(),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
         model::tree::Tree,
-        test_util::{container, task, tree_with},
+        test_util::{container, deep_tree, task, tree_with},
     };
 
     pub(super) fn tree() -> Tree {
         tree_with(vec![task("a"), container("inner", vec![task("b")])])
+    }
+
+    // ---------- task_ids_below (deep_tree: root: [a, inner: [b, deep: [c]], z, empty]) ----------
+
+    /// Names of the tasks `task_ids_below(path)` returns, in its order.
+    fn tasks_below(t: &Tree, path: &[usize]) -> Vec<String> {
+        let ids = t.task_ids_below(path);
+        t.rows()
+            .into_iter()
+            .filter(|r| ids.contains(&r.node.id()))
+            .map(|r| r.node.name().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn task_ids_below_a_task_is_itself() {
+        let t = deep_tree();
+
+        assert_eq!(t.task_ids_below(&[1, 0]), vec![t.get(&[1, 0]).unwrap().id()]);
+    }
+
+    #[test]
+    fn task_ids_below_a_container_go_all_the_way_down() {
+        let t = deep_tree();
+
+        assert_eq!(tasks_below(&t, &[1]), vec!["b", "c"]);
+        assert_eq!(tasks_below(&t, &[]), vec!["a", "b", "c", "z"]); // the root
+    }
+
+    #[test]
+    fn task_ids_below_an_empty_or_missing_node_is_empty() {
+        let t = deep_tree();
+
+        assert!(t.task_ids_below(&[3]).is_empty()); // "empty": no children
+        assert!(t.task_ids_below(&[9]).is_empty());
     }
 
     // ---------- lookup (tree() = root: [a, inner: [b]]) ----------
