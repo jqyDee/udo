@@ -83,7 +83,7 @@ mod testing {
     /// A 09:00-12:00 session on task "a"; its short id.
     pub async fn nine_to_twelve(core: &Core) -> String {
         let session = core
-            .add_session(&[0], local(9, 0), local(12, 0))
+            .add_session(&[0], local(9, 0), local(12, 0), now())
             .await
             .unwrap();
         short_id(session.id)

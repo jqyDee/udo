@@ -241,7 +241,7 @@ async fn x_again_reopens_to_do_without_sessions() {
 async fn x_again_reopens_started_with_sessions() {
     let (_tmp, mut app) = sheet_app().await;
     app.core
-        .add_session(&[0], at(9, 0), at(10, 0))
+        .add_session(&[0], at(9, 0), at(10, 0), at(20, 0))
         .await
         .unwrap();
 
@@ -1007,7 +1007,7 @@ async fn list_app(n: i64) -> App<'static> {
     for i in 0..n {
         let start = at(0, 0) + chrono::TimeDelta::minutes(i * 20);
         app.core
-            .add_session(&[0], start, start + chrono::TimeDelta::minutes(10))
+            .add_session(&[0], start, start + chrono::TimeDelta::minutes(10), at(20, 0))
             .await
             .unwrap();
     }
@@ -1190,7 +1190,7 @@ async fn a_session_added_elsewhere_keeps_the_selection() {
     let selected = app.session_list.selected;
 
     app.core
-        .add_session(&[0], at(9, 0), at(9, 30))
+        .add_session(&[0], at(9, 0), at(9, 30), at(20, 0))
         .await
         .unwrap(); // newest
     app.reload().await;
@@ -1235,7 +1235,7 @@ async fn moving_the_tree_cursor_resets_the_page() {
     for i in 0..7 {
         let start = at(10, 0) + chrono::TimeDelta::minutes(i * 20);
         app.core
-            .add_session(&[1, 0], start, start + chrono::TimeDelta::minutes(10))
+            .add_session(&[1, 0], start, start + chrono::TimeDelta::minutes(10), at(20, 0))
             .await
             .unwrap();
     }

@@ -142,13 +142,13 @@ mod tests {
     async fn list_defaults_to_the_last_seven_days() {
         let (tmp, core) = core().await;
         let week = TimeDelta::days(7);
-        core.add_session(&[0], local(9, 0) - week - week, local(10, 0) - week - week)
+        core.add_session(&[0], local(9, 0) - week - week, local(10, 0) - week - week, now())
             .await
             .unwrap(); // two weeks ago: out
-        core.add_session(&[0], local(19, 0) - week, local(21, 0) - week)
+        core.add_session(&[0], local(19, 0) - week, local(21, 0) - week, now())
             .await
             .unwrap(); // over the edge: in
-        core.add_session(&[1, 0], local(9, 0), local(10, 0))
+        core.add_session(&[1, 0], local(9, 0), local(10, 0), now())
             .await
             .unwrap();
 
@@ -164,7 +164,7 @@ mod tests {
     async fn list_all_drops_the_range() {
         let (tmp, core) = core().await;
         let month = TimeDelta::days(30);
-        core.add_session(&[0], local(9, 0) - month, local(10, 0) - month)
+        core.add_session(&[0], local(9, 0) - month, local(10, 0) - month, now())
             .await
             .unwrap();
 
@@ -180,10 +180,10 @@ mod tests {
     #[tokio::test]
     async fn list_from_and_to_narrow_the_range() {
         let (tmp, core) = core().await;
-        core.add_session(&[0], local(9, 0), local(10, 0))
+        core.add_session(&[0], local(9, 0), local(10, 0), now())
             .await
             .unwrap();
-        core.add_session(&[1, 0], local(12, 0), local(13, 0))
+        core.add_session(&[1, 0], local(12, 0), local(13, 0), now())
             .await
             .unwrap();
 
@@ -215,10 +215,10 @@ mod tests {
     #[tokio::test]
     async fn list_of_a_container_has_the_tasks_below_it() {
         let (tmp, core) = core().await;
-        core.add_session(&[0], local(9, 0), local(10, 0))
+        core.add_session(&[0], local(9, 0), local(10, 0), now())
             .await
             .unwrap();
-        core.add_session(&[1, 0], local(12, 0), local(13, 0))
+        core.add_session(&[1, 0], local(12, 0), local(13, 0), now())
             .await
             .unwrap();
 
@@ -233,7 +233,7 @@ mod tests {
     #[tokio::test]
     async fn sessions_of_a_deleted_task_only_show_with_deleted() {
         let (tmp, mut core) = core().await;
-        core.add_session(&[0], local(9, 0), local(10, 0))
+        core.add_session(&[0], local(9, 0), local(10, 0), now())
             .await
             .unwrap();
         core.delete(&[0], now()).await.unwrap(); // task "a" is gone
@@ -256,7 +256,7 @@ mod tests {
     #[tokio::test]
     async fn deleted_shows_tasks_whose_container_is_gone_too() {
         let (tmp, mut core) = core().await;
-        core.add_session(&[1, 0], local(9, 0), local(10, 0))
+        core.add_session(&[1, 0], local(9, 0), local(10, 0), now())
             .await
             .unwrap();
         core.delete(&[1], now()).await.unwrap(); // ws and its task "b"
@@ -288,11 +288,11 @@ mod tests {
     async fn list_text_is_one_line_per_session_and_a_total() {
         let (tmp, core) = core().await;
         let a = core
-            .add_session(&[0], local(9, 0), local(10, 12))
+            .add_session(&[0], local(9, 0), local(10, 12), now())
             .await
             .unwrap();
         let b = core
-            .add_session(&[1, 0], local(14, 0), local(14, 45))
+            .add_session(&[1, 0], local(14, 0), local(14, 45), now())
             .await
             .unwrap();
 
@@ -325,7 +325,7 @@ mod tests {
     async fn list_json_has_full_ids_and_rfc3339_times() {
         let (tmp, core) = core().await;
         let a = core
-            .add_session(&[0], local(9, 0), local(10, 0))
+            .add_session(&[0], local(9, 0), local(10, 0), now())
             .await
             .unwrap();
 

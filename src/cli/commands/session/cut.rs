@@ -26,7 +26,7 @@ pub async fn run(core: &Core, now: Time, args: &CutArgs) -> Res<SessionDone> {
     let session = find(core, &args.id).await?;
     let from = args.from.resolve(now, None)?;
     let to = args.to.resolve(now, Some(from))?;
-    let left = core.cut_session(session.id, from, to).await?;
+    let left = core.cut_session(session.id, from, to, now).await?;
     Ok(SessionDone::of("cut", &left, core, now))
 }
 

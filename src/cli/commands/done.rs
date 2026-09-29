@@ -87,7 +87,9 @@ mod tests {
     #[tokio::test]
     async fn undo_reopens_to_do_or_started() {
         let (tmp, mut core) = core().await;
-        core.add_session(&[0], at(9, 0), at(10, 0)).await.unwrap(); // "a" has time
+        core.add_session(&[0], at(9, 0), at(10, 0), at(20, 0))
+            .await
+            .unwrap(); // "a" has time
         for node in ["a", "b"] {
             run(&mut core, tmp.path(), at(14, 0), &args(node, false))
                 .await

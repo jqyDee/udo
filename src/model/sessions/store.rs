@@ -52,7 +52,8 @@ pub trait SessionStore {
     /// Clamped to the session; no overlap at all: `OutsideSession`. Covers
     /// everything: `WholeSession` (use `delete`). `to` not after `from`:
     /// `EndBeforeStart`. Running sessions are fine: the last piece keeps
-    /// running. The caller keeps `to` in the past.
+    /// running. `to` in the past is not checked here (the store has no
+    /// `now`): `Core::cut_session` refuses the future.
     async fn cut(&self, id: SessionId, from: Time, to: Time) -> Result<Vec<Session>, SessionError>;
     /// Correction: move start / end. Logged in `session_edits`. Setting the
     /// end of a running session: `Running` (use `stop`).

@@ -87,9 +87,6 @@ impl SessionTime {
                 first + TimeDelta::minutes(d.get().into())
             }
         };
-        if t > now {
-            return Err("that time is in the future: sessions record what happened".into());
-        }
         Ok(t)
     }
 }

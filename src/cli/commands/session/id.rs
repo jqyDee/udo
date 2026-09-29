@@ -72,7 +72,10 @@ mod tests {
     #[tokio::test]
     async fn short_id_is_the_last_six_hex_characters() {
         let (_tmp, core) = core().await;
-        let s = core.add_session(&[0], at(9, 0), at(10, 0)).await.unwrap();
+        let s = core
+            .add_session(&[0], at(9, 0), at(10, 0), at(20, 0))
+            .await
+            .unwrap();
         let s = with_id(&s, "01890000-0000-7000-8000-0000004f9e2c");
 
         assert_eq!(short_id(s.id), "4f9e2c");
@@ -81,7 +84,10 @@ mod tests {
     #[tokio::test]
     async fn find_takes_any_unique_ending() {
         let (_tmp, core) = core().await;
-        let a = core.add_session(&[0], at(9, 0), at(10, 0)).await.unwrap();
+        let a = core
+            .add_session(&[0], at(9, 0), at(10, 0), at(20, 0))
+            .await
+            .unwrap();
         let sessions = vec![
             with_id(&a, "01890000-0000-7000-8000-0000004f9e2c"),
             with_id(&a, "01890000-0000-7000-8000-000000123456"),
@@ -95,7 +101,9 @@ mod tests {
     #[tokio::test]
     async fn find_without_a_match_is_an_error() {
         let (_tmp, core) = core().await;
-        core.add_session(&[0], at(9, 0), at(10, 0)).await.unwrap();
+        core.add_session(&[0], at(9, 0), at(10, 0), at(20, 0))
+            .await
+            .unwrap();
 
         let err = find(&core, "zzz").await.unwrap_err().to_string();
 
@@ -105,7 +113,10 @@ mod tests {
     #[tokio::test]
     async fn find_with_several_matches_lists_them() {
         let (_tmp, core) = core().await;
-        let a = core.add_session(&[0], at(9, 0), at(10, 0)).await.unwrap();
+        let a = core
+            .add_session(&[0], at(9, 0), at(10, 0), at(20, 0))
+            .await
+            .unwrap();
         let sessions = vec![
             with_id(&a, "01890000-0000-7000-8000-0000004f9e2c"),
             with_id(&a, "01890000-0000-7000-8000-0000014f9e2c"),
@@ -121,7 +132,10 @@ mod tests {
     #[tokio::test]
     async fn find_skips_removed_sessions() {
         let (_tmp, core) = core().await;
-        let s = core.add_session(&[0], at(9, 0), at(10, 0)).await.unwrap();
+        let s = core
+            .add_session(&[0], at(9, 0), at(10, 0), at(20, 0))
+            .await
+            .unwrap();
         core.delete_session(s.id).await.unwrap();
 
         assert!(find(&core, &short_id(s.id)).await.is_err());
@@ -130,7 +144,9 @@ mod tests {
     #[tokio::test]
     async fn an_empty_ending_is_refused() {
         let (_tmp, core) = core().await;
-        core.add_session(&[0], at(9, 0), at(10, 0)).await.unwrap();
+        core.add_session(&[0], at(9, 0), at(10, 0), at(20, 0))
+            .await
+            .unwrap();
 
         assert!(find(&core, "").await.is_err());
     }

@@ -30,7 +30,7 @@ pub async fn run(core: &Core, now: Time, args: &EditArgs) -> Res<SessionDone> {
         start: args.start.map(|t| t.resolve(now, None)).transpose()?,
         end: args.end.map(|t| t.resolve(now, None)).transpose()?,
     };
-    core.edit_session(session.id, patch).await?;
+    core.edit_session(session.id, patch, now).await?;
     let edited = find(core, &session.id.to_string()).await?;
     Ok(SessionDone::of("edited", &[edited], core, now))
 }

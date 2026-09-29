@@ -118,7 +118,10 @@ mod tests {
         let b = core.tree().get(&[1, 0]).unwrap().id();
         assert!(core.tasks_with_sessions().await.unwrap().is_empty());
 
-        let s = core.add_session(&[0], at(9, 0), at(10, 0)).await.unwrap();
+        let s = core
+            .add_session(&[0], at(9, 0), at(10, 0), at(20, 0))
+            .await
+            .unwrap();
         let with = core.tasks_with_sessions().await.unwrap();
         assert!(with.contains(&a) && !with.contains(&b));
 

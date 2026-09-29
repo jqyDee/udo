@@ -221,7 +221,9 @@ mod tests {
     #[tokio::test]
     async fn status_and_overdue_are_computed() {
         let (tmp, mut core) = core().await;
-        core.add_session(&[0], at(9, 0), at(10, 0)).await.unwrap();
+        core.add_session(&[0], at(9, 0), at(10, 0), at(20, 0))
+            .await
+            .unwrap();
         core.set_done(&[1, 0], true, at(10, 0)).await.unwrap();
         let due = core.tree().get(&[0]).unwrap().as_task().unwrap().due_date;
         let now = due.max(at(10, 0)) + TimeDelta::minutes(1);

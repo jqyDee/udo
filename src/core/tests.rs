@@ -38,11 +38,15 @@ async fn sessions_of(core: &Core, path: &[usize]) -> Vec<String> {
 /// Finished sessions a: 9-10, b: 11-12, a: 13-14.
 async fn core_with_sessions() -> (tempfile::TempDir, Core) {
     let (tmp, core) = core().await;
-    core.add_session(&[0], at(9, 0), at(10, 0)).await.unwrap();
-    core.add_session(&[1, 0], at(11, 0), at(12, 0))
+    core.add_session(&[0], at(9, 0), at(10, 0), at(20, 0))
         .await
         .unwrap();
-    core.add_session(&[0], at(13, 0), at(14, 0)).await.unwrap();
+    core.add_session(&[1, 0], at(11, 0), at(12, 0), at(20, 0))
+        .await
+        .unwrap();
+    core.add_session(&[0], at(13, 0), at(14, 0), at(20, 0))
+        .await
+        .unwrap();
     (tmp, core)
 }
 
@@ -68,7 +72,10 @@ async fn sessions_of_a_container_are_those_of_the_tasks_below() {
 #[tokio::test]
 async fn sessions_of_leave_removed_ones_out() {
     let (_tmp, core) = core().await;
-    let s = core.add_session(&[0], at(9, 0), at(10, 0)).await.unwrap();
+    let s = core
+        .add_session(&[0], at(9, 0), at(10, 0), at(20, 0))
+        .await
+        .unwrap();
 
     core.delete_session(s.id).await.unwrap();
 

@@ -139,7 +139,7 @@ async fn a_session_through_core_makes_the_task_started() {
     let t = tree_with(vec![task("exam")]);
     let mut app = test_app(t, state_at(&[0]));
     app.core
-        .add_session(&[0], at(9, 0), at(10, 0))
+        .add_session(&[0], at(9, 0), at(10, 0), at(20, 0))
         .await
         .unwrap();
 
@@ -218,7 +218,10 @@ async fn app_with_sessions(
 ) -> App<'static> {
     let mut app = test_app(tree, state_at(cursor));
     for (path, from, to) in sessions {
-        app.core.add_session(path, *from, *to).await.unwrap();
+        app.core
+            .add_session(path, *from, *to, at(20, 0))
+            .await
+            .unwrap();
     }
     app.reload().await;
     app
@@ -781,7 +784,7 @@ async fn sessions_tab(cursor: &[usize], n: i64) -> App<'static> {
     for i in 0..n {
         let start = at(0, 0) + TimeDelta::minutes(i * 20);
         app.core
-            .add_session(&[0, 0], start, start + TimeDelta::minutes(10))
+            .add_session(&[0, 0], start, start + TimeDelta::minutes(10), at(20, 0))
             .await
             .unwrap();
     }
@@ -840,7 +843,10 @@ async fn an_edited_session_is_marked() {
         start: Some(at(0, 5)),
         ..Default::default()
     };
-    app.core.edit_session(oldest, patch).await.unwrap();
+    app.core
+        .edit_session(oldest, patch, at(20, 0))
+        .await
+        .unwrap();
     app.reload().await;
 
     let rows = session_rows(&render_rows(&mut app));
@@ -864,7 +870,7 @@ async fn a_task_has_no_name_column() {
 async fn a_container_names_the_task() {
     let mut app = sessions_tab(&[0], 1).await; // "lab" at 00:00-00:10
     app.core
-        .add_session(&[0, 1], at(1, 0), at(1, 30))
+        .add_session(&[0, 1], at(1, 0), at(1, 30), at(20, 0))
         .await
         .unwrap();
     app.reload().await;
@@ -880,7 +886,7 @@ async fn a_long_task_name_is_cut() {
     let t = tree_with(vec![container("uni", vec![task("a very long task name here")])]);
     let mut app = test_app(t, state_at(&[0]));
     app.core
-        .add_session(&[0, 0], at(9, 0), at(10, 0))
+        .add_session(&[0, 0], at(9, 0), at(10, 0), at(20, 0))
         .await
         .unwrap();
     app.reload().await;

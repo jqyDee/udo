@@ -30,7 +30,7 @@ pub async fn run(core: &Core, cwd: &Path, now: Time, args: &AddArgs) -> Res<Sess
     let path = resolve(core.tree(), Some(&args.node), cwd)?;
     let start = args.start.resolve(now, None)?;
     let end = args.end.resolve(now, Some(start))?;
-    let session = core.add_session(&path, start, end).await?;
+    let session = core.add_session(&path, start, end, now).await?;
     Ok(SessionDone::of("added", &[session], core, now))
 }
 
