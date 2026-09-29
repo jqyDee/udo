@@ -10,6 +10,7 @@ mod parse;
 mod report;
 mod resolve;
 mod rm;
+mod session;
 mod settings;
 mod show;
 mod timer;
@@ -27,6 +28,7 @@ use crate::{
 };
 use add::AddCommand;
 use report::emit;
+use session::SessionCommand;
 
 #[derive(Parser)]
 #[command(
@@ -70,6 +72,9 @@ enum Command {
     Stop,
     /// Show what is being timed
     Status(timer::StatusArgs),
+    /// List and correct recorded time
+    #[command(subcommand)]
+    Session(SessionCommand),
 }
 
 impl Cli {
@@ -111,6 +116,20 @@ impl Cli {
             Command::Start(a) => emit(&timer::start(core, cwd, time::now(), a).await?, json),
             Command::Stop => emit(&timer::stop(core, time::now()).await?, json),
             Command::Status(a) => emit(&timer::status(core, time::now(), a).await?, json),
+            Command::Session(command) => {
+                let now = time::now();
+                match command {
+                    SessionCommand::List(a) => emit(&session::list(core, cwd, now, a).await?, json),
+                    SessionCommand::Add(a) => emit(&session::add(core, cwd, now, a).await?, json),
+                    SessionCommand::Edit(a) => emit(&session::edit(core, now, a).await?, json),
+                    SessionCommand::Split(a) => emit(&session::split(core, now, a).await?, json),
+                    SessionCommand::Cut(a) => emit(&session::cut(core, now, a).await?, json),
+                    SessionCommand::Rm(a) => {
+                        let mut ask = rm::ask_on_terminal;
+                        emit(&session::rm(core, now, a, &mut ask).await?, json)
+                    }
+                }
+            }
         }
     }
 }

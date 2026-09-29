@@ -11,6 +11,7 @@ use crate::{
 };
 
 mod nodes;
+mod sessions;
 mod settings;
 mod status;
 #[cfg(test)]
