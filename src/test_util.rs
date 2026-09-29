@@ -36,6 +36,12 @@ pub fn at(h: u32, m: u32) -> Time {
         .unwrap()
 }
 
+/// 2026-10-15 at `h:m` in the local zone: for output shown in local time,
+/// so the text is the same wherever the tests run.
+pub fn local(h: u32, m: u32) -> Time {
+    time::local_to_fixed(dt(2026, 10, 15, h, m)).unwrap()
+}
+
 /// Thursday 2026-10-15, 12:00 local.
 pub fn thursday_noon() -> NaiveDateTime {
     dt(2026, 10, 15, 12, 0)

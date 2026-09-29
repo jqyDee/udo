@@ -6,7 +6,7 @@ use std::{fmt, path::Path};
 use chrono::NaiveDateTime;
 use serde::Serialize;
 
-use super::{
+use crate::cli::{
     parse::{self, Due, KindArg},
     report::Report,
     resolve::{path_text, resolve},

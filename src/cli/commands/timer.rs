@@ -4,7 +4,7 @@ use std::{fmt, path::Path};
 
 use serde::Serialize;
 
-use super::{report::Report, resolve::resolve};
+use crate::cli::{report::Report, resolve::resolve};
 use crate::{
     Res,
     core::Core,

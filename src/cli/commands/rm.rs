@@ -5,19 +5,18 @@
 
 use std::{
     fmt,
-    io::{BufRead, IsTerminal, Write},
     path::{Path, PathBuf},
 };
 
 use serde::Serialize;
 
-use super::{
-    report::Report,
-    resolve::{path_text, resolve},
-    timer::SessionLine,
-};
+use super::timer::SessionLine;
 use crate::{
     Res,
+    cli::{
+        report::Report,
+        resolve::{path_text, resolve},
+    },
     core::Core,
     model::{time::Time, tree::TrashFn},
 };
@@ -53,7 +52,7 @@ pub struct Failed {
 }
 
 /// Remove `args.node` at `now`. `confirm` gets the question and says yes
-/// or no (the CLI: `ask_on_terminal`); `trash` moves a folder away.
+/// or no (the CLI: `confirm::ask_on_terminal`); `trash` moves a folder away.
 pub async fn run(
     core: &mut Core,
     cwd: &Path,
@@ -113,19 +112,6 @@ pub async fn run(
             .collect(),
         stopped: stopped.as_ref().map(|s| SessionLine::of(s, now)),
     })
-}
-
-/// Ask `question` on the terminal (`[y/N]`, on stderr so stdout keeps only
-/// results). Without a terminal there is nobody to ask: `--yes` is needed.
-pub fn ask_on_terminal(question: &str) -> Res<bool> {
-    if !std::io::stdin().is_terminal() {
-        return Err("not a terminal: add --yes to confirm".into());
-    }
-    eprint!("{question} [y/N] ");
-    std::io::stderr().flush()?;
-    let mut answer = String::new();
-    std::io::stdin().lock().read_line(&mut answer)?;
-    Ok(matches!(answer.trim().to_lowercase().as_str(), "y" | "yes"))
 }
 
 impl fmt::Display for Removed {

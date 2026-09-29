@@ -7,7 +7,7 @@ use std::{fmt, path::Path};
 use chrono::Local;
 use serde::Serialize;
 
-use super::{
+use crate::cli::{
     report::Report,
     resolve::{path_text, resolve},
 };

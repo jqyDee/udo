@@ -1,39 +1,19 @@
-//! `udo add task|project|workspace NODE`: the last part of NODE is the new
-//! name, the rest names its parent (see `resolve_parent`).
+//! `udo add task NODE [--due] [--dir | --no-dir] [--description]`.
 
-use std::{
-    fmt,
-    path::{Path, PathBuf, absolute},
-};
+use std::path::{Path, PathBuf, absolute};
 
 use chrono::NaiveDateTime;
-use serde::Serialize;
 
-use super::{
-    parse::{self, Due},
-    report::Report,
-    resolve::{path_text, resolve_parent},
-};
+use super::Added;
 use crate::{
     Res,
-    core::Core,
-    model::{
-        container::{Container, ContainerKind},
-        node::Node,
-        task::Task,
-        time::local_to_fixed,
+    cli::{
+        parse::{self, Due},
+        resolve::{path_text, resolve_parent},
     },
+    core::Core,
+    model::{node::Node, task::Task, time::local_to_fixed},
 };
-
-#[derive(clap::Subcommand)]
-pub enum AddCommand {
-    /// Add a task, e.g. `udo add task "uni/cs/lab 4" --due "fri 22:00"`
-    Task(AddTaskArgs),
-    /// Add a project, e.g. `udo add project uni/cs`
-    Project(AddContainerArgs),
-    /// Add a workspace, e.g. `udo add workspace uni --dir ~/uni`
-    Workspace(AddContainerArgs),
-}
 
 #[derive(clap::Args)]
 pub struct AddTaskArgs {
@@ -53,28 +33,8 @@ pub struct AddTaskArgs {
     pub description: Option<String>,
 }
 
-#[derive(clap::Args)]
-pub struct AddContainerArgs {
-    /// Path of the new workspace / project
-    pub node: String,
-    /// Folder (relative to the current folder); default: below the parent's
-    #[arg(long)]
-    pub dir: Option<PathBuf>,
-    #[arg(long)]
-    pub description: Option<String>,
-}
-
-/// What `add` created.
-#[derive(Serialize)]
-pub struct Added {
-    /// `task`, `project` or `workspace`.
-    pub what: String,
-    pub path: String,
-    pub dir: Option<PathBuf>,
-}
-
 /// Add a task; `now` (local) is where relative due rules start.
-pub async fn task(
+pub async fn run(
     core: &mut Core,
     cwd: &Path,
     now: NaiveDateTime,
@@ -101,42 +61,6 @@ pub async fn task(
         dir,
     })
 }
-
-/// Add a workspace or project.
-pub async fn container(
-    core: &mut Core,
-    cwd: &Path,
-    args: &AddContainerArgs,
-    kind: ContainerKind,
-) -> Res<Added> {
-    let (parent, name) = resolve_parent(core.tree(), &args.node, cwd)?;
-    let dir = match &args.dir {
-        Some(dir) => absolute(cwd.join(dir))?,
-        None => core
-            .container_dir(&parent, &name)
-            .ok_or("the parent has no folder, give --dir")?,
-    };
-    let node = Node::container(name, Container::new(dir.clone(), kind))
-        .with_description(args.description.clone());
-    let path = core.create(&parent, node).await?;
-    Ok(Added {
-        what: kind.to_string(),
-        path: path_text(core.tree(), &path),
-        dir: Some(dir),
-    })
-}
-
-impl fmt::Display for Added {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "added {} {}", self.what, self.path)?;
-        if let Some(dir) = &self.dir {
-            write!(f, "\nfolder: {}", dir.display())?;
-        }
-        Ok(())
-    }
-}
-
-impl Report for Added {}
 
 #[cfg(test)]
 mod tests {
@@ -174,7 +98,7 @@ mod tests {
             ..task_args("ws/lab 4")
         };
 
-        let added = task(&mut core, tmp.path(), thursday_noon(), &args)
+        let added = run(&mut core, tmp.path(), thursday_noon(), &args)
             .await
             .unwrap();
 
@@ -186,7 +110,7 @@ mod tests {
     async fn without_due_the_containers_default_applies() {
         let (tmp, mut core) = core().await;
 
-        task(&mut core, tmp.path(), thursday_noon(), &task_args("ws/lab 4"))
+        run(&mut core, tmp.path(), thursday_noon(), &task_args("ws/lab 4"))
             .await
             .unwrap();
 
@@ -207,10 +131,10 @@ mod tests {
             ..task_args("ws/lab 5")
         };
 
-        let with = task(&mut core, tmp.path(), thursday_noon(), &task_args("ws/lab 4"))
+        let with = run(&mut core, tmp.path(), thursday_noon(), &task_args("ws/lab 4"))
             .await
             .unwrap();
-        let without = task(&mut core, tmp.path(), thursday_noon(), &no_dir)
+        let without = run(&mut core, tmp.path(), thursday_noon(), &no_dir)
             .await
             .unwrap();
 
@@ -221,28 +145,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_project_gets_a_folder_below_its_parent() {
-        let (tmp, mut core) = core().await;
-        let args = AddContainerArgs {
-            node: "ws/cs 101".into(),
-            dir: None,
-            description: None,
-        };
-
-        let added = container(&mut core, tmp.path(), &args, ContainerKind::Project)
-            .await
-            .unwrap();
-
-        assert_eq!(added.path, "ws/cs 101");
-        assert_eq!(added.what, "project");
-        assert!(tmp.path().join("ws").join("cs_101").is_dir());
-    }
-
-    #[tokio::test]
     async fn a_task_cannot_hold_nodes() {
         let (tmp, mut core) = core().await;
 
-        let err = task(&mut core, tmp.path(), thursday_noon(), &task_args("a/x"))
+        let err = run(&mut core, tmp.path(), thursday_noon(), &task_args("a/x"))
             .await
             .err()
             .unwrap();

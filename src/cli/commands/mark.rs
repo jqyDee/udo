@@ -5,11 +5,11 @@ use std::{fmt, path::Path};
 
 use serde::Serialize;
 
-use super::{
+use super::timer::SessionLine;
+use crate::cli::{
     parse::StatusArg,
     report::Report,
     resolve::{path_text, resolve},
-    timer::SessionLine,
 };
 use crate::{
     Res,
