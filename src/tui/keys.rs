@@ -21,6 +21,7 @@ pub enum Action {
     ToggleDone,
     Edit,
     Delete,
+    ToggleTimer,
     NewContainer,
     NewTask,
     NextTab,
@@ -60,6 +61,7 @@ pub const KEYMAP: &[Section] = &[
     ]},
     Section { title: "task", bindings: &[
         Binding { keys: &[KeyCode::Char('x')], action: Action::ToggleDone, help: "done / reopen" },
+        Binding { keys: &[KeyCode::Char('s')], action: Action::ToggleTimer, help: "start / stop timer" },
         Binding { keys: &[KeyCode::Char('e')], action: Action::Edit, help: "edit" },
         Binding { keys: &[KeyCode::Char('d')], action: Action::Delete, help: "remove from udo" },
     ]},
@@ -164,11 +166,13 @@ mod tests {
         assert_eq!(action_for(press(KeyCode::Left)), Some(Action::Out));
     }
 
-    /// Only "done" is set by hand; `p`, `s`, `u` are gone (`s`: the timer).
+    /// Only "done" is set by hand; the old status keys `p` and `u` are gone,
+    /// `s` is the timer now.
     #[test]
-    fn done_key() {
+    fn done_and_timer_keys() {
         assert_eq!(action_for(press(KeyCode::Char('x'))), Some(Action::ToggleDone));
-        for gone in ['p', 's', 'u'] {
+        assert_eq!(action_for(press(KeyCode::Char('s'))), Some(Action::ToggleTimer));
+        for gone in ['p', 'u'] {
             assert_eq!(action_for(press(KeyCode::Char(gone))), None, "key {gone:?}");
         }
     }

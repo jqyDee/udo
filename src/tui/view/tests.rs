@@ -1,4 +1,9 @@
-use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, style::Color};
+use ratatui::{
+    Terminal,
+    backend::TestBackend,
+    buffer::Buffer,
+    style::{Color, Modifier},
+};
 
 use std::path::PathBuf;
 
@@ -138,6 +143,55 @@ async fn a_session_through_core_makes_the_task_started() {
     let screen = render(&mut app);
     assert!(screen.contains("◐ exam"), "{screen}");
     assert!(screen.contains("started"));
+}
+
+// ---------- timer ----------
+
+/// root: [exam, other], the timer on "exam" since 10:48 (1h12 at the
+/// render time 12:00).
+async fn timed_app() -> App<'static> {
+    let mut app = test_app(tree_with(vec![task("exam"), task("other")]), state_at(&[]));
+    app.core.start(&[0], at(10, 48)).await.unwrap();
+    app.reload().await;
+    app
+}
+
+#[tokio::test]
+async fn bottom_line_shows_the_running_timer_and_the_hint() {
+    let mut app = timed_app().await;
+
+    let rows = render_rows(&mut app);
+
+    let bottom = &rows[23];
+    assert!(bottom.starts_with(" ▶ exam · 1h12"), "{bottom}");
+    assert!(bottom.trim_end().ends_with("q quit"), "{bottom}");
+}
+
+#[test]
+fn idle_bottom_line_is_only_the_hint() {
+    let mut app = test_app(tree_with(vec![task("exam")]), state_at(&[]));
+
+    let rows = render_rows(&mut app);
+
+    let bottom = &rows[23];
+    assert!(!bottom.contains('▶'), "{bottom}");
+    assert!(bottom.trim_end().ends_with("? help · q quit"), "{bottom}");
+}
+
+/// The timed row keeps its status icon; only the name is bold and green.
+#[tokio::test]
+async fn the_timed_task_is_bold_and_green_in_the_tree() {
+    let mut app = timed_app().await;
+
+    let buf = render_buffer(&mut app, 80, 24);
+    let rows = rows_of(&buf);
+
+    assert!(rows.concat().contains("◐ exam"), "{}", rows.join("\n"));
+    let (y, x) = find(&rows, "exam").unwrap(); // the tree row comes first
+    let cell = &buf[(x as u16, y as u16)];
+    assert_eq!(cell.fg, Color::Green);
+    assert!(cell.modifier.contains(Modifier::BOLD));
+    assert_ne!(fg_of(&mut app, "other"), Color::Green);
 }
 
 // ---------- details tabs ----------

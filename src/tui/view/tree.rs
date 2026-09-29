@@ -66,10 +66,13 @@ fn row_line<'a>(row: &Row<'a>, folded: bool, info: &TaskInfo) -> Line<'a> {
         }
         NodeBody::Task(t) => {
             let status = info.status(row.node, t);
+            let timed = info.running == Some(row.node.id());
+            let name = task_name(name, t, status, info);
+            let name = if timed { name.bold().green() } else { name };
             Line::from(vec![
                 indent,
                 Span::raw(format!("{} ", status_icon(status))),
-                task_name(name, t, status, info),
+                name,
                 // shown in the current local time (same as entered in the form)
                 Span::raw("  "),
                 Span::raw(format!("{}", t.due_date.with_timezone(&Local).format(DATE_FMT))).dim(),

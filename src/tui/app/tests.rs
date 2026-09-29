@@ -250,6 +250,92 @@ async fn x_again_reopens_started_with_sessions() {
     assert_eq!(sheet_status(&app), TaskStatus::Started);
 }
 
+// ---------- timer (`s`) ----------
+// `s` starts / stops at `time::now()`: assertions avoid exact times.
+
+/// Name of the task the timer runs on, if any.
+fn timed(app: &App) -> Option<String> {
+    app.running.as_ref().map(|s| s.task.name.clone())
+}
+
+fn toast_of(app: &App) -> (ToastKind, String) {
+    let toast = app.toast.as_ref().expect("no toast");
+    (toast.kind, toast.msg.clone())
+}
+
+#[tokio::test]
+async fn s_starts_the_timer_on_a_task() {
+    let (_tmp, mut app) = sheet_app().await;
+
+    app.handle_key(key('s')).await;
+
+    assert_eq!(timed(&app).as_deref(), Some("sheet"));
+    assert_eq!(toast_of(&app), (ToastKind::Info, "▶ sheet".into()));
+    assert_eq!(sheet_status(&app), TaskStatus::Started);
+}
+
+#[tokio::test]
+async fn s_again_stops_it() {
+    let (_tmp, mut app) = sheet_app().await;
+
+    app.handle_key(key('s')).await;
+    app.handle_key(key('s')).await;
+
+    assert_eq!(timed(&app), None);
+    let (kind, msg) = toast_of(&app);
+    assert_eq!(kind, ToastKind::Info);
+    assert!(msg.starts_with("stopped sheet ("), "got: {msg}");
+    assert_eq!(sheet_status(&app), TaskStatus::Started); // the session stays
+}
+
+#[tokio::test]
+async fn s_on_another_task_switches() {
+    let mut app = test_app(tree(), state_at(&[0])); // root: [a, ws: [b]]
+    app.handle_key(key('s')).await;
+
+    app.tree_state.cursor = vec![1, 0];
+    app.handle_key(key('s')).await;
+
+    assert_eq!(timed(&app).as_deref(), Some("b"));
+}
+
+#[tokio::test]
+async fn s_on_a_container_or_the_root_is_refused() {
+    for cursor in [&[1][..], &[]] {
+        let mut app = test_app(tree(), state_at(cursor));
+
+        app.handle_key(key('s')).await;
+
+        assert_eq!(timed(&app), None, "cursor {cursor:?}");
+        let expected = (ToastKind::Error, "only tasks can be timed".to_string());
+        assert_eq!(toast_of(&app), expected, "cursor {cursor:?}");
+    }
+}
+
+#[tokio::test]
+async fn s_on_a_done_task_is_refused() {
+    let (_tmp, mut app) = sheet_app().await;
+    app.handle_key(key('x')).await;
+
+    app.handle_key(key('s')).await;
+
+    assert_eq!(timed(&app), None);
+    let expected = (ToastKind::Error, "sheet is done: press x to reopen it".to_string());
+    assert_eq!(toast_of(&app), expected);
+}
+
+/// As the CLI would: straight through `Core`, then the next reload (tick).
+#[tokio::test]
+async fn a_timer_started_elsewhere_shows_after_reload() {
+    let mut app = test_app(tree(), state_at(&[0]));
+    app.core.start(&[1, 0], at(9, 0)).await.unwrap();
+    assert_eq!(timed(&app), None);
+
+    app.reload().await;
+
+    assert_eq!(timed(&app).as_deref(), Some("b"));
+}
+
 #[tokio::test]
 async fn old_status_keys_do_nothing() {
     let (_tmp, mut app) = sheet_app().await;

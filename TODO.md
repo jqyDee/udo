@@ -103,12 +103,12 @@ the TUI has no timer yet.
       current one (`Core` rules, shared with the TUI). Today starting sets
       "in progress"; with the status change a task is "started" once it
       has a session.
-- [ ] **Manual start/stop in the TUI:** `s` on a task, through the same
+- [x] **Manual start/stop in the TUI:** `s` on a task, through the same
       `Core::start` / `stop`.
 - [x] **Timer survives closing udo:** a session is written to `udo.db` as
       "open" the moment it starts.
-- [ ] **Timer in the TUI status line** (`▶ lab 3 · 1h12`); open sessions
-      found after a crash / power-off are offered for fixing.
+- [x] **Timer in the TUI status line** (`▶ lab 3 · 1h12`); open sessions
+      found after a crash / power-off are offered for fixing in time tab.
 - [ ] **Tracking by program (with run configs):**
       - nvim in the foreground: udo suspends the TUI and waits (roadmap 6.2)
       - nvim in tmux: tmux hooks (`client-attached`, `client-detached`,

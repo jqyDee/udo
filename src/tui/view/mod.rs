@@ -35,9 +35,11 @@ const HINT: &str = " ? help · q quit";
 const LABEL_WIDTH: usize = 15;
 
 /// What the task views need besides the tree: which tasks have sessions
-/// (status) and the time to compare due dates with (overdue).
+/// (status), which task is running (if any) and the time to compare due
+/// dates with (overdue).
 pub struct TaskInfo<'a> {
     pub with_sessions: &'a HashSet<NodeId>,
+    pub running: Option<NodeId>,
     pub now: Time,
 }
 
@@ -57,6 +59,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, now: Time) {
     let tree = app.core.tree();
     let info = TaskInfo {
         with_sessions: &app.with_sessions,
+        running: app.running.as_ref().map(|s| s.task.id),
         now,
     };
     tree::draw(frame, left, tree, &mut app.tree_state, &info);
@@ -75,7 +78,18 @@ pub fn draw(frame: &mut Frame, app: &mut App, now: Time) {
         details::draw(frame, right, tree, node, app.details_tab, &settings, &info);
     }
 
-    frame.render_widget(Line::from(HINT).dim(), bottom);
+    let hint = Line::from(HINT).dim();
+    let [timer_area, hint_area] = Layout::horizontal([
+        Constraint::Fill(1),                     // timer: whatever is left
+        Constraint::Length(hint.width() as u16), // hint: exactly as wide as its text
+    ])
+    .areas(bottom);
+
+    if let Some(s) = &app.running {
+        let timer = format!(" ▶ {} · {}", s.task.name, s.duration(now));
+        frame.render_widget(Line::from(timer).green(), timer_area);
+    }
+    frame.render_widget(hint, hint_area);
 
     // overlays last, so they lie on top; help above the toast
     if let Some(toast) = &app.toast {

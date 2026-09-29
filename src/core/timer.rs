@@ -70,6 +70,11 @@ impl Core {
             _ => Ok(None),
         }
     }
+
+    /// Get the currently running session
+    pub async fn running_session(&self) -> Res<Option<Session>> {
+        Ok(self.storage.sessions.running().await?)
+    }
 }
 
 #[cfg(test)]

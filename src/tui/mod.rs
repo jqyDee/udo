@@ -11,6 +11,7 @@
 pub mod app;
 pub mod form;
 pub mod keys;
+pub mod tick;
 pub mod toast;
 pub mod tree_state;
 pub mod view;
@@ -27,6 +28,7 @@ use crate::{
     model::time,
     tui::{
         app::{App, Flow},
+        tick::next_tick,
         tree_state::TreeState,
     },
 };
@@ -49,9 +51,14 @@ async fn event_loop(terminal: &mut DefaultTerminal, app: &mut App<'_>) -> Res<()
     let mut events = EventStream::new();
     loop {
         terminal.draw(|f| view::draw(f, app, time::now()))?;
-        match next_wake(&mut events, app.toast_deadline()).await {
+        let tick = Instant::now() + next_tick(time::now(), app.running.as_ref());
+        let deadline = app.toast_deadline().map_or(tick, |t| t.min(tick));
+        match next_wake(&mut events, deadline).await {
             Wake::Closed => return Ok(()),
-            Wake::Timeout => app.expire_toast(Instant::now()),
+            Wake::Timeout => {
+                app.expire_toast(Instant::now());
+                app.reload().await;
+            }
             Wake::Event(event) => {
                 // non-key events (e.g. resize) just lead to a redraw
                 if let Event::Key(key) = event?
@@ -67,27 +74,18 @@ async fn event_loop(terminal: &mut DefaultTerminal, app: &mut App<'_>) -> Res<()
 /// Why the loop woke up.
 enum Wake {
     Event(io::Result<Event>),
-    /// `deadline` passed (toast should disappear).
+    /// `deadline` passed: tick or toast expiry.
     Timeout,
     /// Event stream ended (terminal gone).
     Closed,
 }
 
-/// Wait for the next terminal event, but not past `deadline`. No deadline:
-/// wait as long as it takes, no timer at all.
-async fn next_wake(events: &mut EventStream, deadline: Option<Instant>) -> Wake {
-    let next = match deadline {
-        Some(deadline) => {
-            let left = deadline.saturating_duration_since(Instant::now());
-            match tokio::time::timeout(left, events.next()).await {
-                Ok(next) => next,
-                Err(_elapsed) => return Wake::Timeout,
-            }
-        }
-        None => events.next().await,
-    };
-    match next {
-        Some(event) => Wake::Event(event),
-        None => Wake::Closed,
+/// Wait for the next terminal event, but not past `deadline`.
+async fn next_wake(events: &mut EventStream, deadline: Instant) -> Wake {
+    let left = deadline.saturating_duration_since(Instant::now());
+    match tokio::time::timeout(left, events.next()).await {
+        Ok(Some(event)) => Wake::Event(event),
+        Ok(None) => Wake::Closed,
+        Err(_elapsed) => Wake::Timeout,
     }
 }

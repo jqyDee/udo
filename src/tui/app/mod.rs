@@ -5,13 +5,15 @@
 //! - `confirm`: "remove?" prompt (`d`) and full delete (`D`)
 //! - `details`: `DetailsTab`, which tab the right pane shows (Tab / Shift+Tab)
 //! - `forms`:   create forms (`t` `T` `c` `C`), the edit form (`e`) and the
-//!   settings form (`e` on the settings tab)
+//!              settings form (`e` on the settings tab)
+//! - `timer`:   start / stop the timer on the task at the cursor (`s`)
 
 mod confirm;
 pub mod details;
 mod forms;
 #[cfg(test)]
 mod tests;
+mod timer;
 
 use std::{collections::HashSet, time::Instant};
 
@@ -24,6 +26,7 @@ use crate::{
     model::{
         id::NodeId,
         node::Node,
+        sessions::Session,
         time,
         tree::{TrashFn, system_trash},
     },
@@ -74,6 +77,8 @@ pub struct App<'a> {
     /// Tasks with sessions ("started" when not done), reloaded after every
     /// key (`reload`).
     pub with_sessions: HashSet<NodeId>,
+    /// Stores the running session, reloaded after every key and on a tick timer.
+    pub running: Option<Session>,
 }
 
 impl<'a> App<'a> {
@@ -89,6 +94,7 @@ impl<'a> App<'a> {
             toast: None,
             trash: system_trash,
             with_sessions: HashSet::new(),
+            running: None,
         }
     }
 
@@ -97,6 +103,10 @@ impl<'a> App<'a> {
     pub async fn reload(&mut self) {
         match self.core.tasks_with_sessions().await {
             Ok(with_sessions) => self.with_sessions = with_sessions,
+            Err(e) => self.error(e.to_string()),
+        };
+        match self.core.running_session().await {
+            Ok(running) => self.running = running,
             Err(e) => self.error(e.to_string()),
         }
     }
@@ -145,6 +155,7 @@ impl<'a> App<'a> {
                 DetailsTab::Settings => self.open_settings_form(),
             },
             Action::Delete => self.ask_delete(),
+            Action::ToggleTimer => self.toggle_timer().await,
             Action::NewContainer => self.open_container_form(),
             Action::NewTask => self.open_task_form(),
             Action::NextTab => self.details_tab.next(),
