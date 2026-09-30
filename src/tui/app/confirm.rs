@@ -154,7 +154,9 @@ impl App<'_> {
                 self.mode = Mode::Normal;
                 self.run_purge(&plan).await;
             }
-            _ => input.handle_key(key),
+            _ => {
+                input.handle_key(key); // changed or not: nothing reacts to it
+            }
         }
     }
 

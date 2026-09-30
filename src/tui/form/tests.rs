@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::*;
 use crate::{
@@ -142,11 +142,10 @@ fn edit_task_is_prefilled_without_folder_rows() {
     assert_eq!(form.title, "edit task · lab 3");
     assert_eq!(form.action, FormAction::EditNode { path: vec![0, 1] });
     assert_eq!(ids(&form), [FieldId::Name, FieldId::Description, FieldId::Due]);
-    let v = form.values();
-    assert_eq!(v.name, "lab 3");
-    assert_eq!(v.description, "ex 1-4");
-    assert_eq!(v.due, Some(due)); // stored -> local round trip
-    assert_eq!(v.kind, None);
+    assert_eq!(form.name(), "lab 3");
+    assert_eq!(form.description(), "ex 1-4");
+    assert_eq!(form.date_value(FieldId::Due), Some(due)); // stored -> local round trip
+    assert_eq!(form.container_kind(), None);
     assert_eq!(form.chosen_dir(), Ok(None)); // no folder rows: dir untouched
 }
 
@@ -157,10 +156,9 @@ fn edit_container_is_prefilled_with_its_kind() {
 
     assert_eq!(form.title, "edit container · uni");
     assert_eq!(ids(&form), [FieldId::Name, FieldId::Description, FieldId::Kind]);
-    let v = form.values();
-    assert_eq!(v.description, ""); // none set
-    assert_eq!(v.kind, Some(ContainerKind::Project));
-    assert_eq!(v.due, None);
+    assert_eq!(form.description(), ""); // none set
+    assert_eq!(form.container_kind(), Some(ContainerKind::Project));
+    assert_eq!(form.due(), Ok(None));
 }
 
 #[test]
@@ -180,7 +178,7 @@ fn create_and_edit_forms_share_field_order() {
 }
 
 #[test]
-fn values_normalize_the_name_but_keep_the_description_raw() {
+fn name_is_normalized_but_the_description_kept_raw() {
     let mut form = Form::edit_node(vec![0], &Node::task("a".into(), Task::new(None, now())));
     focus(&mut form, FieldId::Name);
     for c in "  b   c ".chars() {
@@ -190,9 +188,8 @@ fn values_normalize_the_name_but_keep_the_description_raw() {
     for c in "  d ".chars() {
         form.handle_key(press(KeyCode::Char(c)));
     }
-    let v = form.values();
-    assert_eq!(v.name, "a b c"); // collapsed like everywhere
-    assert_eq!(v.description, "  d "); // the tree cleans it
+    assert_eq!(form.name(), "a b c"); // collapsed like everywhere
+    assert_eq!(form.description(), "  d "); // the tree cleans it
 }
 
 // --------------- Date Field Tests ---------------
@@ -563,12 +560,106 @@ fn settings_form_on_the_root_adds_root_settings() {
     assert_eq!(form.settings().unwrap().1, Some(RootSettings::default()));
 }
 
-// --------------- Session form ---------------
+// --------------- Readers ---------------
 
-/// `t` as the form shows it: local, naive.
-fn local_naive(t: crate::model::time::Time) -> NaiveDateTime {
-    t.with_timezone(&Local).naive_local()
+/// Put `input` straight into the field `id` (dates the keys can't reach,
+/// like a DST gap; text without typing it).
+fn set_input(form: &mut Form, id: FieldId, input: FieldInput) {
+    let field = form.fields.iter_mut().find(|f| f.id == id);
+    field.expect("no such field").input = input;
 }
+
+/// Local 2:30 on the day clocks spring forward, if this zone skips it.
+fn dst_gap() -> Option<NaiveDateTime> {
+    // only testable where the local zone has a gap then (e.g. Europe)
+    let gap = dt(2026, 3, 29, 2, 30);
+    local_to_fixed(gap).is_none().then_some(gap)
+}
+
+#[test]
+fn new_task_node_gives_the_task_to_create() {
+    let node = task_form(FolderMode::None, "lab 3")
+        .new_task_node()
+        .unwrap();
+
+    assert_eq!(node.name(), "lab 3");
+    assert_eq!(node.dir(), None);
+    // `task_form`'s default due, local
+    let due = local_to_fixed(dt(2026, 6, 15, 12, 0)).unwrap();
+    assert_eq!(node.as_task().unwrap().due_date, due);
+}
+
+#[test]
+fn a_due_date_skipped_by_dst_is_refused() {
+    let Some(gap) = dst_gap() else { return };
+    let mut form = task_form(FolderMode::None, "lab 3");
+    set_input(&mut form, FieldId::Due, FieldInput::Date(DateInput::new(gap)));
+
+    // `.err()`: a `Node` can't be printed, so no `unwrap_err`
+    let err = form.new_task_node().err().expect("a DST gap is refused");
+    assert!(err.contains("DST"), "{err}");
+    assert!(form.node_edit().is_err());
+}
+
+#[test]
+fn a_relative_custom_dir_is_refused() {
+    let mut form = task_form(FolderMode::Custom, "lab 3");
+    set_input(&mut form, FieldId::Dir, FieldInput::Text(TextInput::new("relative/dir")));
+
+    assert!(form.new_task_node().is_err());
+}
+
+#[test]
+fn new_container_node_gets_the_auto_dir_and_kind() {
+    let mut form =
+        Form::new_container(vec![], "root", Some("/uni".into()), ContainerKind::Workspace);
+    for c in "cs 101".chars() {
+        form.handle_key(press(KeyCode::Char(c)));
+    }
+
+    let node = form.new_container_node().unwrap();
+
+    assert_eq!(node.name(), "cs 101");
+    assert_eq!(node.dir(), Some(Path::new("/uni/cs_101")));
+    assert_eq!(node.as_container().unwrap().kind, ContainerKind::Workspace);
+}
+
+#[test]
+fn auto_container_without_a_name_is_refused() {
+    let form = Form::new_container(vec![], "root", Some("/uni".into()), ContainerKind::Workspace);
+
+    assert_eq!(form.new_container_node().err().as_deref(), Some("name cannot be empty"));
+}
+
+#[test]
+fn node_edit_sends_every_field() {
+    let due = dt(2026, 10, 15, 14, 30);
+    let task = Task::new(None, local_to_fixed(due).unwrap());
+    let form = Form::edit_node(vec![0], &Node::task("lab 3".into(), task));
+
+    let patch = form.node_edit().unwrap();
+
+    assert_eq!(patch.header.name.as_deref(), Some("lab 3"));
+    // blank: sent anyway, the tree removes it
+    assert_eq!(patch.header.description, Some(Some(String::new())));
+    let Some(BodyPatch::Task(t)) = patch.body else {
+        panic!("a task form patches the task");
+    };
+    assert_eq!(t.due_date, local_to_fixed(due));
+}
+
+#[test]
+fn node_edit_of_a_container_patches_its_kind() {
+    let c = Container::new("/uni".into(), ContainerKind::Project);
+    let form = Form::edit_node(vec![0], &Node::container("uni".into(), c));
+
+    let Some(BodyPatch::Container(c)) = form.node_edit().unwrap().body else {
+        panic!("a container form patches the container");
+    };
+    assert_eq!(c.kind, Some(ContainerKind::Project));
+}
+
+// --------------- Session form ---------------
 
 #[test]
 fn session_form_has_start_and_end_in_local_time() {
@@ -576,7 +667,8 @@ fn session_form_has_start_and_end_in_local_time() {
 
     let form = Form::edit_session(&s);
 
-    assert_eq!(form.session_times(), (local_naive(at(9, 0)), Some(local_naive(at(10, 30)))));
+    // shown local, read back as the same instants
+    assert_eq!(form.session_times(), Ok((at(9, 0), Some(at(10, 30)))));
     assert_eq!(form.action, FormAction::EditSession { id: s.id });
     assert_eq!(form.title, "edit session · lab 3");
 }
@@ -586,7 +678,7 @@ fn a_running_session_has_no_end_field() {
     let form = Form::edit_session(&session(at(9, 0), None));
 
     assert_eq!(form.fields.len(), 1);
-    assert_eq!(form.session_times().1, None);
+    assert_eq!(form.session_times(), Ok((at(9, 0), None)));
     assert_eq!(form.title, "edit session · lab 3 (running)");
 }
 
@@ -611,8 +703,8 @@ fn keys_change_the_start_by_single_minutes() {
     form.handle_key(press(KeyCode::Right)); // -> minute
     form.handle_key(press(KeyCode::Up));
 
-    assert_eq!(form.session_times().0, local_naive(at(9, 1)));
-    assert_eq!(form.session_times().1, Some(local_naive(at(10, 0)))); // end untouched
+    // end untouched
+    assert_eq!(form.session_times(), Ok((at(9, 1), Some(at(10, 0)))));
 }
 
 /// Enter / Esc end the form like every other form.
@@ -631,12 +723,12 @@ fn seconds_are_kept_also_after_a_step() {
     let start = parse_time("2026-10-15T14:00:40+02:00");
     let mut form = Form::edit_session(&session(start, Some(at(15, 0))));
 
-    assert_eq!(form.session_times().0, local_naive(start)); // untouched
+    assert_eq!(form.session_times().unwrap().0, start); // untouched
 
     form.handle_key(press(KeyCode::Right));
     form.handle_key(press(KeyCode::Right)); // minute
     form.handle_key(press(KeyCode::Up));
 
-    let stepped = local_naive(start) + chrono::TimeDelta::minutes(1);
-    assert_eq!(form.session_times().0, stepped); // 14:01:40
+    let stepped = start + chrono::TimeDelta::minutes(1);
+    assert_eq!(form.session_times().unwrap().0, stepped); // 14:01:40
 }

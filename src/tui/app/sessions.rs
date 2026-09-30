@@ -2,18 +2,19 @@
 //! (`j` `k` across pages, `h` `l` page by page), leave (`esc`), and stay on
 //! its session across reloads. The rules live in `SessionList`; this file
 //! maps keys and reloads to them. `e` in the list opens the session's edit
-//! form; saving it (`submit_session_form`) returns to the list.
+//! form; saving it (`save_session`) returns to the list.
 
 use chrono::Local;
 use crossterm::event::KeyEvent;
 
 use crate::{
+    Res,
     model::{
         sessions::{SessionId, SessionPatch},
         time::{Minutes, Time},
     },
     tui::{
-        app::{App, Flow, Mode, forms::to_time},
+        app::{App, Flow, Mode, forms::Saved},
         form::Form,
         keys::{Action, LIST_KEYMAP, action_for_in},
     },
@@ -86,35 +87,34 @@ impl App<'_> {
     }
 
     /// Save the session form: only changed times go into the patch (an
-    /// unchanged form is no edit, so no `edited` marker). Success: back to the
-    /// list, the cursor stays on the session. Error: toast, the form stays open.
-    pub(super) async fn submit_session_form(&mut self, id: SessionId, form: &Form) {
+    /// unchanged form is no edit, so no `edited` marker). Back to the list
+    /// comes from `mode_after`; errors are shown by the caller.
+    pub(super) async fn save_session(&mut self, id: SessionId, form: &Form) -> Res<Saved> {
         let Some(s) = self.sessions.iter().find(|s| s.id == id).cloned() else {
-            self.mode = Mode::Sessions;
-            return self.error("that session is gone (removed elsewhere?)");
+            // not Err: nothing to fix in the form, so it closes (as before)
+            self.error("that session is gone (removed elsewhere?)");
+            return Ok(Saved {
+                reveal: None,
+                msg: None,
+            });
         };
-        let (start, end) = form.session_times();
-        let times = to_time(start).and_then(|start| Ok((start, end.map(to_time).transpose()?)));
-        let (start, end) = match times {
-            Ok(times) => times,
-            Err(e) => return self.error(e),
-        };
+        let (start, end) = form.session_times()?;
 
         let patch = SessionPatch {
             start: (start != s.start).then_some(start),
             end: end.filter(|&e| Some(e) != s.end),
         };
         if patch.start.is_none() && patch.end.is_none() {
-            self.mode = Mode::Sessions; // nothing changed: no edit
-            return;
+            return Ok(Saved {
+                reveal: None,
+                msg: None,
+            });
         }
-        match self.core.edit_session(id, patch, (self.clock)()).await {
-            Ok(()) => {
-                self.mode = Mode::Sessions;
-                self.info(saved_text(&s.task.name, start, end.or(s.end)));
-            }
-            Err(e) => self.error(e.to_string()), // the form stays open
-        }
+        self.core.edit_session(id, patch, (self.clock)()).await?;
+        Ok(Saved {
+            reveal: None,
+            msg: Some(saved_text(&s.task.name, start, end.or(s.end))),
+        })
     }
 
     /// `esc`: the cursor back to the tree, nothing selected.

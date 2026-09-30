@@ -2,21 +2,19 @@
 //! settings tab: the container's settings; in the sessions list: the
 //! session, saved in `sessions`). Opening
 //! picks the parent (or the node), the form edits itself
-//! (`Form::handle_key`), submit calls the tree (which checks names and
-//! creates dirs).
+//! (`Form::handle_key`), submit picks one `save_*` by the form's action,
+//! which calls the tree (it checks names and creates dirs).
 
-use chrono::{Local, NaiveDateTime};
+use chrono::Local;
 use crossterm::event::KeyEvent;
 
 use super::{App, Flow, Mode};
 use crate::{
+    Res,
     model::{
         NodePath,
-        container::{Container, ContainerKind, ContainerPatch},
-        node::{BodyPatch, HeaderPatch, Node, NodePatch},
+        container::ContainerKind,
         settings::{ContainerSettings, view::SettingInfo},
-        task::{Task, TaskPatch},
-        time::{Time, local_to_fixed},
         tree::Tree,
     },
     tui::form::{FolderMode, Form, FormAction, FormOutcome, TaskDefaults},
@@ -105,124 +103,103 @@ impl App<'_> {
         match form.handle_key(key) {
             FormOutcome::Continue => {}
             FormOutcome::Cancel => self.mode = mode_after(&form.action),
-            FormOutcome::Submit => self.submit_form().await,
+            FormOutcome::Submit => {
+                let Mode::Form(form) = std::mem::take(&mut self.mode) else {
+                    unreachable!("matched Mode::Form above");
+                };
+                match self.save(&form).await {
+                    Ok(saved) => self.after_save(&form.action, saved),
+                    Err(e) => {
+                        self.mode = Mode::Form(form);
+                        self.error(e.to_string());
+                    }
+                }
+            }
         }
         Flow::Continue
     }
 
-    /// Create or edit the node. The input is read and checked once, then each
-    /// action only builds a node (create) or a patch (edit) for the tree.
-    /// Success: close the form, select the node. Error: toast, form stays
-    /// open so the input can be fixed. A session form has its own path
-    /// (`submit_session_form`): none of the node rules apply.
-    async fn submit_form(&mut self) {
-        let Mode::Form(form) = &self.mode.clone() else {
-            return;
-        };
-        if let FormAction::EditSession { id } = form.action {
-            return self.submit_session_form(id, form).await;
-        }
-
-        // name rules (empty, `/`, `..`, duplicates) are checked by the tree
-        let v = form.values();
-        let description = Some(v.description);
-        // only task forms have a due date
-        let due = match v.due.map(to_time).transpose() {
-            Ok(due) => due,
-            Err(e) => return self.error(e),
-        };
-        // by folder mode (create forms only); clashes are checked by the tree
-        let dir = match form.chosen_dir() {
-            Ok(dir) => dir,
-            Err(e) => {
-                self.error(e);
-                return;
-            }
-        };
-
-        let saved = match &form.action {
-            FormAction::CreateTask { parent } => {
-                // task forms always have a `due` date field
-                let Some(due) = due else {
-                    return;
-                };
-                let node =
-                    Node::task(v.name.clone(), Task::new(dir, due)).with_description(description);
-                self.core
-                    .create(parent, node)
-                    .await
-                    .map(|path| (path, format!("added task {}", v.name)))
-            }
-            FormAction::CreateContainer { parent } => {
-                // container forms always have a `kind` field
-                let Some(kind) = v.kind else {
-                    return;
-                };
-                // auto without a name: say what's missing
-                let Some(dir) = dir else {
-                    self.error("name cannot be empty");
-                    return;
-                };
-                let node = Node::container(v.name.clone(), Container::new(dir, kind))
-                    .with_description(description);
-                self.core
-                    .create(parent, node)
-                    .await
-                    .map(|path| (path, format!("created {kind} {}", v.name)))
-            }
-            FormAction::EditNode { path } => {
-                // always sends every field: an unchanged name passes the
-                // checks, an emptied description is removed by the tree
-                let body = match (due, v.kind) {
-                    (Some(due), _) => Some(BodyPatch::Task(TaskPatch {
-                        due_date: Some(due),
-                        ..Default::default()
-                    })),
-                    (_, Some(kind)) => Some(BodyPatch::Container(ContainerPatch {
-                        kind: Some(kind),
-                        ..Default::default()
-                    })),
-                    (None, None) => None,
-                };
-                let patch = NodePatch {
-                    header: HeaderPatch {
-                        name: Some(v.name.clone()),
-                        description: Some(description),
-                    },
-                    body,
-                };
-                self.core
-                    .edit(path, patch)
-                    .await
-                    .map(|()| (path.clone(), format!("saved {}", v.name)))
-            }
-            FormAction::EditSettings { path } => {
-                let (settings, root) = match form.settings() {
-                    Ok(s) => s,
-                    Err(e) => {
-                        self.error(e);
-                        return;
-                    }
-                };
-                // opened from a task: the cursor stays on the task
-                let cursor = self.tree_state.cursor.clone();
-                self.core
-                    .set_settings(path, settings, root)
-                    .await
-                    .map(|()| (cursor, "saved settings".to_string()))
-            }
-            FormAction::EditSession { .. } => return, // saved at the top
-        };
-
-        match saved {
-            Ok((path, msg)) => {
-                self.tree_state.reveal(self.core.tree(), path);
-                self.mode = Mode::Normal;
-                self.info(msg);
-            }
-            Err(e) => self.error(e.to_string()),
+    /// Save `form` by its action. Errors: shown by the caller, the form
+    /// stays open. Name rules (empty, `/`, `..`, duplicates) are checked by
+    /// the tree.
+    async fn save(&mut self, form: &Form) -> Res<Saved> {
+        match &form.action {
+            FormAction::CreateTask { parent } => self.save_new_task(parent, form).await,
+            FormAction::CreateContainer { parent } => self.save_new_container(parent, form).await,
+            FormAction::EditNode { path } => self.save_node(path, form).await,
+            FormAction::EditSettings { path } => self.save_settings(path, form).await,
+            FormAction::EditSession { id } => self.save_session(*id, form).await,
         }
     }
+
+    /// New task under `parent` (`Form::new_task_node`).
+    async fn save_new_task(&mut self, parent: &NodePath, form: &Form) -> Res<Saved> {
+        let node = form.new_task_node()?;
+        // before `create` takes the node
+        let msg = format!("added task {}", node.name());
+        let path = self.core.create(parent, node).await?;
+        Ok(Saved {
+            reveal: Some(path),
+            msg: Some(msg),
+        })
+    }
+
+    /// New container under `parent` (`Form::new_container_node`).
+    async fn save_new_container(&mut self, parent: &NodePath, form: &Form) -> Res<Saved> {
+        let node = form.new_container_node()?;
+        let kind = node
+            .as_container()
+            .expect("new_container_node builds a container")
+            .kind;
+        let msg = format!("created {kind} {}", node.name());
+        let path = self.core.create(parent, node).await?;
+        Ok(Saved {
+            reveal: Some(path),
+            msg: Some(msg),
+        })
+    }
+
+    /// Edit the node at `path` (`Form::node_edit`).
+    async fn save_node(&mut self, path: &NodePath, form: &Form) -> Res<Saved> {
+        let patch = form.node_edit()?;
+        self.core.edit(path, patch).await?;
+        Ok(Saved {
+            reveal: Some(path.clone()),
+            msg: Some(format!("saved {}", form.name())),
+        })
+    }
+
+    /// Own settings of the container at `path` (plus `[root]` on the root).
+    async fn save_settings(&mut self, path: &NodePath, form: &Form) -> Res<Saved> {
+        let (settings, root) = form.settings()?;
+        // opened from a task: the cursor stays on the task
+        let cursor = self.tree_state.cursor.clone();
+        self.core.set_settings(path, settings, root).await?;
+        Ok(Saved {
+            reveal: Some(cursor),
+            msg: Some("saved settings".into()),
+        })
+    }
+
+    /// A form saved: close it (`mode_after`), select what it saved, say so.
+    fn after_save(&mut self, action: &FormAction, saved: Saved) {
+        if let Some(path) = saved.reveal {
+            self.tree_state.reveal(self.core.tree(), path);
+        }
+        self.mode = mode_after(action);
+        if let Some(msg) = saved.msg {
+            self.info(msg);
+        }
+    }
+}
+
+/// What saving a form did. Where the keys go next is `mode_after`, like
+/// for `esc`.
+pub(super) struct Saved {
+    /// Select this node in the tree.
+    pub(super) reveal: Option<NodePath>,
+    /// Info toast; None: nothing to say (unchanged session form).
+    pub(super) msg: Option<String>,
 }
 
 /// Where the keys go when `action`'s form closes: the list it came from
@@ -232,10 +209,4 @@ fn mode_after(action: &FormAction) -> Mode {
         FormAction::EditSession { .. } => Mode::Sessions,
         _ => Mode::Normal,
     }
-}
-
-/// A date from a form (local, as shown) as a `Time`. A local time a DST
-/// switch skips: the error for the toast.
-pub(super) fn to_time(local: NaiveDateTime) -> Result<Time, &'static str> {
-    local_to_fixed(local).ok_or("that time doesn't exist (DST switch)")
 }

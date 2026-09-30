@@ -245,7 +245,7 @@ around your calendar and shows the result on your phone.
       Ctrl+S = submit); details pane shows each line.
 - [x] `udo run` panicked (`todo!()`): removed in the CLI rework until run
       configs exist.
-- [ ] `submit_form` clones the whole form on every Enter.
+- [x] `submit_form` clones the whole form on every Enter.
 - [x] **CLI rework** (`docs/superpowers/specs/2026-09-28-cli-rework-design.md`,
       stages 1-5): `Core`, one path syntax for NODE, `--json`, every command
       in `src/cli/commands/` (groups as folders: `add`, `settings`,

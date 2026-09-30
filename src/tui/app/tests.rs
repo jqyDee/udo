@@ -751,7 +751,7 @@ async fn e_opens_form_prefilled_with_the_node() {
         panic!("no form open");
     };
     assert_eq!(form.action, FormAction::EditNode { path: vec![1] });
-    assert_eq!(form.values().name, "exam");
+    assert_eq!(form.name(), "exam");
 }
 
 #[tokio::test]

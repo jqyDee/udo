@@ -8,7 +8,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use crate::{DATE_FMT, tui::keys::is_text_input};
 
 /// Local date + time, edited one segment at a time (←/→ pick, ↑/↓ change).
-/// Naive local time: converted to `Time` only on submit (`App::submit_form`).
+/// Naive local time: converted to `Time` only on submit (`App::save`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DateInput {
     pub value: NaiveDateTime,
@@ -132,7 +132,8 @@ impl DateInput {
     /// ←/→ or h/l pick segment, ↑/↓ or k/j change it, `t` today. Other keys
     /// are ignored. Letter keys only without Ctrl/Alt (Ctrl+J / Ctrl+H arrive
     /// as `Char` with CONTROL on some terminals).
-    pub fn handle_key(&mut self, key: KeyEvent) {
+    pub fn handle_key(&mut self, key: KeyEvent) -> bool {
+        let before = self.value.clone();
         match key.code {
             KeyCode::Left => self.prev_segment(),
             KeyCode::Right => self.next_segment(),
@@ -148,6 +149,7 @@ impl DateInput {
             },
             _ => {}
         }
+        self.value != before
     }
 }
 
@@ -413,5 +415,17 @@ mod tests {
             d.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL));
         }
         assert_eq!(d, before);
+    }
+
+    // --------------- Change Report Tests ---------------
+
+    #[test]
+    fn handle_key_reports_changes_not_segment_moves() {
+        let mut d = DateInput::new(dt(2026, 6, 15, 12, 30));
+        assert!(!d.handle_key(press(KeyCode::Right))); // picks a segment
+        assert!(!d.handle_key(press(KeyCode::Char('h'))));
+        assert!(d.handle_key(press(KeyCode::Up))); // changes it
+        assert!(d.handle_key(press(KeyCode::Char('j'))));
+        assert!(!d.handle_key(press(KeyCode::Char('x')))); // not a date key
     }
 }

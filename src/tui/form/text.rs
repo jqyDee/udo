@@ -119,7 +119,8 @@ impl TextInput {
     /// Typing and cursor keys, plus shell-like Ctrl shortcuts: W word, U to
     /// start, K to end (delete); A / E jump to start / end. Other keys and
     /// other Ctrl/Alt combos are ignored.
-    pub fn handle_key(&mut self, key: KeyEvent) {
+    pub fn handle_key(&mut self, key: KeyEvent) -> bool {
+        let before = self.value.clone();
         match key.code {
             KeyCode::Char(c) if key.modifiers == KeyModifiers::CONTROL => match c {
                 'w' => self.delete_word_before(),
@@ -138,6 +139,7 @@ impl TextInput {
             KeyCode::End => self.move_end(),
             _ => {}
         }
+        self.value != before
     }
 
     // --------------- Helpers ---------------
@@ -403,5 +405,26 @@ mod tests {
         assert_eq!(t.cursor, 0);
         t.handle_key(ctrl('e'));
         assert_eq!(t.cursor, 3);
+    }
+
+    // --------------- Change Report Tests ---------------
+
+    #[test]
+    fn handle_key_reports_edits_not_cursor_moves() {
+        let mut t = TextInput::new("ab");
+        assert!(!t.handle_key(press(KeyCode::Left))); // cursor only
+        assert!(t.handle_key(press(KeyCode::Char('x')))); // typed
+        assert!(t.handle_key(press(KeyCode::Backspace))); // deleted
+        assert!(!t.handle_key(press(KeyCode::Home)));
+        assert!(!t.handle_key(press(KeyCode::Backspace))); // at the start: nothing to delete
+        assert!(!t.handle_key(ctrl('a')));
+    }
+
+    #[test]
+    fn handle_key_reports_no_change_on_empty_text() {
+        let mut t = TextInput::new("");
+        assert!(!t.handle_key(ctrl('w')));
+        assert!(!t.handle_key(ctrl('u')));
+        assert!(!t.handle_key(press(KeyCode::Delete)));
     }
 }

@@ -94,9 +94,10 @@ impl ChoiceInput {
         self.unset && self.selected == 0
     }
 
-    pub fn handle_key(&mut self, key: KeyEvent) {
+    pub fn handle_key(&mut self, key: KeyEvent) -> bool {
         let option_count = self.options.len();
         assert!(option_count > 0, "Choice has no fields");
+        let before = self.value();
         match key.code {
             KeyCode::Left | KeyCode::Char('h') => {
                 self.selected = (self.selected + option_count - 1) % option_count
@@ -106,6 +107,7 @@ impl ChoiceInput {
             }
             _ => {}
         }
+        self.value() != before
     }
 }
 
@@ -262,5 +264,20 @@ mod tests {
         let mut choice = choice(0);
         choice.handle_key(press(KeyCode::Left));
         assert_eq!(choice.selected, 2);
+    }
+
+    #[test]
+    fn handle_key_reports_a_new_selection() {
+        let mut choice = choice(0);
+        assert!(choice.handle_key(press(KeyCode::Right)));
+        assert!(choice.handle_key(press(KeyCode::Char('h'))));
+        assert!(!choice.handle_key(press(KeyCode::Char('i')))); // not a choice key
+    }
+
+    #[test]
+    fn a_single_option_never_changes() {
+        let mut choice = ChoiceInput::new(&["only"], "only");
+        assert!(!choice.handle_key(press(KeyCode::Right))); // wraps onto itself
+        assert!(!choice.handle_key(press(KeyCode::Left)));
     }
 }

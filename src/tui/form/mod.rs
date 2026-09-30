@@ -2,9 +2,10 @@
 //! on submit.
 //!
 //! Both are filled the same way (`Form::for_node`): editing starts from the
-//! node, creating from a template node with the defaults. Both are read the
-//! same way (`Form::values`). Settings have their own form
-//! (`Form::edit_settings`, read with `Form::settings`).
+//! node, creating from a template node with the defaults. Each kind of form
+//! has one typed reader that checks the input and converts local dates to
+//! `Time` (`new_task_node`, `new_container_node`, `node_edit`, `settings`,
+//! `session_times`). Settings have their own form (`Form::edit_settings`).
 //!
 //! - `text`: `TextInput`, free text with a cursor
 //! - `date`: `DateInput`, local date + time edited by segment
@@ -32,14 +33,14 @@ use crate::{
     dir::{default_dir, parse_abs_dir},
     model::{
         NodePath,
-        container::{Container, ContainerKind},
-        node::{Node, NodeBody},
+        container::{Container, ContainerKind, ContainerPatch},
+        node::{BodyPatch, HeaderPatch, Node, NodeBody, NodePatch},
         sessions::{Session, SessionId},
         settings::{
             ContainerSettings, RootSettings,
             view::{ROOT_SETTINGS, SETTINGS, SettingInfo},
         },
-        task::Task,
+        task::{Task, TaskPatch},
         time::{Time, local_to_fixed, now},
     },
     naming::normalize_name,
@@ -105,6 +106,16 @@ pub enum FieldInput {
     Choice(ChoiceInput),
 }
 
+impl FieldInput {
+    pub fn handle_key(&mut self, key: KeyEvent) -> bool {
+        match self {
+            FieldInput::Text(t) => t.handle_key(key),
+            FieldInput::Date(d) => d.handle_key(key),
+            FieldInput::Choice(c) => c.handle_key(key),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FormAction {
     CreateTask {
@@ -134,19 +145,6 @@ pub const SESSION_MINUTE_STEP: i64 = 1;
 pub struct TaskDefaults {
     pub due: NaiveDateTime,
     pub folder: FolderMode,
-}
-
-/// A filled-in form, independent of create or edit (`Form::values`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FormValues {
-    /// Normalized like every name (`normalize_name`).
-    pub name: String,
-    /// As typed; the tree trims it and turns blank into "no description".
-    pub description: String,
-    /// Task forms only; local time, as typed.
-    pub due: Option<NaiveDateTime>,
-    /// Container forms only.
-    pub kind: Option<ContainerKind>,
 }
 
 /// Folder choice + dir row (create forms only).
@@ -198,7 +196,7 @@ pub struct Form {
 pub enum FormOutcome {
     /// Keep editing.
     Continue,
-    /// Enter: validate and save (`App::submit_form`).
+    /// Enter: validate and save (`App::save`).
     Submit,
     /// Esc: close without saving.
     Cancel,
@@ -403,28 +401,79 @@ impl Form {
         }
     }
 
-    /// What the form says right now, for create and edit alike. Raw input:
-    /// the tree checks names and cleans descriptions.
-    pub fn values(&self) -> FormValues {
-        FormValues {
-            name: normalize_name(self.text_value(FieldId::Name).unwrap_or("")),
-            description: self
-                .text_value(FieldId::Description)
-                .unwrap_or("")
-                .to_string(),
-            due: self.date_value(FieldId::Due),
-            kind: self.container_kind(),
-        }
+    /// Checked input of a task create form, as the task to create. Name
+    /// rules are checked by the tree. Err: DST gap in the due date, custom
+    /// dir not absolute.
+    pub fn new_task_node(&self) -> Result<Node, String> {
+        let due = self.due()?.expect("task forms have a due field");
+        // by folder mode; clashes are checked by the tree
+        let dir = self.chosen_dir()?;
+        Ok(Node::task(self.name(), Task::new(dir, due)).with_description(Some(self.description())))
     }
 
-    /// Start and end of a session form, local as shown (end: None for a
-    /// running session). Converted and checked on submit (`App`).
-    pub fn session_times(&self) -> (NaiveDateTime, Option<NaiveDateTime>) {
-        (
-            self.date_value(FieldId::Start)
-                .expect("session forms always have a start"),
-            self.date_value(FieldId::End),
-        )
+    /// Checked input of a container create form, as the container to
+    /// create. Err: `auto` without a name, custom dir not absolute.
+    pub fn new_container_node(&self) -> Result<Node, String> {
+        let kind = self
+            .container_kind()
+            .expect("container forms have a kind field");
+        // auto without a name: say what's missing
+        let dir = self.chosen_dir()?.ok_or("name cannot be empty")?;
+        Ok(Node::container(self.name(), Container::new(dir, kind))
+            .with_description(Some(self.description())))
+    }
+
+    /// Checked input of an edit form, as a patch. Always every field: an
+    /// unchanged name passes the checks, an emptied description is removed
+    /// by the tree. Err: DST gap in the due date.
+    pub fn node_edit(&self) -> Result<NodePatch, String> {
+        // only task forms have a due date, only container forms a kind
+        let body = match (self.due()?, self.container_kind()) {
+            (Some(due), _) => Some(BodyPatch::Task(TaskPatch {
+                due_date: Some(due),
+                ..Default::default()
+            })),
+            (_, Some(kind)) => Some(BodyPatch::Container(ContainerPatch {
+                kind: Some(kind),
+                ..Default::default()
+            })),
+            (None, None) => None,
+        };
+        Ok(NodePatch {
+            header: HeaderPatch {
+                name: Some(self.name()),
+                description: Some(Some(self.description())),
+            },
+            body,
+        })
+    }
+
+    /// Start and end of a session form as `Time` (end: None for a running
+    /// session). Err: DST gap. Other checks (future, overlap) are the
+    /// store's.
+    pub fn session_times(&self) -> Result<(Time, Option<Time>), String> {
+        let start = self
+            .date_value(FieldId::Start)
+            .expect("session forms always have a start");
+        let end = self.date_value(FieldId::End).map(to_time).transpose()?;
+        Ok((to_time(start)?, end))
+    }
+
+    /// The name, normalized like every name (`normalize_name`).
+    pub fn name(&self) -> String {
+        normalize_name(self.text_value(FieldId::Name).unwrap_or(""))
+    }
+
+    /// As typed; the tree trims it and turns blank into "no description".
+    fn description(&self) -> String {
+        self.text_value(FieldId::Description)
+            .unwrap_or("")
+            .to_string()
+    }
+
+    /// The due date as a `Time` (task forms only, else None). Err: DST gap.
+    fn due(&self) -> Result<Option<Time>, String> {
+        self.date_value(FieldId::Due).map(to_time).transpose()
     }
 
     /// What a settings form says right now, parsed by the `set` of each
@@ -512,19 +561,21 @@ impl Form {
                 self.prev_field();
             }
             _ => {
-                let mode_before = self.folder_mode();
-                match self.active_field_mut().map(|f| &mut f.input) {
-                    Some(FieldInput::Text(t)) => t.handle_key(key),
-                    Some(FieldInput::Date(d)) => d.handle_key(key),
-                    Some(FieldInput::Choice(c)) => c.handle_key(key),
-                    None => {}
-                }
-                if self.folder_mode() != mode_before {
-                    self.on_folder_changed();
+                if let Some(field) = self.active_field_mut() {
+                    let id = field.id;
+                    if field.input.handle_key(key) {
+                        self.on_change(id);
+                    }
                 }
             }
         }
         FormOutcome::Continue
+    }
+
+    fn on_change(&mut self, id: FieldId) {
+        if id == FieldId::Folder {
+            self.on_folder_changed();
+        }
     }
 
     /// Switched to `custom`: start the dir text from the auto path (or the
@@ -626,4 +677,10 @@ impl Form {
             FolderMode::None => None,
         }
     }
+}
+
+/// A date from a form (local, as shown) as a `Time`. Err: a local time a
+/// DST switch skips, for the toast.
+fn to_time(local: NaiveDateTime) -> Result<Time, String> {
+    local_to_fixed(local).ok_or_else(|| "that time doesn't exist (DST switch)".into())
 }
