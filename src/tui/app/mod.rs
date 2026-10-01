@@ -240,6 +240,17 @@ impl<'a> App<'a> {
             self.toast = None;
         }
     }
+
+    /// The list (not the tree) has the keys, or gets them back when the
+    /// open form / prompt closes: the tree's cursor is drawn dimmed.
+    pub fn in_list(&self) -> bool {
+        match &self.mode {
+            Mode::Sessions => true,
+            Mode::Form(form) => forms::mode_after(&form.action) == Mode::Sessions,
+            Mode::Confirm(c) => confirm::mode_after(&c.action) == Mode::Sessions,
+            _ => false,
+        }
+    }
 }
 
 /// Toast suffix when an action also stopped the timer (done, delete).

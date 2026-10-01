@@ -967,6 +967,43 @@ async fn the_selected_session_is_reversed() {
     assert!(!newest.modifier.contains(Modifier::REVERSED));
 }
 
+/// The tree's cursor row ("lab", cursor of `sessions_tab(&[0, 0], …)`):
+/// its first cell, looked up in the tree pane only.
+fn tree_cursor_cell(app: &mut App) -> ratatui::buffer::Cell {
+    let buf = render_buffer(app, 80, 24);
+    let rows = rows_of(&buf);
+    let (y, x) = rows
+        .iter()
+        .enumerate()
+        .find_map(|(y, row)| {
+            let tree_pane = row.split('│').nth(1)?;
+            let byte = tree_pane.find("lab")?;
+            Some((y, 1 + tree_pane[..byte].chars().count())) // + the left border
+        })
+        .expect("tree cursor row not on screen");
+    buf[(x as u16, y as u16)].clone()
+}
+
+/// Active tree cursor: reversed. While the list has the keys (also under
+/// the form opened from it): dimmed (dark gray), not reversed.
+#[tokio::test]
+async fn the_tree_cursor_is_dimmed_while_in_the_list_and_its_form() {
+    let active = |c: &ratatui::buffer::Cell| c.modifier.contains(Modifier::REVERSED);
+    let dimmed = |c: &ratatui::buffer::Cell| !active(c) && c.bg == Color::DarkGray;
+    let mut app = sessions_tab(&[0, 0], 2).await;
+    assert!(active(&tree_cursor_cell(&mut app)), "the tree has the keys");
+
+    app.handle_key(press(KeyCode::Char('e'))).await; // into the list
+    assert!(dimmed(&tree_cursor_cell(&mut app)), "in the list");
+
+    app.handle_key(press(KeyCode::Char('e'))).await; // the session form
+    assert!(dimmed(&tree_cursor_cell(&mut app)), "the form over the list");
+
+    app.handle_key(press(KeyCode::Esc)).await; // back to the list
+    app.handle_key(press(KeyCode::Esc)).await; // back to the tree
+    assert!(active(&tree_cursor_cell(&mut app)), "back in the tree");
+}
+
 /// The page line is always there, at the same place: `page 1/1` too.
 #[tokio::test]
 async fn one_page_still_has_its_page_line_at_the_bottom() {

@@ -67,12 +67,12 @@ impl App<'_> {
                 KeyCode::Char('y') => self.yes().await,
                 // Enter = no: the capital in `y/N`
                 KeyCode::Char('n') | KeyCode::Esc | KeyCode::Enter => {
-                    self.mode = mode_after_confirm(&confirm.action);
+                    self.mode = mode_after(&confirm.action);
                 }
                 _ => self.on_other_key(key),
             },
             ConfirmStage::TypeToConfirm { expected, input } => match key.code {
-                KeyCode::Esc => self.mode = mode_after_confirm(&confirm.action),
+                KeyCode::Esc => self.mode = mode_after(&confirm.action),
                 KeyCode::Enter if input.value != *expected => {
                     let mismatch = confirm.mismatch;
                     self.error(mismatch);
@@ -91,7 +91,7 @@ impl App<'_> {
         let Mode::Confirm(confirm) = std::mem::take(&mut self.mode) else {
             unreachable!("only called while Mode::Confirm");
         };
-        self.mode = mode_after_confirm(&confirm.action);
+        self.mode = mode_after(&confirm.action);
         self.confirm_yes(confirm.action).await;
     }
 
@@ -118,8 +118,9 @@ impl App<'_> {
 }
 
 /// Where the keys go when the prompt for `action` closes (yes or no): the
-/// tree for node actions.
-fn mode_after_confirm(action: &ConfirmAction) -> Mode {
+/// tree for node actions. Also tells `App::in_list` where an open prompt
+/// belongs.
+pub(super) fn mode_after(action: &ConfirmAction) -> Mode {
     match action {
         ConfirmAction::RemoveNode { .. } | ConfirmAction::PurgeNode { .. } => Mode::Normal,
     }

@@ -1349,6 +1349,37 @@ async fn esc_in_the_session_form_goes_back_to_the_list() {
     assert_eq!(app.session_list.selected, selected);
 }
 
+/// The tree stays dimmed while the list has the keys, also under the
+/// session form opened from it; only leaving the list wakes it up.
+#[tokio::test]
+async fn the_session_form_keeps_the_tree_inactive() {
+    let mut app = list_app(2).await;
+    assert!(!app.in_list(), "the tree has the keys");
+
+    app.handle_key(key('e')).await; // into the list
+    assert!(app.in_list(), "in the list");
+    app.handle_key(key('e')).await; // the form
+    assert!(app.in_list(), "the form over the list");
+    app.handle_key(press(KeyCode::Esc)).await; // back to the list
+    assert!(app.in_list(), "back in the list");
+    app.handle_key(press(KeyCode::Esc)).await; // back to the tree
+    assert!(!app.in_list(), "back in the tree");
+}
+
+/// Forms and prompts opened from the tree belong to the tree.
+#[tokio::test]
+async fn tree_forms_and_prompts_are_not_in_the_list() {
+    for open in [key('t'), key('d'), key('?')] {
+        let mut app = list_app(1).await;
+        app.details_tab = DetailsTab::Info; // `e` here: the node's form
+
+        app.handle_key(open).await;
+
+        assert_ne!(app.mode, Mode::Normal, "{open:?} opened nothing");
+        assert!(!app.in_list(), "{open:?}: {:?}", app.mode);
+    }
+}
+
 /// 00:00-00:10, start one step (1 minute) later: saved, back in the list,
 /// the cursor still on it, the new times in the toast.
 #[tokio::test]

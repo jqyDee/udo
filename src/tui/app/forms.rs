@@ -203,8 +203,9 @@ pub(super) struct Saved {
 }
 
 /// Where the keys go when `action`'s form closes: the list it came from
-/// (sessions), else the tree.
-fn mode_after(action: &FormAction) -> Mode {
+/// (sessions), else the tree. Also tells `App::in_list` where an open form
+/// belongs.
+pub(super) fn mode_after(action: &FormAction) -> Mode {
     match action {
         FormAction::EditSession { .. } => Mode::Sessions,
         _ => Mode::Normal,

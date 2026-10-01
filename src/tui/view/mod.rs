@@ -53,8 +53,9 @@ pub struct ViewInfo<'a> {
     pub estimate: Option<Resolved<Minutes>>,
     /// Page of the sessions tab (`page_len` already for this frame).
     pub session_list: SessionList,
-    /// The keys go to the sessions list, not the tree (`Mode::Sessions`): the
-    /// tree's cursor is drawn dimmed.
+    /// The keys go to the sessions list, not the tree, also under a form or
+    /// prompt opened from it (`App::in_list`): the tree's cursor is drawn
+    /// dimmed.
     pub tree_inactive: bool,
 }
 
@@ -94,7 +95,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, now: Time) {
         sessions: &app.sessions,
         estimate: tree.setting(&app.tree_state.cursor, |s| s.estimate),
         session_list: app.session_list,
-        tree_inactive: app.mode == Mode::Sessions,
+        tree_inactive: app.in_list(),
     };
     tree::draw(frame, left, tree, &mut app.tree_state, &info);
 

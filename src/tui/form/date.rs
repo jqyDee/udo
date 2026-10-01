@@ -133,7 +133,7 @@ impl DateInput {
     /// are ignored. Letter keys only without Ctrl/Alt (Ctrl+J / Ctrl+H arrive
     /// as `Char` with CONTROL on some terminals).
     pub fn handle_key(&mut self, key: KeyEvent) -> bool {
-        let before = self.value.clone();
+        let before = self.value;
         match key.code {
             KeyCode::Left => self.prev_segment(),
             KeyCode::Right => self.next_segment(),
