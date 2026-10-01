@@ -364,12 +364,8 @@ async fn d_opens_confirm_for_selected_node() {
 
     assert_eq!(
         app.mode,
-        Mode::Confirm(Confirm {
-            path: vec![0],
-            name: "a".into(),
-            purge: PurgeOption::NoFolder, // task without dir
-            stage: ConfirmStage::Ask,
-        })
+        // task without dir
+        Mode::Confirm(Box::new(Confirm::remove_node(vec![0], "a".into(), PurgeOption::NoFolder)))
     );
 }
 
@@ -386,6 +382,19 @@ async fn n_and_esc_cancel_without_deleting() {
         assert_eq!(app.core.tree().get(&[0]).unwrap().name(), "a");
         assert!(app.toast.is_none());
     }
+}
+
+#[tokio::test]
+async fn enter_in_the_ask_stage_cancels() {
+    let t = tree();
+    let mut app = test_app(t, state_at(&[0]));
+    app.handle_key(key('d')).await;
+
+    app.handle_key(press(KeyCode::Enter)).await;
+
+    assert_eq!(app.mode, Mode::Normal);
+    assert_eq!(app.core.tree().get(&[0]).unwrap().name(), "a");
+    assert!(app.toast.is_none());
 }
 
 #[tokio::test]
@@ -470,11 +479,47 @@ async fn shift_d_with_a_plan_opens_the_purge_stage() {
     app.handle_key(key('d')).await;
     app.handle_key(shift_d()).await;
 
-    let empty = ConfirmStage::Purge {
+    let empty = ConfirmStage::TypeToConfirm {
+        expected: tmp.path().join("lab").display().to_string(),
         input: TextInput::new(""),
     };
     assert_eq!(stage(&app), &empty);
     assert!(app.toast.is_none());
+}
+
+#[tokio::test]
+async fn shift_d_turns_the_action_into_purge_node() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = lab_tree(tmp.path()).await;
+    let mut app = test_app(t, state_at(&[0]));
+
+    app.handle_key(key('d')).await;
+    app.handle_key(shift_d()).await;
+
+    let Mode::Confirm(c) = &app.mode else {
+        panic!("no prompt open: {:?}", app.mode);
+    };
+    let ConfirmAction::PurgeNode { plan } = &c.action else {
+        panic!("not a full delete: {:?}", c.action);
+    };
+    assert_eq!(plan.path, vec![0]);
+    assert_eq!(plan.dir, tmp.path().join("lab"));
+}
+
+#[tokio::test]
+async fn esc_in_the_purge_stage_keeps_node_and_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = lab_tree(tmp.path()).await;
+    let mut app = test_app(t, state_at(&[0]));
+    app.trash = fake_trash;
+
+    app.handle_key(key('d')).await;
+    app.handle_key(shift_d()).await;
+    app.handle_key(press(KeyCode::Esc)).await;
+
+    assert_eq!(app.mode, Mode::Normal);
+    assert!(tmp.path().join("lab").exists());
+    assert_eq!(app.core.tree().get(&[0]).unwrap().name(), "lab");
 }
 
 #[tokio::test]
@@ -530,7 +575,8 @@ async fn wrong_path_keeps_popup_and_files() {
         type_into(&mut app, &wrong).await; // y / n / q are text here
         app.handle_key(press(KeyCode::Enter)).await;
 
-        let typed = ConfirmStage::Purge {
+        let typed = ConfirmStage::TypeToConfirm {
+            expected: exact.clone(),
             input: TextInput::new(wrong.as_str()),
         };
         assert_eq!(stage(&app), &typed, "{wrong:?}");

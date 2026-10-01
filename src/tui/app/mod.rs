@@ -2,16 +2,18 @@
 //! testable: feed keys into `handle_key`, check tree / mode / toast.
 //!
 //! One file per mode that needs more than a line or two:
-//! - `confirm`: "remove?" prompt (`d`) and full delete (`D`)
+//! - `confirm`: generic yes / no prompt (`Confirm`, its `ConfirmAction`)
 //! - `details`: `DetailsTab`, which tab the right pane shows (Tab / Shift+Tab)
 //! - `forms`:   create forms (`t` `T` `c` `C`), the edit form (`e`) and the
 //!   settings form (`e` on the settings tab)
+//! - `remove`:  "remove?" prompt (`d`) and full delete (`D`) of a node
 //! - `sessions`: the cursor in the sessions tab's list (`e` on the tab, `esc`)
 //! - `timer`:   start / stop the timer on the task at the cursor (`s`)
 
 mod confirm;
 pub mod details;
 mod forms;
+mod remove;
 mod sessions;
 #[cfg(test)]
 mod tests;
@@ -21,7 +23,8 @@ use std::{collections::HashSet, time::Instant};
 
 use crossterm::event::{KeyEvent, KeyEventKind};
 
-pub use confirm::{Confirm, ConfirmStage, PurgeOption};
+pub use confirm::{Confirm, ConfirmAction, ConfirmStage};
+pub use remove::PurgeOption;
 
 use crate::{
     core::Core,
@@ -51,9 +54,9 @@ pub enum Mode {
     Normal,
     /// Key help overlay open; any key closes it.
     Help,
-    /// "Remove?" prompt open: y / n / D / esc, then the path input of a
-    /// full delete.
-    Confirm(Confirm),
+    /// Yes / no prompt open; keys by its `ConfirmStage`, its
+    /// `ConfirmAction` says what yes does.
+    Confirm(Box<Confirm>),
     /// Create or edit form open; keys go to `Form::handle_key`.
     Form(Box<Form>),
     /// Cursor in the sessions tab's list (`SessionList::selected`): keys go

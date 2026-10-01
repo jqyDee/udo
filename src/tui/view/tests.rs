@@ -609,12 +609,8 @@ fn help_overlay_hidden_in_normal_mode() {
 fn confirm_popup_names_node_and_keys() {
     let t = tree_with(vec![task("sheet-3")]);
     let mut app = test_app(t, TreeState::default());
-    app.mode = Mode::Confirm(Confirm {
-        path: vec![0],
-        name: "sheet-3".into(),
-        purge: PurgeOption::NoFolder,
-        stage: ConfirmStage::Ask,
-    });
+    let confirm = Confirm::remove_node(vec![0], "sheet-3".into(), PurgeOption::NoFolder);
+    app.mode = Mode::Confirm(Box::new(confirm));
 
     let screen = render(&mut app);
 
@@ -630,12 +626,8 @@ fn confirm_popup_keeps_long_names_visible() {
     let name = "a-really-long-task-name-that-would-not-fit-into-half-the-screen-width";
     let t = tree_with(vec![task(name)]);
     let mut app = test_app(t, TreeState::default());
-    app.mode = Mode::Confirm(Confirm {
-        path: vec![0],
-        name: name.into(),
-        purge: PurgeOption::NoFolder,
-        stage: ConfirmStage::Ask,
-    });
+    let confirm = Confirm::remove_node(vec![0], name.into(), PurgeOption::NoFolder);
+    app.mode = Mode::Confirm(Box::new(confirm));
 
     let screen = render(&mut app);
 
@@ -657,37 +649,40 @@ fn purge_plan(dir: &str, outside: Vec<PathBuf>) -> Box<PurgePlan> {
     })
 }
 
-/// Screen with the prompt for `purge` open in `stage`.
-fn render_confirm(purge: PurgeOption, stage: ConfirmStage) -> String {
+/// Screen with `confirm` open.
+fn render_confirm(confirm: Confirm) -> String {
     let t = tree_with(vec![task("lab 3")]);
     let mut app = test_app(t, TreeState::default());
-    app.mode = Mode::Confirm(Confirm {
-        path: vec![0],
-        name: "lab 3".into(),
-        purge,
-        stage,
-    });
+    app.mode = Mode::Confirm(Box::new(confirm));
     render(&mut app)
 }
 
-fn purge_stage(typed: &str) -> ConfirmStage {
-    ConfirmStage::Purge {
-        input: TextInput::new(typed),
+/// Screen with the "remove?" prompt for node [0] "lab 3", `D` as `purge`.
+fn render_ask(purge: PurgeOption) -> String {
+    render_confirm(Confirm::remove_node(vec![0], "lab 3".into(), purge))
+}
+
+/// Screen with the full delete of `plan` open, `typed` in the input.
+fn render_purge(plan: Box<PurgePlan>, typed: &str) -> String {
+    let mut confirm = Confirm::purge_node(plan);
+    if let ConfirmStage::TypeToConfirm { input, .. } = &mut confirm.stage {
+        *input = TextInput::new(typed);
     }
+    render_confirm(confirm)
 }
 
 #[test]
 fn ask_popup_offers_d_only_when_ready() {
     let ready = PurgeOption::Ready(purge_plan("/x/lab_3", vec![]));
-    let screen = render_confirm(ready, ConfirmStage::Ask);
+    let screen = render_ask(ready);
     assert!(screen.contains("D delete with files"));
 
-    let screen = render_confirm(PurgeOption::NoFolder, ConfirmStage::Ask);
+    let screen = render_ask(PurgeOption::NoFolder);
     assert!(!screen.contains("D delete"));
     assert!(!screen.contains("not possible"));
 
     let refused = PurgeOption::Refused("refusing: /x contains your home folder".into());
-    let screen = render_confirm(refused, ConfirmStage::Ask);
+    let screen = render_ask(refused);
     assert!(!screen.contains("D delete"));
     assert!(screen.contains("full delete not possible: refusing: /x"));
 }
@@ -697,7 +692,7 @@ fn purge_popup_shows_path_outside_counts_and_hint() {
     let outside: Vec<PathBuf> = (0..7).map(|i| format!("/data/d{i}").into()).collect();
     let plan = purge_plan("/home/me/uni/algo/lab_3", outside);
 
-    let screen = render_confirm(PurgeOption::Ready(plan), purge_stage("/home/me"));
+    let screen = render_purge(plan, "/home/me");
 
     assert!(screen.contains("delete with files"));
     assert!(screen.contains("delete lab 3 and everything in it?"));
@@ -717,7 +712,7 @@ fn purge_popup_shows_path_outside_counts_and_hint() {
 #[test]
 fn purge_popup_keeps_spaces_in_paths() {
     let plan = purge_plan("/x/lab  3 /y", vec![]);
-    let screen = render_confirm(PurgeOption::Ready(plan), purge_stage(""));
+    let screen = render_purge(plan, "");
     assert!(screen.contains("/x/lab  3 /y"), "spaces changed");
 }
 
@@ -726,7 +721,7 @@ fn purge_popup_wraps_long_paths() {
     // 77 chars: 2 pieces at 80 columns (65 per piece), "/end-marker" whole in the 2nd
     let dir = format!("/start{}/end-marker", "x".repeat(60));
     let plan = purge_plan(&dir, vec![]);
-    let screen = render_confirm(PurgeOption::Ready(plan), purge_stage(""));
+    let screen = render_purge(plan, "");
     assert!(screen.contains("/start"));
     assert!(screen.contains("end-marker"));
 }

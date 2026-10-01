@@ -1,201 +1,126 @@
-//! "Remove?" prompt: `d` opens it, y / n / esc answer it. `D` switches to
-//! the full delete (node and folders to the Trash), confirmed by typing the
-//! folder path.
+//! Generic yes / no prompt, the same shape as `Form` + `FormAction`: the
+//! prompt knows only its keys (by `ConfirmStage`), the `ConfirmAction` says
+//! what yes does. The node specifics (`d` / `D`) are in `remove`.
 
 use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::{
-    model::{NodePath, time, tree::PurgePlan},
+    model::{NodePath, tree::PurgePlan},
     tui::form::TextInput,
 };
 
-use super::{App, Flow, Mode, timer_note};
+use super::{App, Flow, Mode, PurgeOption};
 
-/// What a pending "remove?" prompt is about. Stored when `d` is pressed, so
-/// the answer always applies to the node that was selected at that moment.
+/// Yes / no prompt. Knows only its keys; `action` says what yes does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Confirm {
-    pub path: NodePath,
-    pub name: String,
-    /// Computed once when `d` is pressed.
-    pub purge: PurgeOption,
+    /// Popup texts, filled once when opening; drawn as they are.
+    pub title: &'static str,
+    pub question: String,
+    /// Dim lines below the question.
+    pub notes: Vec<String>,
+    /// Key hints: ("y", "remove from udo"), ("D", "delete with files").
+    pub keys: Vec<(&'static str, &'static str)>,
+    /// `TypeToConfirm` only ("" otherwise): the line above the input, and
+    /// the error toast when Enter is pressed with other text.
+    pub type_prompt: &'static str,
+    pub mismatch: &'static str,
+    pub action: ConfirmAction,
     pub stage: ConfirmStage,
 }
 
-/// Whether `D` (full delete) is possible for the node.
+/// What yes does. Stored when the prompt opens, so the answer always
+/// applies to what was selected at that moment. Every action has exactly
+/// one "yes".
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PurgeOption {
-    /// `purge_plan` -> Ok(None): no folder, `D` not offered.
-    NoFolder,
-    /// `purge_plan` -> Err: the reason, shown dimmed in the popup.
-    Refused(String),
-    /// Boxed: a plan is big, and `Mode` holds this inline.
-    Ready(Box<PurgePlan>),
+pub enum ConfirmAction {
+    /// `y`: unregister, files stay. `D` turns it into `PurgeNode` when
+    /// `purge` is `Ready`.
+    RemoveNode {
+        path: NodePath,
+        name: String,
+        purge: PurgeOption,
+    },
+    /// The folder path typed: node and folders to the Trash.
+    PurgeNode { plan: Box<PurgePlan> },
 }
 
+/// Which keys the prompt takes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfirmStage {
-    /// y / n / esc, plus D.
+    /// y / N / esc (Enter = no), other keys go to the action.
     Ask,
-    /// Full delete: warning + path input.
-    Purge { input: TextInput },
+    /// "Type X to confirm": Enter only counts once the text matches.
+    TypeToConfirm { expected: String, input: TextInput },
 }
 
 impl App<'_> {
-    /// Open the confirm prompt for the selected node, with its full delete
-    /// plan. Nothing selected (the root, e.g. empty tree) -> error toast.
-    pub(super) fn ask_delete(&mut self) {
-        if self.tree_state.on_root() {
-            return self.error("the root cannot be removed");
-        }
-        let Some(node) = self.tree_state.selected(self.core.tree()) else {
-            return self.error("nothing selected");
-        };
-        let name = node.name().to_string();
-        let path = self.tree_state.cursor.clone();
-        let purge = match self.core.purge_plan(&path) {
-            Ok(Some(plan)) => PurgeOption::Ready(Box::new(plan)),
-            Ok(None) => PurgeOption::NoFolder,
-            Err(e) => PurgeOption::Refused(e.to_string()),
-        };
-        self.mode = Mode::Confirm(Confirm {
-            path,
-            name,
-            purge,
-            stage: ConfirmStage::Ask,
-        });
-    }
-
-    /// A key while the prompt is open, by stage.
+    /// A key while the prompt is open, by stage. Nothing in here knows the
+    /// action: yes goes to `confirm_yes`, other keys of the Ask stage to
+    /// `on_other_key`.
     pub(super) async fn answer_confirm(&mut self, key: KeyEvent) -> Flow {
-        let purging = matches!(
-            &self.mode,
-            Mode::Confirm(Confirm {
-                stage: ConfirmStage::Purge { .. },
-                ..
-            })
-        );
-        if purging {
-            self.answer_purge(key).await;
-        } else {
-            self.answer_ask(key).await;
+        let Mode::Confirm(confirm) = &mut self.mode else {
+            return Flow::Continue;
+        };
+        match &mut confirm.stage {
+            ConfirmStage::Ask => match key.code {
+                KeyCode::Char('y') => self.yes().await,
+                // Enter = no: the capital in `y/N`
+                KeyCode::Char('n') | KeyCode::Esc | KeyCode::Enter => {
+                    self.mode = mode_after_confirm(&confirm.action);
+                }
+                _ => self.on_other_key(key),
+            },
+            ConfirmStage::TypeToConfirm { expected, input } => match key.code {
+                KeyCode::Esc => self.mode = mode_after_confirm(&confirm.action),
+                KeyCode::Enter if input.value != *expected => {
+                    let mismatch = confirm.mismatch;
+                    self.error(mismatch);
+                }
+                KeyCode::Enter => self.yes().await,
+                _ => {
+                    input.handle_key(key); // changed or not: nothing reacts to it
+                }
+            },
         }
         Flow::Continue
     }
 
-    /// Ask stage: `y` removes the node (unregister only, files stay), `D`
-    /// goes on to the full delete, `n`/esc cancel, anything else is ignored.
-    async fn answer_ask(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Char('y') => {
-                let Some(confirm) = self.close_confirm() else {
-                    return;
-                };
-                match self.core.delete(&confirm.path, time::now()).await {
-                    Ok(stopped) => {
-                        self.tree_state
-                            .after_remove(self.core.tree(), &confirm.path);
-                        self.info(format!(
-                            "removed {} (files kept){}",
-                            confirm.name,
-                            timer_note(stopped.is_some())
-                        ));
-                    }
-                    Err(e) => self.error(e.to_string()),
-                }
-            }
-            KeyCode::Char('D') => self.start_purge(),
-            KeyCode::Char('n') | KeyCode::Esc => self.mode = Mode::Normal,
-            _ => {}
+    /// Yes: take the prompt out of the mode, then run its action.
+    async fn yes(&mut self) {
+        let Mode::Confirm(confirm) = std::mem::take(&mut self.mode) else {
+            unreachable!("only called while Mode::Confirm");
+        };
+        self.mode = mode_after_confirm(&confirm.action);
+        self.confirm_yes(confirm.action).await;
+    }
+
+    /// What yes does, by action. Results and errors end up as a toast.
+    async fn confirm_yes(&mut self, action: ConfirmAction) {
+        match action {
+            ConfirmAction::RemoveNode { path, name, .. } => self.remove_node(&path, &name).await,
+            ConfirmAction::PurgeNode { plan } => self.run_purge(&plan).await,
         }
     }
 
-    /// `D`: on to the path input if a plan is ready, else a toast saying why
-    /// not (the prompt stays open, `y` still works).
-    fn start_purge(&mut self) {
-        let Mode::Confirm(confirm) = &mut self.mode else {
+    /// A key the Ask stage doesn't know: only `D` on `RemoveNode` does
+    /// anything (on to the full delete), the rest is ignored.
+    fn on_other_key(&mut self, key: KeyEvent) {
+        let Mode::Confirm(confirm) = &self.mode else {
             return;
         };
-        let refused = match &confirm.purge {
-            PurgeOption::Ready(_) => {
-                confirm.stage = ConfirmStage::Purge {
-                    input: TextInput::new(""),
-                };
-                return;
-            }
-            PurgeOption::NoFolder => None,
-            PurgeOption::Refused(reason) => Some(reason.clone()),
-        };
-        match refused {
-            Some(reason) => self.error(reason),
-            None => self.info("no folder to delete, use y"),
+        if matches!(confirm.action, ConfirmAction::RemoveNode { .. })
+            && key.code == KeyCode::Char('D')
+        {
+            self.start_purge();
         }
     }
+}
 
-    /// Purge stage: every key edits the path; `Enter` with exactly the
-    /// shown path runs the full delete, other text keeps the popup open;
-    /// esc closes it.
-    async fn answer_purge(&mut self, key: KeyEvent) {
-        let Mode::Confirm(confirm) = &mut self.mode else {
-            return;
-        };
-        let (ConfirmStage::Purge { input }, PurgeOption::Ready(plan)) =
-            (&mut confirm.stage, &confirm.purge)
-        else {
-            return;
-        };
-        match key.code {
-            KeyCode::Esc => self.mode = Mode::Normal,
-            KeyCode::Enter if input.value != plan.dir.display().to_string() => {
-                self.error("path does not match");
-            }
-            KeyCode::Enter => {
-                let plan = plan.clone();
-                self.mode = Mode::Normal;
-                self.run_purge(&plan).await;
-            }
-            _ => {
-                input.handle_key(key); // changed or not: nothing reacts to it
-            }
-        }
-    }
-
-    /// Execute `plan` and report the result as a toast.
-    async fn run_purge(&mut self, plan: &PurgePlan) {
-        let (report, stopped) = match self.core.purge(plan, self.trash, time::now()).await {
-            Ok(done) => done,
-            Err(e) => return self.error(e.to_string()),
-        };
-        self.tree_state.after_remove(self.core.tree(), &plan.path);
-        match report.failed.split_first() {
-            None => {
-                let n = report.trashed.len();
-                let folders = if n == 1 { "folder" } else { "folders" };
-                let note = timer_note(stopped.is_some());
-                self.info(format!("deleted {} · {n} {folders} moved to Trash{note}", plan.name));
-            }
-            Some(((dir, reason), rest)) => {
-                let mut msg = format!(
-                    "deleted {}, but could not trash {}: {reason}",
-                    plan.name,
-                    dir.display()
-                );
-                if !rest.is_empty() {
-                    msg.push_str(&format!(" and {} more", rest.len()));
-                }
-                self.error(msg);
-            }
-        }
-    }
-
-    /// Close the prompt, returning what it was about.
-    fn close_confirm(&mut self) -> Option<Confirm> {
-        match std::mem::replace(&mut self.mode, Mode::Normal) {
-            Mode::Confirm(c) => Some(c),
-            other => {
-                self.mode = other;
-                None
-            }
-        }
+/// Where the keys go when the prompt for `action` closes (yes or no): the
+/// tree for node actions.
+fn mode_after_confirm(action: &ConfirmAction) -> Mode {
+    match action {
+        ConfirmAction::RemoveNode { .. } | ConfirmAction::PurgeNode { .. } => Mode::Normal,
     }
 }
