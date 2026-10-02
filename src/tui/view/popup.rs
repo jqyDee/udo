@@ -15,7 +15,7 @@ use crate::{
     tui::{
         app::{Confirm, ConfirmAction, ConfirmStage},
         form::TextInput,
-        keys::{Binding, KEYMAP, Section, bindings, key_label},
+        keys::{Binding, Section, bindings_in, key_label},
         toast::{Toast, ToastKind},
     },
 };
@@ -195,20 +195,21 @@ pub fn draw_toast(frame: &mut Frame, toast: &Toast) {
     );
 }
 
-/// Centered key list built from `KEYMAP`: one heading per section, its
+/// Centered key list built from `keymap` (the open mode's, see
+/// `Mode::keymap`): one heading per section, its
 /// bindings indented below. Layout = first of these that fits the screen
 /// height: one column with a blank line between sections, one column
 /// without, two columns (sections split so both are about equally tall).
-pub fn draw_help(frame: &mut Frame) {
+pub fn draw_help(frame: &mut Frame, keymap: &[Section]) {
     const TITLE: &str = " keys · any key closes ";
     const COLUMN_GAP: u16 = 3;
 
     // one key column for all sections, so the help texts line up everywhere
-    let key_w = bindings()
+    let key_w = bindings_in(keymap)
         .map(|b| keys_text(b).chars().count())
         .max()
         .unwrap_or(0);
-    let sections: Vec<Vec<Line>> = KEYMAP.iter().map(|s| section_lines(s, key_w)).collect();
+    let sections: Vec<Vec<Line>> = keymap.iter().map(|s| section_lines(s, key_w)).collect();
 
     let area = frame.area();
     let fits = |rows: usize| rows + 2 <= area.height as usize; // + 2 border

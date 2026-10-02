@@ -3,10 +3,8 @@
 Priorities as of 2026-10-02, in order. Background and older plans:
 `roadmap.txt` (phase numbers below refer to it).
 
-**Next up:** `?` help in the sessions list (section 2): the list's keys
-(`a` `e` `s` `c` `d`, moving, paging) are only discoverable by trying them
-until the help shows `SESSION_LIST_KEYMAP` there. Session corrections in
-the TUI are done (add, edit, split, cut, remove).
+**Next up:** to be decided. Done lately: session corrections in the TUI
+(add, edit, split, cut, remove) and `?` help in the sessions list.
 
 ## Done: creation flow
 
@@ -145,10 +143,10 @@ the TUI are done (add, edit, split, cut, remove).
       `esc` goes back to the tree. The corrections above work in it.
       Estimate, duration and left go into the details tab. Spec:
       `docs/superpowers/specs/2026-09-29-tui-time-tab-design.md`.
-- [ ] **`?` help in the sessions list** (next up): its keys
-      (`SESSION_LIST_KEYMAP`); until then `a` `e` `s` `c` `d` are only
-      discoverable there. Help has to remember that it was opened from the
-      list.
+- [x] **`?` help in the sessions list:** shows `SESSION_LIST_KEYMAP`;
+      help wraps the mode it was opened from (`Mode::Help(Box<Mode>)`), so
+      any key goes back to the list, the tree stays dimmed under it.
+      Dispatch and help read the same `Mode::keymap`.
 - [ ] **Filter the sessions tab's list** (later): e.g. by date range,
       source, edited / not edited.
 - [ ] **Better local estimates, step by step** (each measured against the

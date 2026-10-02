@@ -17,7 +17,7 @@ use crate::{
         at, container, container_at, fake_trash, press, state_at, task, test_app, tree_with,
     },
     tui::{
-        form::{FieldId, FieldInput, FolderMode, FormAction, TextInput},
+        form::{FieldId, FieldInput, FolderMode, Form, FormAction, TextInput},
         toast::ToastKind,
     },
 };
@@ -46,7 +46,7 @@ async fn help_opens_and_any_key_closes_it_without_acting() {
     let mut app = test_app(t, state_at(&[0]));
 
     app.handle_key(key('?')).await;
-    assert_eq!(app.mode, Mode::Help);
+    assert_eq!(app.mode, Mode::Help(Box::new(Mode::Normal)));
 
     // `j` only closes the help, the cursor must not move
     assert_eq!(app.handle_key(key('j')).await, Flow::Continue);
@@ -1082,6 +1082,57 @@ async fn esc_leaves_the_list() {
     app.handle_key(press(KeyCode::Esc)).await;
 
     assert_eq!(app.mode, Mode::Normal);
+    assert_eq!(app.session_list.selected, None);
+}
+
+// ---------- key help in the list (`?`) ----------
+
+#[tokio::test]
+async fn question_mark_in_the_list_opens_help_over_it() {
+    let mut app = list_app(3).await;
+    app.handle_key(key('e')).await;
+
+    app.handle_key(key('?')).await;
+
+    assert_eq!(app.mode, Mode::Help(Box::new(Mode::Sessions)));
+    assert!(app.in_list(), "the tree lit up under the help");
+}
+
+/// `j` would move the list cursor: here it only closes the help.
+#[tokio::test]
+async fn any_key_closes_the_list_help_and_does_nothing_else() {
+    let mut app = list_app(3).await;
+    app.handle_key(key('e')).await;
+    let selected = app.session_list.selected;
+    app.handle_key(key('?')).await;
+
+    app.handle_key(key('j')).await;
+
+    assert_eq!(app.mode, Mode::Sessions);
+    assert_eq!(app.session_list.selected, selected);
+}
+
+/// `q` quits in the list too: in its help it only closes the help.
+#[tokio::test]
+async fn q_in_the_list_help_closes_it_instead_of_quitting() {
+    let mut app = list_app(3).await;
+    app.handle_key(key('e')).await;
+    app.handle_key(key('?')).await;
+
+    assert_eq!(app.handle_key(key('q')).await, Flow::Continue);
+    assert_eq!(app.mode, Mode::Sessions);
+}
+
+/// Also from the empty list: back to it, still empty.
+#[tokio::test]
+async fn help_over_the_empty_list_goes_back_to_it() {
+    let mut app = list_app(0).await;
+    app.handle_key(key('e')).await;
+
+    app.handle_key(key('?')).await;
+    app.handle_key(key('?')).await; // `?` toggles: any key closes
+
+    assert_eq!(app.mode, Mode::Sessions);
     assert_eq!(app.session_list.selected, None);
 }
 

@@ -98,7 +98,7 @@ pub const SESSION_LIST_KEYMAP: &[Section] = &[
         Binding { keys: &[KeyCode::Esc], action: Action::Back, help: "back to the tree" },
     ]},
     Section { title: "app", bindings: &[
-        // Binding { keys: &[KeyCode::Char('?')], action: Action::Help, help: "toggle this help" },
+        Binding { keys: &[KeyCode::Char('?')], action: Action::Help, help: "toggle this help" },
         Binding { keys: &[KeyCode::Char('q')], action: Action::Quit, help: "quit" },
     ]},
 ];
@@ -233,6 +233,12 @@ mod tests {
     fn create_keys() {
         assert_eq!(action_for(press(KeyCode::Char('c'))), Some(Action::NewContainer));
         assert_eq!(action_for(press(KeyCode::Char('t'))), Some(Action::NewTask));
+    }
+
+    #[test]
+    fn question_mark_opens_help_in_the_session_list_too() {
+        let q = press(KeyCode::Char('?'));
+        assert_eq!(action_for_in(SESSION_LIST_KEYMAP, q), Some(Action::Help));
     }
 
     #[test]

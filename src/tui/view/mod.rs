@@ -125,8 +125,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, now: Time) {
     if let Some(toast) = &app.toast {
         popup::draw_toast(frame, toast);
     }
-    if app.mode == Mode::Help {
-        popup::draw_help(frame);
+    if let Mode::Help(under) = &app.mode
+        && let Some(keys) = under.keymap()
+    {
+        popup::draw_help(frame, keys);
     }
     if let Mode::Confirm(c) = &app.mode {
         popup::draw_confirm(frame, c);

@@ -556,7 +556,7 @@ fn long_toast_wraps_instead_of_cutting_off() {
 fn help_overlay_lists_every_binding() {
     let t = empty_tree();
     let mut app = test_app(t, TreeState::default());
-    app.mode = Mode::Help;
+    app.mode = Mode::Help(Box::new(Mode::Normal));
 
     let screen = render(&mut app);
 
@@ -569,7 +569,7 @@ fn help_overlay_lists_every_binding() {
 fn help_overlay_shows_section_headings_in_order() {
     let t = empty_tree();
     let mut app = test_app(t, TreeState::default());
-    app.mode = Mode::Help;
+    app.mode = Mode::Help(Box::new(Mode::Normal));
 
     let rows = render_rows(&mut app);
 
@@ -730,7 +730,7 @@ fn purge_popup_wraps_long_paths() {
 fn help_overlay_uses_blank_lines_when_tall_enough() {
     let t = empty_tree();
     let mut app = test_app(t, TreeState::default());
-    app.mode = Mode::Help;
+    app.mode = Mode::Help(Box::new(Mode::Normal));
 
     let rows = render_rows_sized(&mut app, 80, 40);
 
@@ -747,7 +747,7 @@ fn help_overlay_uses_blank_lines_when_tall_enough() {
 fn help_overlay_switches_to_two_columns_when_short() {
     let t = empty_tree();
     let mut app = test_app(t, TreeState::default());
-    app.mode = Mode::Help;
+    app.mode = Mode::Help(Box::new(Mode::Normal));
 
     let rows = render_rows_sized(&mut app, 80, 20);
     let screen = rows.concat();
@@ -1000,8 +1000,40 @@ async fn the_tree_cursor_is_dimmed_while_in_the_list_and_its_form() {
     assert!(dimmed(&tree_cursor_cell(&mut app)), "the form over the list");
 
     app.handle_key(press(KeyCode::Esc)).await; // back to the list
+    app.handle_key(press(KeyCode::Char('?'))).await; // the list's help
+    assert!(dimmed(&tree_cursor_cell(&mut app)), "the help over the list");
+
+    app.handle_key(press(KeyCode::Esc)).await; // closes the help only
+    assert!(dimmed(&tree_cursor_cell(&mut app)), "back in the list");
     app.handle_key(press(KeyCode::Esc)).await; // back to the tree
     assert!(active(&tree_cursor_cell(&mut app)), "back in the tree");
+}
+
+/// `?` in the list: the list's keys, not the tree's.
+#[tokio::test]
+async fn help_in_the_list_shows_the_list_keys() {
+    let mut app = sessions_tab(&[0, 0], 2).await;
+    app.handle_key(press(KeyCode::Char('e'))).await;
+    app.handle_key(press(KeyCode::Char('?'))).await;
+
+    let screen = render(&mut app);
+
+    assert!(screen.contains("split session"), "{screen}");
+    assert!(screen.contains("previous (newer) session"), "{screen}");
+    assert!(screen.contains("back to the tree"), "{screen}");
+    assert!(!screen.contains("new task"), "tree keys leaked in: {screen}");
+}
+
+/// `?` in the tree: still the tree's keys, not the list's.
+#[tokio::test]
+async fn help_in_the_tree_shows_the_tree_keys() {
+    let mut app = sessions_tab(&[0, 0], 2).await;
+    app.handle_key(press(KeyCode::Char('?'))).await;
+
+    let screen = render(&mut app);
+
+    assert!(screen.contains("new task"), "{screen}");
+    assert!(!screen.contains("split session"), "list keys leaked in: {screen}");
 }
 
 /// The page line is always there, at the same place: `page 1/1` too.

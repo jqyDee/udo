@@ -1,7 +1,8 @@
 //! TUI state + all key handling. No terminal I/O here, so everything is
 //! testable: feed keys into `handle_key`, check tree / mode / toast.
 //!
-//! One file per mode that needs more than a line or two:
+//! `Mode` (in `mode`) says what the keys do; help (`?`) wraps the mode it
+//! was opened from. One file per mode that needs more than a line or two:
 //! - `confirm`: generic yes / no prompt (`Confirm`, its `ConfirmAction`)
 //! - `details`: `DetailsTab`, which tab the right pane shows (Tab / Shift+Tab)
 //! - `forms`:   create forms (`t` `T` `c` `C`), the edit form (`e`) and the
@@ -15,6 +16,7 @@
 mod confirm;
 pub mod details;
 mod forms;
+mod mode;
 mod remove;
 mod sessions;
 #[cfg(test)]
@@ -26,6 +28,7 @@ use std::{collections::HashSet, time::Instant};
 use crossterm::event::{KeyEvent, KeyEventKind};
 
 pub use confirm::{Confirm, ConfirmAction, ConfirmStage};
+pub use mode::Mode;
 pub use remove::PurgeOption;
 
 use crate::{
@@ -39,32 +42,12 @@ use crate::{
     },
     tui::{
         app::details::DetailsTab,
-        form::Form,
-        keys::{Action, action_for},
+        keys::{self, Action},
         session_list::SessionList,
         toast::Toast,
         tree_state::TreeState,
     },
 };
-
-/// What the keys currently do. One mode at a time, so e.g. "help open and a
-/// confirm prompt open" can't happen. New prompts = new variants here.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub enum Mode {
-    /// Keys go through `KEYMAP`.
-    #[default]
-    Normal,
-    /// Key help overlay open; any key closes it.
-    Help,
-    /// Yes / no prompt open; keys by its `ConfirmStage`, its
-    /// `ConfirmAction` says what yes does.
-    Confirm(Box<Confirm>),
-    /// Create or edit form open; keys go to `Form::handle_key`.
-    Form(Box<Form>),
-    /// Cursor in the sessions tab's list (`SessionList::selected`; None:
-    /// the list is empty): keys go through `SESSION_LIST_KEYMAP`.
-    Sessions,
-}
 
 /// What the event loop should do after a key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,11 +136,11 @@ impl<'a> App<'a> {
 
     async fn dispatch(&mut self, key: KeyEvent) -> Flow {
         match self.mode {
-            Mode::Help => {
-                self.mode = Mode::Normal; // any key closes the help
+            Mode::Help(_) => {
+                self.close_help();
                 Flow::Continue
             }
-            Mode::Normal => match action_for(key) {
+            Mode::Normal => match self.action_for(key) {
                 Some(action) => self.run(action).await,
                 None => Flow::Continue,
             },
@@ -172,7 +155,7 @@ impl<'a> App<'a> {
     async fn run(&mut self, action: Action) -> Flow {
         match action {
             Action::Quit => return Flow::Quit,
-            Action::Help => self.mode = Mode::Help,
+            Action::Help => self.open_help(),
             Action::Up => self.tree_state.move_up(self.core.tree()),
             Action::Down => self.tree_state.move_down(self.core.tree()),
             Action::In => self.tree_state.move_in(self.core.tree()),
@@ -222,6 +205,22 @@ impl<'a> App<'a> {
         }
     }
 
+    /// `?` (tree or sessions list): key help over the current mode; any
+    /// key goes back to it (`close_help`).
+    fn open_help(&mut self) {
+        let under = std::mem::take(&mut self.mode);
+        self.mode = Mode::Help(Box::new(under));
+    }
+
+    /// Any key while help is open: back to the mode it was opened from,
+    /// exactly as it was. The key does nothing else.
+    fn close_help(&mut self) {
+        let Mode::Help(under) = std::mem::take(&mut self.mode) else {
+            unreachable!("only called while Mode::Help");
+        };
+        self.mode = *under;
+    }
+
     // --------------- Toast ---------------
 
     fn info(&mut self, msg: impl Into<String>) {
@@ -244,15 +243,18 @@ impl<'a> App<'a> {
         }
     }
 
-    /// The list (not the tree) has the keys, or gets them back when the
-    /// open form / prompt closes: the tree's cursor is drawn dimmed.
+    /// See `Mode::in_list`.
     pub fn in_list(&self) -> bool {
-        match &self.mode {
-            Mode::Sessions => true,
-            Mode::Form(form) => forms::mode_after(&form.action) == Mode::Sessions,
-            Mode::Confirm(c) => confirm::mode_after(&c.action) == Mode::Sessions,
-            _ => false,
-        }
+        self.mode.in_list()
+    }
+
+    /// The action `key` stands for in the current mode's keymap (None: no
+    /// keymap, or the key isn't in it). Dispatch and `?` help use the same
+    /// `Mode::keymap`, so the help shows exactly what the keys do.
+    fn action_for(&self, key: KeyEvent) -> Option<Action> {
+        self.mode
+            .keymap()
+            .and_then(|keys| keys::action_for_in(keys, key))
     }
 }
 

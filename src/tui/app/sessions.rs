@@ -1,6 +1,6 @@
 //! The cursor in the sessions tab's list: enter (`e` on the tab), move
-//! (`j` `k` across pages, `h` `l` page by page), leave (`esc`), and stay on
-//! its session across reloads. The rules live in `SessionList`; this file
+//! (`j` `k` across pages, `h` `l` page by page), key help (`?`), leave
+//! (`esc`), and stay on its session across reloads. The rules live in `SessionList`; this file
 //! maps keys and reloads to them. `e` in the list opens the session's edit
 //! form; saving it (`save_session`) returns to the list, like the add
 //! (`a`, `save_add_session`), split (`s`, `save_split`) and cut (`c`,
@@ -22,7 +22,7 @@ use crate::{
     tui::{
         app::{App, Confirm, ConfirmAction, ConfirmStage, Flow, Mode, forms::Saved, timer_note},
         form::Form,
-        keys::{Action, SESSION_LIST_KEYMAP, action_for_in},
+        keys::Action,
     },
 };
 
@@ -40,8 +40,9 @@ impl App<'_> {
     /// (the tree's) do nothing here.
     pub(super) async fn handle_list_key(&mut self, key: KeyEvent) -> Flow {
         let ids = self.newest_ids();
-        match action_for_in(SESSION_LIST_KEYMAP, key) {
+        match self.action_for(key) {
             Some(Action::Quit) => return Flow::Quit,
+            Some(Action::Help) => self.open_help(),
             Some(Action::Down) => self.session_list.move_by(&ids, 1),
             Some(Action::Up) => self.session_list.move_by(&ids, -1),
             Some(Action::In) => self.session_list.turn_page(&ids, 1),
