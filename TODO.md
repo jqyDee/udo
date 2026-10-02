@@ -1,15 +1,12 @@
 # udo TODO
 
-Priorities as of 2026-09-29, in order. Background and older plans:
+Priorities as of 2026-10-02, in order. Background and older plans:
 `roadmap.txt` (phase numbers below refer to it).
 
-**Next up:** task status from sessions (only "done" stored, "overdue"
-computed:
-`docs/superpowers/specs/2026-09-29-task-status-cleanup-design.md`), then
-time tracking in the TUI (section 2): `s` to start / stop,
-the running timer in the status line, open sessions left by a crash. The
-CLI side is done (CLI rework stages 1-5, `udo.db` wired in through `Core`);
-the TUI has no timer yet.
+**Next up:** `?` help in the sessions list (section 2): the list's keys
+(`a` `e` `s` `c` `d`, moving, paging) are only discoverable by trying them
+until the help shows `SESSION_LIST_KEYMAP` there. Session corrections in
+the TUI are done (add, edit, split, cut, remove).
 
 ## Done: creation flow
 
@@ -119,11 +116,15 @@ the TUI has no timer yet.
 - [ ] **No daemon for now.** A real background service (launchd / systemd)
       later, when idle detection, file watching or reminders come. Same
       session data either way.
-- [ ] **Corrections are a core feature:** edit start/end, split, cut (e.g.
+- [x] **Corrections are a core feature:** edit start/end, split, cut (e.g.
       a lunch break the timer ran through), delete, add sessions manually.
-      Store and CLI done (`udo session list / add / edit / split / cut /
-      rm`, short IDs, times like `-45m` / `+1h30`). To do: the TUI (Time
-      tab), and a warning on suspiciously long sessions when stopping.
+      CLI: `udo session list / add / edit / split / cut / rm`, short IDs,
+      times like `-45m` / `+1h30`. TUI: in the sessions tab's list, `a`
+      add, `e` edit, `s` split, `c` cut, `d` remove (generic confirm
+      prompt); also in an empty list. Spec:
+      `docs/superpowers/specs/2026-09-30-tui-session-corrections-design.md`.
+- [ ] **Warning on suspiciously long sessions** when stopping the timer
+      (forgot to stop it: offer a cut / a new end right away).
 - [x] **Storage: SQLite** (`udo.db` at root, `rusqlite`), sessions linked to
       tasks by ID. Several writers at once (TUI, CLI, helpers, tmux hooks)
       are safe there (WAL, `busy_timeout`, `BEGIN IMMEDIATE`). Tasks stay in
@@ -136,14 +137,19 @@ the TUI has no timer yet.
       is an "at least"). Averages are calculated from the sessions, not
       stored as settings.
 - [ ] Show estimate vs. actual per task and container (roadmap 5.2).
-- [ ] **Time tab** in the details pane (a third `DetailsTab`), a pure
+- [x] **Sessions tab** in the details pane (a third `DetailsTab`), a pure
       sessions page: sessions newest first (a container: all tasks below
       it, with task names), paged (page length from the space left,
-      `h` / `l` switch pages); `e` moves the cursor into the list, `e`
-      again edits the session, `esc` goes back to the tree. Estimate,
-      duration and left go into the details tab. Spec:
+      `h` / `l` switch pages); `e` moves the cursor into the list (the
+      tree's cursor dims, also under a form or prompt opened from it),
+      `esc` goes back to the tree. The corrections above work in it.
+      Estimate, duration and left go into the details tab. Spec:
       `docs/superpowers/specs/2026-09-29-tui-time-tab-design.md`.
-- [ ] **Filter the Time tab's sessions** (later): e.g. by date range,
+- [ ] **`?` help in the sessions list** (next up): its keys
+      (`SESSION_LIST_KEYMAP`); until then `a` `e` `s` `c` `d` are only
+      discoverable there. Help has to remember that it was opened from the
+      list.
+- [ ] **Filter the sessions tab's list** (later): e.g. by date range,
       source, edited / not edited.
 - [ ] **Better local estimates, step by step** (each measured against the
       recorded actual times; build the next only if needed):
