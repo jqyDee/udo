@@ -1086,15 +1086,14 @@ async fn esc_leaves_the_list() {
 }
 
 #[tokio::test]
-async fn e_without_sessions_stays_in_the_tree() {
+async fn e_without_sessions_enters_the_empty_list() {
     let mut app = list_app(0).await;
 
     app.handle_key(key('e')).await;
 
-    assert_eq!(app.mode, Mode::Normal);
+    assert_eq!(app.mode, Mode::Sessions);
     assert_eq!(app.session_list.selected, None);
-    let toast = app.toast.as_ref().expect("no toast");
-    assert_eq!((toast.kind, toast.msg.as_str()), (ToastKind::Info, "no sessions yet"));
+    assert!(app.toast.is_none(), "{:?}", app.toast);
 }
 
 /// Tree keys (move, done, delete, timer, new task, tab) do nothing in the list.
@@ -1254,17 +1253,16 @@ async fn a_selected_session_removed_elsewhere_moves_to_its_row() {
 }
 
 #[tokio::test]
-async fn the_last_session_removed_leaves_the_list() {
+async fn the_last_session_removed_stays_in_the_empty_list() {
     let mut app = list_app(1).await;
     app.handle_key(key('e')).await;
 
     app.core.delete_session(app.sessions[0].id).await.unwrap();
     app.reload().await;
 
-    assert_eq!(app.mode, Mode::Normal);
+    assert_eq!(app.mode, Mode::Sessions);
     assert_eq!(app.session_list.selected, None);
-    let toast = app.toast.as_ref().expect("no toast");
-    assert_eq!((toast.kind, toast.msg.as_str()), (ToastKind::Info, "no sessions left"));
+    assert!(app.toast.is_none(), "{:?}", app.toast);
 }
 
 /// "a" and "b" both have 3 pages; moving the tree cursor to "ws" (b's
@@ -1299,6 +1297,18 @@ async fn a_reload_on_the_same_node_keeps_the_page() {
     app.reload().await;
 
     assert_eq!(app.session_list.page, 2);
+}
+
+#[tokio::test]
+async fn e_in_the_empty_list_says_no_session_selected() {
+    let mut app = list_app(0).await;
+    app.handle_key(key('e')).await; // the empty list
+
+    app.handle_key(key('e')).await;
+
+    assert_eq!(app.mode, Mode::Sessions); // no form
+    let toast = app.toast.as_ref().expect("no toast");
+    assert_eq!((toast.kind, toast.msg.as_str()), (ToastKind::Error, "no session selected"));
 }
 
 // ---------- the session form (`e` in the list) ----------

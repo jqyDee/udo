@@ -17,9 +17,9 @@ pub struct SessionList {
     /// Rows per page, set while drawing (`view::details::page_len`, from
     /// the pane height). 0: not drawn yet.
     pub page_len: usize,
-    /// The session under the list cursor (`Mode::Sessions`); `None`: the
-    /// cursor is in the tree. An id, not a row: it stays on its session
-    /// when rows move.
+    /// The session under the list cursor. In `Mode::Sessions`, `None`
+    /// means the list is empty; outside it, the cursor is in the tree. An
+    /// id, not a row: it stays on its session when rows move.
     pub selected: Option<SessionId>,
 }
 
@@ -79,18 +79,16 @@ impl SessionList {
     ///   follows (new sessions on top push it down)
     /// - gone (removed elsewhere): the cursor on the row where it was, or
     ///   the last row
+    /// - gone, and the list is empty now: nothing selected, page 1
     /// - nothing selected: only the page is kept inside the list
-    ///
-    /// Returns false if a selection was lost because the list is empty now
-    /// (the caller leaves the list).
-    pub fn follow(&mut self, node: NodeId, old: &[SessionId], new: &[SessionId]) -> bool {
+    pub fn follow(&mut self, node: NodeId, old: &[SessionId], new: &[SessionId]) {
         if self.node != Some(node) {
             *self = Self {
                 node: Some(node),
                 page_len: self.page_len, // from drawing, not from the node
                 ..Default::default()
             };
-            return true;
+            return;
         }
         match (self.selected, self.index(new)) {
             (None, _) => self.page = self.page.min(self.pages(new.len()) - 1),
@@ -98,14 +96,12 @@ impl SessionList {
             (Some(_), None) if new.is_empty() => {
                 self.selected = None;
                 self.page = 0;
-                return false;
             }
             (Some(_), None) => {
                 let was = self.index(old).unwrap_or(0);
                 self.select(new, was.min(new.len() - 1));
             }
         }
-        true
     }
 
     /// `h` / `l`: `delta` pages back / on, the cursor on the page's first
@@ -303,7 +299,7 @@ mod tests {
         let (node, ids) = (NodeId::new(), ids());
         let mut l = list(2, 3);
 
-        assert!(l.follow(node, &[], &ids));
+        l.follow(node, &[], &ids);
 
         assert_eq!(l.node, Some(node));
         assert_eq!((l.page, l.page_len, l.selected), (0, 3, None));
@@ -316,7 +312,7 @@ mod tests {
         let mut new = vec![SessionId::new()];
         new.extend(&old);
 
-        assert!(l.follow(node, &old, &new));
+        l.follow(node, &old, &new);
 
         assert_eq!(l.selected, Some(old[2]));
         assert_eq!((l.index(&new), l.page), (Some(3), 1)); // pushed onto page 1
@@ -328,7 +324,7 @@ mod tests {
         let mut l = on_node(node, &old, 4);
         let new: Vec<_> = old.iter().copied().filter(|&id| id != old[4]).collect();
 
-        assert!(l.follow(node, &old, &new));
+        l.follow(node, &old, &new);
 
         assert_eq!(l.selected, Some(old[5])); // the next older one, now row 4
         assert_eq!(l.index(&new), Some(4));
@@ -340,18 +336,18 @@ mod tests {
         let mut l = on_node(node, &old, 6);
         let new = &old[..6];
 
-        assert!(l.follow(node, &old, new));
+        l.follow(node, &old, new);
 
         assert_eq!(l.selected, Some(old[5]));
         assert_eq!(l.page, 1);
     }
 
     #[test]
-    fn all_removed_returns_false() {
+    fn all_removed_selects_nothing() {
         let (node, old) = (NodeId::new(), ids());
         let mut l = on_node(node, &old, 4);
 
-        assert!(!l.follow(node, &old, &[]));
+        l.follow(node, &old, &[]);
 
         assert_eq!((l.selected, l.page), (None, 0));
     }
@@ -361,7 +357,7 @@ mod tests {
         let (node, ids) = (NodeId::new(), ids());
         let mut l = on_node(node, &ids, 6); // page 2
 
-        assert!(l.follow(NodeId::new(), &ids, &ids));
+        l.follow(NodeId::new(), &ids, &ids);
 
         assert_eq!((l.page, l.page_len, l.selected), (0, 3, None));
     }
@@ -374,7 +370,7 @@ mod tests {
             ..list(2, 3)
         };
 
-        assert!(l.follow(node, &old, &old[..2])); // one page left
+        l.follow(node, &old, &old[..2]); // one page left
 
         assert_eq!(l.page, 0);
     }
@@ -386,7 +382,7 @@ mod tests {
         let mut l = on_node(node, &ids, 4);
         let before = l;
 
-        assert!(l.follow(node, &ids, &ids));
+        l.follow(node, &ids, &ids);
 
         assert_eq!(l, before);
     }

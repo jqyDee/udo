@@ -10,7 +10,7 @@ use crossterm::event::KeyEvent;
 use crate::{
     Res,
     model::{
-        sessions::{SessionId, SessionPatch},
+        sessions::{Session, SessionId, SessionPatch},
         time::{Minutes, Time},
     },
     tui::{
@@ -22,11 +22,8 @@ use crate::{
 
 impl App<'_> {
     /// `e` on the sessions tab: the cursor on the first row of the shown
-    /// page. No sessions: nothing to select, stay in the tree.
+    /// page. No sessions: the empty list, nothing selected.
     pub(super) fn enter_list(&mut self) {
-        if self.sessions.is_empty() {
-            return self.info("no sessions yet");
-        }
         let ids = self.newest_ids();
         let start = self.session_list.range(ids.len()).start;
         self.session_list.select(&ids, start);
@@ -57,8 +54,8 @@ impl App<'_> {
     }
 
     /// After `sessions` was reloaded (`old`: the ids before): keep the list
-    /// on its session (`SessionList::follow`). The last session gone while
-    /// in the list: back to the tree.
+    /// on its session (`SessionList::follow`). The last one gone: the empty
+    /// list, the keys stay there.
     pub(super) fn follow_sessions(&mut self, old: &[SessionId]) {
         let Some(node) = self
             .core
@@ -69,21 +66,31 @@ impl App<'_> {
             return; // a cursor pointing nowhere: nothing to follow
         };
         let new = self.newest_ids();
-        let still_selected = self.session_list.follow(node, old, &new);
-        if !still_selected && self.mode == Mode::Sessions {
-            self.mode = Mode::Normal;
-            self.info("no sessions left");
+        self.session_list.follow(node, old, &new);
+    }
+
+    /// The session under the list cursor; None (the list is empty): the
+    /// toast `no session selected`.
+    fn selected_session(&mut self) -> Option<Session> {
+        let selected = self.session_list.selected;
+        let found = self
+            .sessions
+            .iter()
+            .find(|s| Some(s.id) == selected)
+            .cloned();
+        if found.is_none() {
+            self.error("no session selected");
         }
+        found
     }
 
     /// `e` in the list: the edit form of the selected session. The list
     /// keeps its selection underneath, closing the form returns to it.
     fn open_session_form(&mut self) {
-        let selected = self.session_list.selected;
-        let Some(s) = self.sessions.iter().find(|s| Some(s.id) == selected) else {
-            return; // nothing selected: the list always has one
+        let Some(s) = self.selected_session() else {
+            return;
         };
-        self.mode = Mode::Form(Box::new(Form::edit_session(s)));
+        self.mode = Mode::Form(Box::new(Form::edit_session(&s)));
     }
 
     /// Save the session form: only changed times go into the patch (an
