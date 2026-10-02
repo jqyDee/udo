@@ -1,6 +1,6 @@
 //! Forms: `t` / `T` new task, `c` / `C` new container, `e` edit (on the
 //! settings tab: the container's settings; in the sessions list: the
-//! session, saved in `sessions`). Opening
+//! session, saved in `sessions`, like its split and cut forms). Opening
 //! picks the parent (or the node), the form edits itself
 //! (`Form::handle_key`), submit picks one `save_*` by the form's action,
 //! which calls the tree (it checks names and creates dirs).
@@ -14,6 +14,7 @@ use crate::{
     model::{
         NodePath,
         container::ContainerKind,
+        sessions::SessionId,
         settings::{ContainerSettings, view::SettingInfo},
         tree::Tree,
     },
@@ -129,6 +130,8 @@ impl App<'_> {
             FormAction::EditNode { path } => self.save_node(path, form).await,
             FormAction::EditSettings { path } => self.save_settings(path, form).await,
             FormAction::EditSession { id } => self.save_session(*id, form).await,
+            FormAction::SplitSession { id } => self.save_split(*id, form).await,
+            FormAction::CutSession { id } => self.save_cut(*id, form).await,
         }
     }
 
@@ -141,6 +144,7 @@ impl App<'_> {
         Ok(Saved {
             reveal: Some(path),
             msg: Some(msg),
+            select: None,
         })
     }
 
@@ -156,6 +160,7 @@ impl App<'_> {
         Ok(Saved {
             reveal: Some(path),
             msg: Some(msg),
+            select: None,
         })
     }
 
@@ -166,6 +171,7 @@ impl App<'_> {
         Ok(Saved {
             reveal: Some(path.clone()),
             msg: Some(format!("saved {}", form.name())),
+            select: None,
         })
     }
 
@@ -178,11 +184,15 @@ impl App<'_> {
         Ok(Saved {
             reveal: Some(cursor),
             msg: Some("saved settings".into()),
+            select: None,
         })
     }
 
     /// A form saved: close it (`mode_after`), select what it saved, say so.
     fn after_save(&mut self, action: &FormAction, saved: Saved) {
+        if let Some(id) = saved.select {
+            self.session_list.selected = Some(id);
+        }
         if let Some(path) = saved.reveal {
             self.tree_state.reveal(self.core.tree(), path);
         }
@@ -200,6 +210,20 @@ pub(super) struct Saved {
     pub(super) reveal: Option<NodePath>,
     /// Info toast; None: nothing to say (unchanged session form).
     pub(super) msg: Option<String>,
+    /// Select this session in the list (the follow-up reload shows its
+    /// page): the new half of a split, the first piece left by a cut.
+    pub(super) select: Option<SessionId>,
+}
+
+impl Saved {
+    /// Close the form, say nothing (a toast may already be up).
+    pub(super) fn nothing() -> Self {
+        Self {
+            reveal: None,
+            msg: None,
+            select: None,
+        }
+    }
 }
 
 /// Where the keys go when `action`'s form closes: the list it came from
@@ -207,7 +231,9 @@ pub(super) struct Saved {
 /// belongs.
 pub(super) fn mode_after(action: &FormAction) -> Mode {
     match action {
-        FormAction::EditSession { .. } => Mode::Sessions,
+        FormAction::EditSession { .. }
+        | FormAction::SplitSession { .. }
+        | FormAction::CutSession { .. } => Mode::Sessions,
         _ => Mode::Normal,
     }
 }

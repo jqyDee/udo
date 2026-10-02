@@ -12,6 +12,10 @@ use crate::{
     },
 };
 
+/// `split_session` gave `None`: the time is on the session's start or end.
+/// Shared by the CLI and the TUI.
+pub const SPLIT_AT_EDGE: &str = "that is the session's start or end: nothing to split";
+
 impl Core {
     /// Sessions of the node at `path` (a task: its own; a container: every
     /// task below it), oldest first, removed ones left out. No such node:

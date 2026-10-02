@@ -4,7 +4,7 @@ use super::{id::find, row::SessionDone};
 use crate::{
     Res,
     cli::parse::{SessionTime, session_time},
-    core::Core,
+    core::{Core, SPLIT_AT_EDGE},
     model::time::Time,
 };
 
@@ -24,7 +24,7 @@ pub async fn run(core: &Core, now: Time, args: &SplitArgs) -> Res<SessionDone> {
     let (a, b) = core
         .split_session(session.id, at)
         .await?
-        .ok_or("that is the session's start or end: nothing to split")?;
+        .ok_or(SPLIT_AT_EDGE)?;
     Ok(SessionDone::of("split", &[a, b], core, now))
 }
 

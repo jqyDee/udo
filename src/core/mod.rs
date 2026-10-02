@@ -19,6 +19,7 @@ mod tests;
 mod timer;
 
 pub use nodes::TaskDefaults;
+pub use sessions::SPLIT_AT_EDGE;
 pub use timer::IsDone;
 
 /// The tree and the stores, opened once at startup.

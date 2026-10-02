@@ -2,7 +2,8 @@
 //! (`j` `k` across pages, `h` `l` page by page), leave (`esc`), and stay on
 //! its session across reloads. The rules live in `SessionList`; this file
 //! maps keys and reloads to them. `e` in the list opens the session's edit
-//! form; saving it (`save_session`) returns to the list. `d` asks before
+//! form; saving it (`save_session`) returns to the list, like the split
+//! (`s`, `save_split`) and cut (`c`, `save_cut`) forms. `d` asks before
 //! removing the session (`Confirm::remove_session`); either answer returns
 //! to the list.
 
@@ -11,6 +12,7 @@ use crossterm::event::KeyEvent;
 
 use crate::{
     Res,
+    core::SPLIT_AT_EDGE,
     model::{
         sessions::{Session, SessionId, SessionPatch},
         time::{Minutes, Time},
@@ -45,6 +47,8 @@ impl App<'_> {
             Some(Action::Edit) => self.open_session_form(),
             Some(Action::Back) => self.leave_list(),
             Some(Action::Delete) => self.ask_remove_session(),
+            Some(Action::Split) => self.open_split_form(),
+            Some(Action::Cut) => self.open_cut_form(),
             _ => {} // keys of the tree do nothing here
         }
         Flow::Continue
@@ -96,6 +100,26 @@ impl App<'_> {
         self.mode = Mode::Form(Box::new(Form::edit_session(&s)));
     }
 
+    /// `s` in the list: split form of the selected session; a running one
+    /// can't be split (the store refuses it too, this says why first).
+    fn open_split_form(&mut self) {
+        let Some(s) = self.selected_session() else {
+            return;
+        };
+        if s.end.is_none() {
+            return self.error("stop the timer to split");
+        }
+        self.mode = Mode::Form(Box::new(Form::split_session(&s, (self.clock)())));
+    }
+
+    /// `c` in the list: cut form of the selected session (running too).
+    fn open_cut_form(&mut self) {
+        let Some(s) = self.selected_session() else {
+            return;
+        };
+        self.mode = Mode::Form(Box::new(Form::cut_session(&s, (self.clock)())));
+    }
+
     /// `d` in the list: ask before removing the selected session.
     fn ask_remove_session(&mut self) {
         let Some(s) = self.selected_session() else {
@@ -108,8 +132,8 @@ impl App<'_> {
     /// next reload (`follow`), the keys back to the list (`mode_after`). A
     /// running session is stopped by the store first.
     pub(super) async fn remove_session(&mut self, id: SessionId) {
-        let Some(s) = self.sessions.iter().find(|s| s.id == id).cloned() else {
-            return self.error("that session is gone (removed elsewhere?)");
+        let Some(s) = self.session_or_gone(id) else {
+            return;
         };
         match self.core.delete_session(id).await {
             Ok(()) => self.info(format!(
@@ -125,13 +149,8 @@ impl App<'_> {
     /// unchanged form is no edit, so no `edited` marker). Back to the list
     /// comes from `mode_after`; errors are shown by the caller.
     pub(super) async fn save_session(&mut self, id: SessionId, form: &Form) -> Res<Saved> {
-        let Some(s) = self.sessions.iter().find(|s| s.id == id).cloned() else {
-            // not Err: nothing to fix in the form, so it closes (as before)
-            self.error("that session is gone (removed elsewhere?)");
-            return Ok(Saved {
-                reveal: None,
-                msg: None,
-            });
+        let Some(s) = self.session_or_gone(id) else {
+            return Ok(Saved::nothing());
         };
         let (start, end) = form.session_times()?;
 
@@ -140,15 +159,44 @@ impl App<'_> {
             end: end.filter(|&e| Some(e) != s.end),
         };
         if patch.start.is_none() && patch.end.is_none() {
-            return Ok(Saved {
-                reveal: None,
-                msg: None,
-            });
+            return Ok(Saved::nothing());
         }
         self.core.edit_session(id, patch, (self.clock)()).await?;
         Ok(Saved {
             reveal: None,
             msg: Some(saved_text(&s.task.name, start, end.or(s.end))),
+            select: None,
+        })
+    }
+
+    /// Split form: two sessions, the earlier half selected. At the start
+    /// or end: Err, the form stays (the time can be fixed).
+    pub(super) async fn save_split(&mut self, id: SessionId, form: &Form) -> Res<Saved> {
+        let Some(s) = self.session_or_gone(id) else {
+            return Ok(Saved::nothing());
+        };
+        let at = form.split_at()?;
+        let Some((first, _)) = self.core.split_session(id, at).await? else {
+            return Err(SPLIT_AT_EDGE.into());
+        };
+        Ok(Saved {
+            reveal: None,
+            msg: Some(format!("split {} at {}", s.task.name, clock(at))),
+            select: Some(first.id),
+        })
+    }
+
+    /// Cut form: `[from, to)` removed, the earliest piece left selected.
+    pub(super) async fn save_cut(&mut self, id: SessionId, form: &Form) -> Res<Saved> {
+        let Some(s) = self.session_or_gone(id) else {
+            return Ok(Saved::nothing());
+        };
+        let (from, to) = form.cut_range()?;
+        let left = self.core.cut_session(id, from, to, (self.clock)()).await?;
+        Ok(Saved {
+            reveal: None,
+            msg: Some(format!("cut {}–{} from {}", clock(from), clock(to), s.task.name)),
+            select: left.first().map(|p| p.id),
         })
     }
 
@@ -156,6 +204,16 @@ impl App<'_> {
     fn leave_list(&mut self) {
         self.session_list.selected = None;
         self.mode = Mode::Normal;
+    }
+
+    /// The session `id` as loaded; gone (removed elsewhere): the toast,
+    /// None. Its form / prompt then closes: nothing to fix there.
+    fn session_or_gone(&mut self, id: SessionId) -> Option<Session> {
+        let found = self.sessions.iter().find(|s| s.id == id).cloned();
+        if found.is_none() {
+            self.error("that session is gone (removed elsewhere?)");
+        }
+        found
     }
 }
 
@@ -185,7 +243,6 @@ impl Confirm {
 /// Toast after saving: `lab 3: 14:05–15:00 (55m)`, local like the rows;
 /// running (`end` None): `lab 3: 14:05–now`.
 fn saved_text(name: &str, start: Time, end: Option<Time>) -> String {
-    let clock = |t: Time| t.with_timezone(&Local).format("%H:%M").to_string();
     match end {
         Some(end) => {
             let minutes = (end - start).num_minutes().max(0);
@@ -194,4 +251,9 @@ fn saved_text(name: &str, start: Time, end: Option<Time>) -> String {
         }
         None => format!("{name}: {}–now", clock(start)),
     }
+}
+
+/// `14:05`: local, like the rows.
+fn clock(t: Time) -> String {
+    t.with_timezone(&Local).format("%H:%M").to_string()
 }

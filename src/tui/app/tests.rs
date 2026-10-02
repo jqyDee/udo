@@ -10,7 +10,7 @@ use crate::{
         sessions::{Session, SessionError, SessionId},
         settings::{TaskFolderSetting, view::SETTINGS},
         task::TaskStatus,
-        time::DeadlineRule,
+        time::{DeadlineRule, Time},
         tree::Tree,
     },
     test_util::{
@@ -1096,16 +1096,16 @@ async fn e_without_sessions_enters_the_empty_list() {
     assert!(app.toast.is_none(), "{:?}", app.toast);
 }
 
-/// Tree keys (move, done, timer, new task, tab) do nothing in the list.
+/// Tree keys (done, new task, fold, tab) do nothing in the list.
 #[tokio::test]
 async fn tree_keys_do_nothing_in_the_list() {
     let mut app = list_app(3).await;
     app.handle_key(key('e')).await;
     let selected = app.session_list.selected;
 
-    // (`j` `k` `h` `l` move, `e` edits, `d` removes, `q` quits in the list
-    // too: see their tests)
-    for k in [key('x'), key('s'), key('t'), press(KeyCode::Tab)] {
+    // (`j` `k` `h` `l` move, `e` edits, `d` removes, `s` splits, `c` cuts,
+    // `q` quits in the list too: see their tests)
+    for k in [key('x'), key('t'), key('z'), key(' '), press(KeyCode::Tab)] {
         app.handle_key(k).await;
     }
 
@@ -1571,4 +1571,168 @@ async fn a_running_session_only_moves_its_start() {
     let s = stored(&app, id).await;
     assert_eq!((s.start, s.end), (at(8, 59), None));
     assert!(app.toast.as_ref().unwrap().msg.ends_with("–now"));
+}
+
+// ---------- split (`s`) and cut (`c`) in the list ----------
+// `list_app(1)`: "a" 00:00–00:10, so split starts on 00:05 and cut on
+// 00:05–00:10 (its 30 minutes capped at the end). "now" is 20:00.
+
+/// `list_app(1)` with a fixed clock, in the list on its only session.
+async fn one_session_in_the_list() -> App<'static> {
+    let mut app = list_app(1).await;
+    app.clock = || at(20, 0);
+    app.handle_key(key('e')).await;
+    app
+}
+
+/// "a" running since 19:00 (now 20:00), in the list on it.
+async fn running_in_the_list() -> App<'static> {
+    let mut app = list_app(0).await;
+    app.clock = || at(20, 0);
+    app.core.start(&[0], at(19, 0)).await.unwrap();
+    app.reload().await;
+    app.handle_key(key('e')).await;
+    app
+}
+
+/// `14:05`: local, like the toasts.
+fn hm(t: Time) -> String {
+    t.with_timezone(&chrono::Local).format("%H:%M").to_string()
+}
+
+/// The selected session's (start, end).
+fn selected_times(app: &App<'_>) -> (Time, Option<Time>) {
+    let id = app.session_list.selected.expect("nothing selected");
+    let s = app
+        .sessions
+        .iter()
+        .find(|s| s.id == id)
+        .expect("not loaded");
+    (s.start, s.end)
+}
+
+fn toast_msg<'a>(app: &'a App<'_>) -> &'a str {
+    &app.toast.as_ref().expect("no toast").msg
+}
+
+#[tokio::test]
+async fn s_then_enter_splits_and_selects_the_earlier_half() {
+    let mut app = one_session_in_the_list().await;
+
+    app.handle_key(key('s')).await;
+    app.handle_key(press(KeyCode::Enter)).await;
+
+    assert_eq!(app.mode, Mode::Sessions);
+    assert_eq!(app.sessions.len(), 2);
+    assert_eq!(selected_times(&app), (at(0, 0), Some(at(0, 5))));
+    assert_eq!(toast_msg(&app), format!("split a at {}", hm(at(0, 5))));
+}
+
+/// `at` moved onto the start: nothing to split, the form stays to fix it.
+#[tokio::test]
+async fn a_split_at_the_start_is_refused_and_the_form_stays() {
+    let mut app = one_session_in_the_list().await;
+    app.handle_key(key('s')).await;
+
+    to_minute_segment(&mut app).await;
+    for _ in 0..5 {
+        app.handle_key(press(KeyCode::Down)).await; // 00:05 -> 00:00
+    }
+    app.handle_key(press(KeyCode::Enter)).await;
+
+    assert!(matches!(app.mode, Mode::Form(_)), "{:?}", app.mode);
+    assert_eq!(toast_msg(&app), crate::core::SPLIT_AT_EDGE);
+    assert_eq!(app.sessions.len(), 1);
+}
+
+#[tokio::test]
+async fn s_on_a_running_session_says_stop_the_timer() {
+    let mut app = running_in_the_list().await;
+
+    app.handle_key(key('s')).await;
+
+    assert_eq!(app.mode, Mode::Sessions); // no form
+    let toast = app.toast.as_ref().expect("no toast");
+    assert_eq!((toast.kind, toast.msg.as_str()), (ToastKind::Error, "stop the timer to split"));
+}
+
+#[tokio::test]
+async fn c_then_enter_cuts_and_selects_what_is_left() {
+    let mut app = one_session_in_the_list().await;
+
+    app.handle_key(key('c')).await;
+    app.handle_key(press(KeyCode::Enter)).await;
+
+    assert_eq!(app.mode, Mode::Sessions);
+    assert_eq!(app.sessions.len(), 1);
+    assert_eq!(selected_times(&app), (at(0, 0), Some(at(0, 5))));
+    let msg = format!("cut {}–{} from a", hm(at(0, 5)), hm(at(0, 10)));
+    assert_eq!(toast_msg(&app), msg);
+}
+
+/// 19:00–now (20:00): the cut 19:30–20:00 leaves 19:00–19:30 and a piece
+/// from 20:00 that keeps running; the earlier one is selected.
+#[tokio::test]
+async fn a_cut_on_a_running_session_keeps_the_last_piece_running() {
+    let mut app = running_in_the_list().await;
+
+    app.handle_key(key('c')).await;
+    app.handle_key(press(KeyCode::Enter)).await;
+
+    assert_eq!(app.mode, Mode::Sessions);
+    assert_eq!(app.sessions.len(), 2);
+    assert_eq!(selected_times(&app), (at(19, 0), Some(at(19, 30))));
+    let running = app.running.as_ref().expect("the timer stopped");
+    assert_eq!((running.start, running.end), (at(20, 0), None));
+}
+
+/// `from` moved onto the start: 00:00–00:10 is the whole session.
+#[tokio::test]
+async fn a_cut_over_everything_is_refused_and_the_form_stays() {
+    let mut app = one_session_in_the_list().await;
+    app.handle_key(key('c')).await;
+
+    to_minute_segment(&mut app).await; // `from`
+    for _ in 0..5 {
+        app.handle_key(press(KeyCode::Down)).await; // 00:05 -> 00:00
+    }
+    app.handle_key(press(KeyCode::Enter)).await;
+
+    assert!(matches!(app.mode, Mode::Form(_)), "{:?}", app.mode);
+    let toast = app.toast.as_ref().expect("no toast");
+    let whole = SessionError::WholeSession.to_string();
+    assert_eq!((toast.kind, &toast.msg), (ToastKind::Error, &whole));
+    assert_eq!(selected_times(&app), (at(0, 0), Some(at(0, 10)))); // untouched
+}
+
+/// Esc: back to the list, same selection; while open, the tree stays
+/// dimmed (`in_list`).
+#[tokio::test]
+async fn esc_in_split_and_cut_goes_back_to_the_list() {
+    for open in [key('s'), key('c')] {
+        let mut app = one_session_in_the_list().await;
+        let selected = app.session_list.selected;
+
+        app.handle_key(open).await;
+        assert!(matches!(app.mode, Mode::Form(_)), "{open:?} opened no form");
+        assert!(app.in_list(), "{open:?}");
+        app.handle_key(press(KeyCode::Esc)).await;
+
+        assert_eq!(app.mode, Mode::Sessions, "{open:?}");
+        assert_eq!(app.session_list.selected, selected, "{open:?}");
+        assert_eq!(app.sessions.len(), 1, "{open:?}");
+    }
+}
+
+#[tokio::test]
+async fn s_and_c_in_the_empty_list_say_no_session_selected() {
+    for open in [key('s'), key('c')] {
+        let mut app = list_app(0).await;
+        app.handle_key(key('e')).await; // the empty list
+
+        app.handle_key(open).await;
+
+        assert_eq!(app.mode, Mode::Sessions, "{open:?}");
+        assert_eq!(toast_msg(&app), "no session selected", "{open:?}");
+    }
 }

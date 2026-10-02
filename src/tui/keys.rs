@@ -27,6 +27,10 @@ pub enum Action {
     NextTab,
     PrevTab,
     Back,
+    /// Session list only: split the selected session.
+    Split,
+    /// Session list only: cut a part out of the selected session.
+    Cut,
 }
 
 /// One row of the keymap: all keys that trigger `action`, and its help text.
@@ -86,6 +90,8 @@ pub const SESSION_LIST_KEYMAP: &[Section] = &[
         Binding { keys: &[KeyCode::Char('h'), KeyCode::Left], action: Action::Out, help: "previous page" },
         Binding { keys: &[KeyCode::Char('e')], action: Action::Edit, help: "edit session" },
         Binding { keys: &[KeyCode::Char('d')], action: Action::Delete, help: "remove session" },
+        Binding { keys: &[KeyCode::Char('s')], action: Action::Split, help: "split session" },
+        Binding { keys: &[KeyCode::Char('c')], action: Action::Cut, help: "cut a part out" },
         Binding { keys: &[KeyCode::Esc], action: Action::Back, help: "back to the tree" },
     ]},
     Section { title: "app", bindings: &[
@@ -224,6 +230,17 @@ mod tests {
     fn create_keys() {
         assert_eq!(action_for(press(KeyCode::Char('c'))), Some(Action::NewContainer));
         assert_eq!(action_for(press(KeyCode::Char('t'))), Some(Action::NewTask));
+    }
+
+    #[test]
+    fn s_splits_and_c_cuts_in_the_session_list() {
+        let s = press(KeyCode::Char('s'));
+        let c = press(KeyCode::Char('c'));
+        assert_eq!(action_for_in(SESSION_LIST_KEYMAP, s), Some(Action::Split));
+        assert_eq!(action_for_in(SESSION_LIST_KEYMAP, c), Some(Action::Cut));
+        // the tree keeps its own meaning
+        assert_eq!(action_for(s), Some(Action::ToggleTimer));
+        assert_eq!(action_for(c), Some(Action::NewContainer));
     }
 
     #[test]

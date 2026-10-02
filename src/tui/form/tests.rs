@@ -732,3 +732,118 @@ fn seconds_are_kept_also_after_a_step() {
     let stepped = start + chrono::TimeDelta::minutes(1);
     assert_eq!(form.session_times().unwrap().0, stepped); // 14:01:40
 }
+
+// --------------- Split / cut forms ---------------
+
+/// "now" for the split / cut forms: after every test session.
+fn now() -> Time {
+    at(20, 0)
+}
+
+#[test]
+fn split_starts_on_the_midpoint() {
+    let s = session(at(9, 0), Some(at(10, 0)));
+
+    let form = Form::split_session(&s, now());
+
+    assert_eq!(form.split_at(), Ok(at(9, 30)));
+    assert_eq!(form.action, FormAction::SplitSession { id: s.id });
+    assert_eq!(form.title, "split session · lab 3");
+}
+
+/// 9:00–10:31: the midpoint is 9:45:30, the form starts on 9:45.
+#[test]
+fn split_midpoint_is_rounded_down_to_the_minute() {
+    let form = Form::split_session(&session(at(9, 0), Some(at(10, 31))), now());
+
+    assert_eq!(form.split_at(), Ok(at(9, 45)));
+}
+
+/// Seconds from the timer: 14:00:40–15:00:00, midpoint 14:30:20 -> 14:30.
+#[test]
+fn split_drops_the_seconds_of_the_session() {
+    let start = parse_time("2026-10-15T14:00:40+02:00");
+    let form = Form::split_session(&session(start, Some(at(15, 0))), now());
+
+    assert_eq!(form.split_at(), Ok(at(14, 30)));
+}
+
+/// Not offered by the app, but no panic: the midpoint up to `now`.
+#[test]
+fn split_on_a_running_session_uses_now() {
+    let form = Form::split_session(&session(at(9, 0), None), at(9, 40));
+
+    assert_eq!(form.split_at(), Ok(at(9, 20)));
+    assert_eq!(form.title, "split session · lab 3 (running)");
+}
+
+#[test]
+fn cut_starts_on_the_midpoint_and_lasts_30_minutes() {
+    let s = session(at(9, 0), Some(at(12, 0)));
+
+    let form = Form::cut_session(&s, now());
+
+    assert_eq!(form.cut_range(), Ok((at(10, 30), at(11, 0))));
+    assert_eq!(form.action, FormAction::CutSession { id: s.id });
+    assert_eq!(form.title, "cut session · lab 3");
+    assert_eq!(active_id(&form), FieldId::From);
+}
+
+/// Shorter than 30 minutes after the midpoint: up to the end, still valid.
+#[test]
+fn cut_is_capped_at_the_end() {
+    let form = Form::cut_session(&session(at(9, 0), Some(at(9, 40))), now());
+
+    assert_eq!(form.cut_range(), Ok((at(9, 20), at(9, 40))));
+}
+
+/// Running: the midpoint up to `now`, capped at `now`.
+#[test]
+fn cut_on_a_running_session_is_capped_at_now() {
+    let form = Form::cut_session(&session(at(9, 0), None), at(9, 40));
+
+    assert_eq!(form.cut_range(), Ok((at(9, 20), at(9, 40))));
+    assert_eq!(form.title, "cut session · lab 3 (running)");
+}
+
+/// Running, now 9:00:50: the midpoint 9:00:25 and `to` (now) both round
+/// down to 9:00. An empty cut: `Core` refuses it on save.
+#[test]
+fn cut_defaults_are_rounded_down_to_the_minute() {
+    let now = parse_time("2026-10-15T09:00:50+02:00");
+    let form = Form::cut_session(&session(at(9, 0), None), now);
+
+    assert_eq!(form.cut_range(), Ok((at(9, 0), at(9, 0))));
+}
+
+/// Like the edit form: ↑ on the minute segment moves one minute.
+#[test]
+fn keys_move_the_cut_by_single_minutes() {
+    let mut form = Form::cut_session(&session(at(9, 0), Some(at(12, 0))), now());
+
+    form.handle_key(press(KeyCode::Right)); // day -> hour
+    form.handle_key(press(KeyCode::Right)); // -> minute
+    form.handle_key(press(KeyCode::Up)); // from 10:31
+    form.handle_key(press(KeyCode::Tab)); // to `to`, on its day segment
+    form.handle_key(press(KeyCode::Right));
+    form.handle_key(press(KeyCode::Right));
+    form.handle_key(press(KeyCode::Down)); // to 10:59
+
+    assert_eq!(form.cut_range(), Ok((at(10, 31), at(10, 59))));
+}
+
+#[test]
+fn split_at_and_cut_range_refuse_a_dst_gap() {
+    let Some(gap) = dst_gap() else { return };
+    let s = session(at(9, 0), Some(at(12, 0)));
+    let mut split = Form::split_session(&s, now());
+    let mut cut = Form::cut_session(&s, now());
+
+    set_input(&mut split, FieldId::At, FieldInput::Date(DateInput::new(gap)));
+    set_input(&mut cut, FieldId::To, FieldInput::Date(DateInput::new(gap)));
+
+    let err = split.split_at().expect_err("a DST gap is refused");
+    assert!(err.contains("DST"), "{err}");
+    let err = cut.cut_range().expect_err("a DST gap is refused");
+    assert!(err.contains("DST"), "{err}");
+}

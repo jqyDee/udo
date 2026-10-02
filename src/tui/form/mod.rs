@@ -5,7 +5,9 @@
 //! node, creating from a template node with the defaults. Each kind of form
 //! has one typed reader that checks the input and converts local dates to
 //! `Time` (`new_task_node`, `new_container_node`, `node_edit`, `settings`,
-//! `session_times`). Settings have their own form (`Form::edit_settings`).
+//! `session_times`, `split_at`, `cut_range`). Settings have their own form
+//! (`Form::edit_settings`), sessions too (`edit_session`, `split_session`,
+//! `cut_session`).
 //!
 //! - `text`: `TextInput`, free text with a cursor
 //! - `date`: `DateInput`, local date + time edited by segment
@@ -19,7 +21,7 @@ mod text;
 
 use std::path::PathBuf;
 
-use chrono::{Local, NaiveDateTime};
+use chrono::{Local, NaiveDateTime, TimeDelta, Timelike};
 use crossterm::event::{KeyCode, KeyEvent};
 
 pub use choice::{
@@ -68,22 +70,30 @@ pub enum FieldId {
     RootSetting(usize),
     Start,
     End,
+    /// Split: where.
+    At,
+    /// Cut: the part to remove, `[From, To)`.
+    From,
+    To,
 }
 
 impl FieldId {
     /// Shown in front of the value.
     pub fn label(self) -> &'static str {
         match self {
-            FieldId::Name => "name",
-            FieldId::Due => "due",
-            FieldId::Dir => "dir",
-            FieldId::Folder => "folder",
-            FieldId::Kind => "kind",
-            FieldId::Description => "description",
-            FieldId::Setting(idx) => SETTINGS[idx].label,
-            FieldId::RootSetting(idx) => ROOT_SETTINGS[idx].label,
-            FieldId::Start => "start",
-            FieldId::End => "end",
+            Self::Name => "name",
+            Self::Due => "due",
+            Self::Dir => "dir",
+            Self::Folder => "folder",
+            Self::Kind => "kind",
+            Self::Description => "description",
+            Self::Setting(idx) => SETTINGS[idx].label,
+            Self::RootSetting(idx) => ROOT_SETTINGS[idx].label,
+            Self::Start => "start",
+            Self::End => "end",
+            Self::At => "at",
+            Self::From => "from",
+            Self::To => "to",
         }
     }
 
@@ -109,9 +119,9 @@ pub enum FieldInput {
 impl FieldInput {
     pub fn handle_key(&mut self, key: KeyEvent) -> bool {
         match self {
-            FieldInput::Text(t) => t.handle_key(key),
-            FieldInput::Date(d) => d.handle_key(key),
-            FieldInput::Choice(c) => c.handle_key(key),
+            Self::Text(t) => t.handle_key(key),
+            Self::Date(d) => d.handle_key(key),
+            Self::Choice(c) => c.handle_key(key),
         }
     }
 }
@@ -136,11 +146,22 @@ pub enum FormAction {
     EditSession {
         id: SessionId,
     },
+    /// One session becomes two at `Form::split_at`.
+    SplitSession {
+        id: SessionId,
+    },
+    /// `Form::cut_range` is removed from a session.
+    CutSession {
+        id: SessionId,
+    },
 }
 
 /// Minute step of the session form's dates: corrections are often a few
 /// minutes (due dates keep `DEFAULT_MINUTE_STEP`).
 pub const SESSION_MINUTE_STEP: i64 = 1;
+
+/// How much a new cut form removes, from the midpoint on (a lunch break).
+const CUT_DEFAULT: TimeDelta = TimeDelta::minutes(30);
 
 pub struct TaskDefaults {
     pub due: NaiveDateTime,
@@ -324,30 +345,69 @@ impl Form {
     /// minute; ↑/↓ on the minutes by `SESSION_MINUTE_STEP`). A running
     /// session has only a start (stop the timer to end it).
     pub fn edit_session(session: &Session) -> Self {
-        let field = |id, t: Time| FormField {
-            id,
-            input: FieldInput::Date(
-                DateInput::new(t.with_timezone(&Local).naive_local())
-                    .with_minute_step(SESSION_MINUTE_STEP),
-            ),
-        };
-        let mut fields = vec![field(FieldId::Start, session.start)];
+        let mut fields = vec![session_date(FieldId::Start, local(session.start))];
         if let Some(end) = session.end {
-            fields.push(field(FieldId::End, end));
+            fields.push(session_date(FieldId::End, local(end)));
         }
-        let running = if session.end.is_none() {
-            " (running)"
-        } else {
-            ""
-        };
-
         Self {
-            title: format!("edit session · {}{running}", session.task.name),
+            title: session_title("edit", session),
             fields,
             parent_dir: None,
             active_field: 0,
             action: FormAction::EditSession { id: session.id },
         }
+    }
+
+    /// Split form: `at` starts on the session's midpoint (running: up to
+    /// `now`), rounded down to the minute. A running session can't be
+    /// split: the app says so before opening, the store refuses it on save.
+    pub fn split_session(session: &Session, now: Time) -> Self {
+        let mid = midpoint(session, now);
+        Self {
+            title: session_title("split", session),
+            fields: vec![session_date(FieldId::At, local_minute(mid))],
+            parent_dir: None,
+            active_field: 0,
+            action: FormAction::SplitSession { id: session.id },
+        }
+    }
+
+    /// Cut form: `from` on the midpoint, `to` `CUT_DEFAULT` later, capped
+    /// at the end (running: at `now`); both rounded down to the minute.
+    pub fn cut_session(session: &Session, now: Time) -> Self {
+        let mid = midpoint(session, now);
+        let to = (mid + CUT_DEFAULT).min(session.end.unwrap_or(now));
+        Self {
+            title: session_title("cut", session),
+            fields: vec![
+                session_date(FieldId::From, local_minute(mid)),
+                session_date(FieldId::To, local_minute(to)),
+            ],
+            parent_dir: None,
+            active_field: 0,
+            action: FormAction::CutSession { id: session.id },
+        }
+    }
+
+    /// Where a split form splits. Err: DST gap. On the start / end, outside
+    /// the session, running: checked by `Core` / the store.
+    pub fn split_at(&self) -> Result<Time, String> {
+        to_time(
+            self.date_value(FieldId::At)
+                .expect("split forms always have `at`"),
+        )
+    }
+
+    /// What a cut form removes, `[from, to)`. Err: DST gap. Order, overlap
+    /// with the session and the future: checked by `Core` / the store.
+    pub fn cut_range(&self) -> Result<(Time, Time), String> {
+        let from = self
+            .date_value(FieldId::From)
+            .expect("cut forms always have `from`");
+        let to = self
+            .date_value(FieldId::To)
+            .expect("cut forms always have `to`");
+        Ok((to_time(from)?, to_time(to)?))
     }
 
     /// Fields for `node`, prefilled with its values. Same fields in the same
@@ -683,4 +743,44 @@ impl Form {
 /// DST switch skips, for the toast.
 fn to_time(local: NaiveDateTime) -> Result<Time, String> {
     local_to_fixed(local).ok_or_else(|| "that time doesn't exist (DST switch)".into())
+}
+
+/// A session's date field: local, ↑/↓ on the minutes by
+/// `SESSION_MINUTE_STEP`.
+fn session_date(id: FieldId, local: NaiveDateTime) -> FormField {
+    FormField {
+        id,
+        input: FieldInput::Date(DateInput::new(local).with_minute_step(SESSION_MINUTE_STEP)),
+    }
+}
+
+/// `t` local, as shown, seconds kept: an unchanged edit form must read
+/// back exactly the session's times (`save_session` compares them).
+fn local(t: Time) -> NaiveDateTime {
+    t.with_timezone(&Local).naive_local()
+}
+
+/// `t` local, rounded down to the minute: where the defaults of the split
+/// and cut forms start.
+fn local_minute(t: Time) -> NaiveDateTime {
+    local(t)
+        .with_second(0)
+        .and_then(|l| l.with_nanosecond(0))
+        .expect("0 seconds always exists")
+}
+
+/// Halfway between the session's start and end (running: `now`).
+fn midpoint(session: &Session, now: Time) -> Time {
+    let end = session.end.unwrap_or(now);
+    session.start + (end - session.start) / 2
+}
+
+/// `split session · lab 3`; running: `… (running)`.
+fn session_title(verb: &str, session: &Session) -> String {
+    let running = if session.end.is_none() {
+        " (running)"
+    } else {
+        ""
+    };
+    format!("{verb} session · {}{running}", session.task.name)
 }
