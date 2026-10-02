@@ -31,6 +31,8 @@ pub enum Action {
     Split,
     /// Session list only: cut a part out of the selected session.
     Cut,
+    /// Session list only: add a session by hand.
+    Add,
 }
 
 /// One row of the keymap: all keys that trigger `action`, and its help text.
@@ -88,6 +90,7 @@ pub const SESSION_LIST_KEYMAP: &[Section] = &[
         Binding { keys: &[KeyCode::Char('k'), KeyCode::Up], action: Action::Up, help: "previous (newer) session" },
         Binding { keys: &[KeyCode::Char('l'), KeyCode::Right], action: Action::In, help: "next page" },
         Binding { keys: &[KeyCode::Char('h'), KeyCode::Left], action: Action::Out, help: "previous page" },
+        Binding { keys: &[KeyCode::Char('a')], action: Action::Add, help: "add session" },
         Binding { keys: &[KeyCode::Char('e')], action: Action::Edit, help: "edit session" },
         Binding { keys: &[KeyCode::Char('d')], action: Action::Delete, help: "remove session" },
         Binding { keys: &[KeyCode::Char('s')], action: Action::Split, help: "split session" },
@@ -230,6 +233,13 @@ mod tests {
     fn create_keys() {
         assert_eq!(action_for(press(KeyCode::Char('c'))), Some(Action::NewContainer));
         assert_eq!(action_for(press(KeyCode::Char('t'))), Some(Action::NewTask));
+    }
+
+    #[test]
+    fn a_adds_in_the_session_list_only() {
+        let a = press(KeyCode::Char('a'));
+        assert_eq!(action_for_in(SESSION_LIST_KEYMAP, a), Some(Action::Add));
+        assert_eq!(action_for(a), None); // the tree: nothing
     }
 
     #[test]

@@ -2,8 +2,9 @@
 //! (`j` `k` across pages, `h` `l` page by page), leave (`esc`), and stay on
 //! its session across reloads. The rules live in `SessionList`; this file
 //! maps keys and reloads to them. `e` in the list opens the session's edit
-//! form; saving it (`save_session`) returns to the list, like the split
-//! (`s`, `save_split`) and cut (`c`, `save_cut`) forms. `d` asks before
+//! form; saving it (`save_session`) returns to the list, like the add
+//! (`a`, `save_add_session`), split (`s`, `save_split`) and cut (`c`,
+//! `save_cut`) forms. `d` asks before
 //! removing the session (`Confirm::remove_session`); either answer returns
 //! to the list.
 
@@ -14,6 +15,7 @@ use crate::{
     Res,
     core::SPLIT_AT_EDGE,
     model::{
+        NodePath,
         sessions::{Session, SessionId, SessionPatch},
         time::{Minutes, Time},
     },
@@ -49,6 +51,7 @@ impl App<'_> {
             Some(Action::Delete) => self.ask_remove_session(),
             Some(Action::Split) => self.open_split_form(),
             Some(Action::Cut) => self.open_cut_form(),
+            Some(Action::Add) => self.open_add_form(),
             _ => {} // keys of the tree do nothing here
         }
         Flow::Continue
@@ -89,6 +92,21 @@ impl App<'_> {
             self.error("no session selected");
         }
         found
+    }
+
+    /// `a` in the list: add form for the task at the tree cursor (also in
+    /// the empty list). A container's list: which task would it be on?
+    fn open_add_form(&mut self) {
+        let path = self.tree_state.cursor.clone();
+        let Some(task) = self
+            .core
+            .tree()
+            .get(&path)
+            .filter(|n| n.as_task().is_some())
+        else {
+            return self.error("pick a task to add a session");
+        };
+        self.mode = Mode::Form(Box::new(Form::add_session(task.name(), path, (self.clock)())));
     }
 
     /// `e` in the list: the edit form of the selected session. The list
@@ -145,6 +163,21 @@ impl App<'_> {
         }
     }
 
+    /// Add form: a new manual session on the task at `path`, selected.
+    /// Future, end before start, overlap: Err, the form stays.
+    pub(super) async fn save_add_session(&mut self, path: &NodePath, form: &Form) -> Res<Saved> {
+        let (start, end) = form.add_times()?;
+        let s = self
+            .core
+            .add_session(path, start, end, (self.clock)())
+            .await?;
+        Ok(Saved {
+            reveal: None,
+            msg: Some(format!("added {}", saved_text(&s.task.name, start, Some(end)))),
+            reveal_session: Some(s.id),
+        })
+    }
+
     /// Save the session form: only changed times go into the patch (an
     /// unchanged form is no edit, so no `edited` marker). Back to the list
     /// comes from `mode_after`; errors are shown by the caller.
@@ -165,7 +198,7 @@ impl App<'_> {
         Ok(Saved {
             reveal: None,
             msg: Some(saved_text(&s.task.name, start, end.or(s.end))),
-            select: None,
+            reveal_session: None,
         })
     }
 
@@ -182,7 +215,7 @@ impl App<'_> {
         Ok(Saved {
             reveal: None,
             msg: Some(format!("split {} at {}", s.task.name, clock(at))),
-            select: Some(first.id),
+            reveal_session: Some(first.id),
         })
     }
 
@@ -196,7 +229,7 @@ impl App<'_> {
         Ok(Saved {
             reveal: None,
             msg: Some(format!("cut {}–{} from {}", clock(from), clock(to), s.task.name)),
-            select: left.first().map(|p| p.id),
+            reveal_session: left.first().map(|p| p.id),
         })
     }
 

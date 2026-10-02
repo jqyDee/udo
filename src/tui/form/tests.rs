@@ -847,3 +847,45 @@ fn split_at_and_cut_range_refuse_a_dst_gap() {
     let err = cut.cut_range().expect_err("a DST gap is refused");
     assert!(err.contains("DST"), "{err}");
 }
+
+// --------------- Add form ---------------
+
+/// The last hour up to now, rounded down: now 14:00:40 -> 13:00–14:00.
+#[test]
+fn add_starts_on_the_last_hour() {
+    let now = parse_time("2026-10-15T14:00:40+02:00");
+
+    let form = Form::add_session("lab 3", vec![0, 1], now);
+
+    assert_eq!(form.add_times(), Ok((at(13, 0), at(14, 0))));
+    assert_eq!(form.action, FormAction::AddSession { path: vec![0, 1] });
+    assert_eq!(form.title, "add session · lab 3");
+    assert_eq!(active_id(&form), FieldId::Start);
+}
+
+/// Like the other session forms: ↑ on the minute segment moves one minute.
+#[test]
+fn keys_move_the_add_times_by_single_minutes() {
+    let mut form = Form::add_session("lab 3", vec![0], at(14, 0));
+
+    form.handle_key(press(KeyCode::Right)); // day -> hour
+    form.handle_key(press(KeyCode::Right)); // -> minute
+    form.handle_key(press(KeyCode::Up)); // start 13:01
+    form.handle_key(press(KeyCode::Tab)); // to `end`, on its day segment
+    form.handle_key(press(KeyCode::Right));
+    form.handle_key(press(KeyCode::Right));
+    form.handle_key(press(KeyCode::Down)); // end 13:59
+
+    assert_eq!(form.add_times(), Ok((at(13, 1), at(13, 59))));
+}
+
+#[test]
+fn add_times_refuse_a_dst_gap() {
+    let Some(gap) = dst_gap() else { return };
+    let mut form = Form::add_session("lab 3", vec![0], now());
+
+    set_input(&mut form, FieldId::End, FieldInput::Date(DateInput::new(gap)));
+
+    let err = form.add_times().expect_err("a DST gap is refused");
+    assert!(err.contains("DST"), "{err}");
+}

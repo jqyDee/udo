@@ -132,6 +132,7 @@ impl App<'_> {
             FormAction::EditSession { id } => self.save_session(*id, form).await,
             FormAction::SplitSession { id } => self.save_split(*id, form).await,
             FormAction::CutSession { id } => self.save_cut(*id, form).await,
+            FormAction::AddSession { path } => self.save_add_session(path, form).await,
         }
     }
 
@@ -144,7 +145,7 @@ impl App<'_> {
         Ok(Saved {
             reveal: Some(path),
             msg: Some(msg),
-            select: None,
+            reveal_session: None,
         })
     }
 
@@ -160,7 +161,7 @@ impl App<'_> {
         Ok(Saved {
             reveal: Some(path),
             msg: Some(msg),
-            select: None,
+            reveal_session: None,
         })
     }
 
@@ -171,7 +172,7 @@ impl App<'_> {
         Ok(Saved {
             reveal: Some(path.clone()),
             msg: Some(format!("saved {}", form.name())),
-            select: None,
+            reveal_session: None,
         })
     }
 
@@ -184,13 +185,14 @@ impl App<'_> {
         Ok(Saved {
             reveal: Some(cursor),
             msg: Some("saved settings".into()),
-            select: None,
+            reveal_session: None,
         })
     }
 
-    /// A form saved: close it (`mode_after`), select what it saved, say so.
+    /// A form saved: close it (`mode_after`), reveal what it saved (a node
+    /// in the tree, a session in the list), say so.
     fn after_save(&mut self, action: &FormAction, saved: Saved) {
-        if let Some(id) = saved.select {
+        if let Some(id) = saved.reveal_session {
             self.session_list.selected = Some(id);
         }
         if let Some(path) = saved.reveal {
@@ -211,8 +213,9 @@ pub(super) struct Saved {
     /// Info toast; None: nothing to say (unchanged session form).
     pub(super) msg: Option<String>,
     /// Select this session in the list (the follow-up reload shows its
-    /// page): the new half of a split, the first piece left by a cut.
-    pub(super) select: Option<SessionId>,
+    /// page): the new session of an add, the earlier half of a split, the
+    /// first piece left by a cut.
+    pub(super) reveal_session: Option<SessionId>,
 }
 
 impl Saved {
@@ -221,7 +224,7 @@ impl Saved {
         Self {
             reveal: None,
             msg: None,
-            select: None,
+            reveal_session: None,
         }
     }
 }
@@ -233,7 +236,8 @@ pub(super) fn mode_after(action: &FormAction) -> Mode {
     match action {
         FormAction::EditSession { .. }
         | FormAction::SplitSession { .. }
-        | FormAction::CutSession { .. } => Mode::Sessions,
+        | FormAction::CutSession { .. }
+        | FormAction::AddSession { .. } => Mode::Sessions,
         _ => Mode::Normal,
     }
 }

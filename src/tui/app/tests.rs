@@ -1708,8 +1708,8 @@ async fn a_cut_over_everything_is_refused_and_the_form_stays() {
 /// Esc: back to the list, same selection; while open, the tree stays
 /// dimmed (`in_list`).
 #[tokio::test]
-async fn esc_in_split_and_cut_goes_back_to_the_list() {
-    for open in [key('s'), key('c')] {
+async fn esc_in_add_split_and_cut_goes_back_to_the_list() {
+    for open in [key('a'), key('s'), key('c')] {
         let mut app = one_session_in_the_list().await;
         let selected = app.session_list.selected;
 
@@ -1735,4 +1735,90 @@ async fn s_and_c_in_the_empty_list_say_no_session_selected() {
         assert_eq!(app.mode, Mode::Sessions, "{open:?}");
         assert_eq!(toast_msg(&app), "no session selected", "{open:?}");
     }
+}
+
+// ---------- add (`a`) in the list ----------
+// The add form starts on the last hour: now 20:00 -> 19:00–20:00.
+
+#[tokio::test]
+async fn a_then_enter_adds_and_selects_the_new_session() {
+    let mut app = one_session_in_the_list().await;
+
+    app.handle_key(key('a')).await;
+    app.handle_key(press(KeyCode::Enter)).await;
+
+    assert_eq!(app.mode, Mode::Sessions);
+    assert_eq!(app.sessions.len(), 2);
+    assert_eq!(selected_times(&app), (at(19, 0), Some(at(20, 0))));
+    let msg = format!("added a: {}–{} (1h)", hm(at(19, 0)), hm(at(20, 0)));
+    assert_eq!(toast_msg(&app), msg);
+}
+
+#[tokio::test]
+async fn a_in_the_empty_list_adds_the_first_session() {
+    let mut app = list_app(0).await;
+    app.clock = || at(20, 0);
+    app.handle_key(key('e')).await; // the empty list
+
+    app.handle_key(key('a')).await;
+    app.handle_key(press(KeyCode::Enter)).await;
+
+    assert_eq!(app.mode, Mode::Sessions);
+    assert_eq!(app.sessions.len(), 1);
+    assert_eq!(selected_times(&app), (at(19, 0), Some(at(20, 0))));
+}
+
+/// A container's list holds the sessions of every task below it: which
+/// task would a new one be on? Also from the root.
+#[tokio::test]
+async fn a_on_a_containers_list_says_pick_a_task() {
+    for cursor in [&[1][..], &[][..]] {
+        let mut app = test_app(tree(), state_at(cursor)); // "ws" / the root
+        app.clock = || at(20, 0);
+        app.reload().await;
+        app.details_tab = DetailsTab::Sessions;
+        app.handle_key(key('e')).await; // its (empty) list
+
+        app.handle_key(key('a')).await;
+
+        assert_eq!(app.mode, Mode::Sessions, "{cursor:?}"); // no form
+        let toast = app.toast.as_ref().expect("no toast");
+        let expected = (ToastKind::Error, "pick a task to add a session");
+        assert_eq!((toast.kind, toast.msg.as_str()), expected, "{cursor:?}");
+    }
+}
+
+/// Now 00:30: the last hour (23:30–00:30) runs over "a" 00:00–00:10.
+#[tokio::test]
+async fn an_overlapping_add_is_refused_and_the_form_stays() {
+    let mut app = list_app(1).await;
+    app.clock = || at(0, 30);
+    app.handle_key(key('e')).await;
+
+    app.handle_key(key('a')).await;
+    app.handle_key(press(KeyCode::Enter)).await;
+
+    assert!(matches!(app.mode, Mode::Form(_)), "{:?}", app.mode);
+    let toast = app.toast.as_ref().expect("no toast");
+    let overlap = SessionError::Overlap.to_string();
+    assert_eq!((toast.kind, &toast.msg), (ToastKind::Error, &overlap));
+    assert_eq!(app.sessions.len(), 1);
+}
+
+/// The end one minute after now (20:01): sessions record what happened.
+#[tokio::test]
+async fn an_add_in_the_future_is_refused_and_the_form_stays() {
+    let mut app = one_session_in_the_list().await;
+    app.handle_key(key('a')).await;
+
+    app.handle_key(press(KeyCode::Tab)).await; // `end`
+    to_minute_segment(&mut app).await;
+    app.handle_key(press(KeyCode::Up)).await; // 20:01
+    app.handle_key(press(KeyCode::Enter)).await;
+
+    assert!(matches!(app.mode, Mode::Form(_)), "{:?}", app.mode);
+    let toast = app.toast.as_ref().expect("no toast");
+    assert_eq!(toast.kind, ToastKind::Error);
+    assert!(toast.msg.contains("future"), "got: {}", toast.msg);
+    assert_eq!(app.sessions.len(), 1);
 }

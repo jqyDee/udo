@@ -5,9 +5,9 @@
 //! node, creating from a template node with the defaults. Each kind of form
 //! has one typed reader that checks the input and converts local dates to
 //! `Time` (`new_task_node`, `new_container_node`, `node_edit`, `settings`,
-//! `session_times`, `split_at`, `cut_range`). Settings have their own form
-//! (`Form::edit_settings`), sessions too (`edit_session`, `split_session`,
-//! `cut_session`).
+//! `session_times`, `split_at`, `cut_range`, `add_times`). Settings have
+//! their own form (`Form::edit_settings`), sessions too (`edit_session`,
+//! `split_session`, `cut_session`, `add_session`).
 //!
 //! - `text`: `TextInput`, free text with a cursor
 //! - `date`: `DateInput`, local date + time edited by segment
@@ -154,6 +154,10 @@ pub enum FormAction {
     CutSession {
         id: SessionId,
     },
+    /// A new manual session on the task at `path` (`Form::add_times`).
+    AddSession {
+        path: NodePath,
+    },
 }
 
 /// Minute step of the session form's dates: corrections are often a few
@@ -162,6 +166,9 @@ pub const SESSION_MINUTE_STEP: i64 = 1;
 
 /// How much a new cut form removes, from the midpoint on (a lunch break).
 const CUT_DEFAULT: TimeDelta = TimeDelta::minutes(30);
+
+/// How long a new add form's session is: the last hour, up to now.
+const ADD_DEFAULT: TimeDelta = TimeDelta::hours(1);
 
 pub struct TaskDefaults {
     pub due: NaiveDateTime,
@@ -341,6 +348,24 @@ impl Form {
         }
     }
 
+    /// Add form for the task `task_name` at `path`: the last hour, `end` on
+    /// now rounded down to the minute, `start` `ADD_DEFAULT` before. It may
+    /// overlap another session (timer running, a session in the last
+    /// hour): saving refuses that, the form stays.
+    pub fn add_session(task_name: &str, path: NodePath, now: Time) -> Self {
+        let end = local_minute(now);
+        Self {
+            title: format!("add session · {task_name}"),
+            fields: vec![
+                session_date(FieldId::Start, end - ADD_DEFAULT),
+                session_date(FieldId::End, end),
+            ],
+            parent_dir: None,
+            active_field: 0,
+            action: FormAction::AddSession { path },
+        }
+    }
+
     /// Edit form of a session: start and end as dates (local, to the
     /// minute; ↑/↓ on the minutes by `SESSION_MINUTE_STEP`). A running
     /// session has only a start (stop the timer to end it).
@@ -408,6 +433,18 @@ impl Form {
             .date_value(FieldId::To)
             .expect("cut forms always have `to`");
         Ok((to_time(from)?, to_time(to)?))
+    }
+
+    /// Start and end of an add form. Err: DST gap. Order, overlap and the
+    /// future: checked by `Core` / the store.
+    pub fn add_times(&self) -> Result<(Time, Time), String> {
+        let start = self
+            .date_value(FieldId::Start)
+            .expect("add forms always have a start");
+        let end = self
+            .date_value(FieldId::End)
+            .expect("add forms always have an end");
+        Ok((to_time(start)?, to_time(end)?))
     }
 
     /// Fields for `node`, prefilled with its values. Same fields in the same

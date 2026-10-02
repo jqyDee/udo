@@ -8,8 +8,8 @@
 //!   settings form (`e` on the settings tab)
 //! - `remove`:  "remove?" prompt (`d`) and full delete (`D`) of a node
 //! - `sessions`: the cursor in the sessions tab's list (`e` on the tab, `esc`),
-//!   editing (`e`), splitting (`s`), cutting (`c`) and removing (`d`) its
-//!   sessions
+//!   adding (`a`), editing (`e`), splitting (`s`), cutting (`c`) and
+//!   removing (`d`) its sessions
 //! - `timer`:   start / stop the timer on the task at the cursor (`s`)
 
 mod confirm;
@@ -192,7 +192,8 @@ impl<'a> App<'a> {
             Action::NewTask => self.open_task_form(),
             Action::NextTab => self.details_tab.next(),
             Action::PrevTab => self.details_tab.prev(),
-            Action::Back | Action::Cut | Action::Split => {} // only bound in `SESSION_LIST_KEYMAP`
+            // only bound in `SESSION_LIST_KEYMAP`
+            Action::Back | Action::Add | Action::Split | Action::Cut => {}
         }
         Flow::Continue
     }
