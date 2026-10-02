@@ -5,7 +5,7 @@
 use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::{
-    model::{NodePath, tree::PurgePlan},
+    model::{NodePath, sessions::SessionId, tree::PurgePlan},
     tui::form::TextInput,
 };
 
@@ -43,6 +43,8 @@ pub enum ConfirmAction {
     },
     /// The folder path typed: node and folders to the Trash.
     PurgeNode { plan: Box<PurgePlan> },
+    /// `y`: soft delete, hidden from every list; a running one stops first.
+    RemoveSession { id: SessionId },
 }
 
 /// Which keys the prompt takes.
@@ -100,6 +102,7 @@ impl App<'_> {
         match action {
             ConfirmAction::RemoveNode { path, name, .. } => self.remove_node(&path, &name).await,
             ConfirmAction::PurgeNode { plan } => self.run_purge(&plan).await,
+            ConfirmAction::RemoveSession { id } => self.remove_session(id).await,
         }
     }
 
@@ -123,5 +126,6 @@ impl App<'_> {
 pub(super) fn mode_after(action: &ConfirmAction) -> Mode {
     match action {
         ConfirmAction::RemoveNode { .. } | ConfirmAction::PurgeNode { .. } => Mode::Normal,
+        ConfirmAction::RemoveSession { .. } => Mode::Sessions,
     }
 }

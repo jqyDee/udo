@@ -1096,16 +1096,16 @@ async fn e_without_sessions_enters_the_empty_list() {
     assert!(app.toast.is_none(), "{:?}", app.toast);
 }
 
-/// Tree keys (move, done, delete, timer, new task, tab) do nothing in the list.
+/// Tree keys (move, done, timer, new task, tab) do nothing in the list.
 #[tokio::test]
 async fn tree_keys_do_nothing_in_the_list() {
     let mut app = list_app(3).await;
     app.handle_key(key('e')).await;
     let selected = app.session_list.selected;
 
-    // (`j` `k` `h` `l` move, `e` edits, `q` quits in the list too: see
-    // their tests)
-    for k in [key('x'), key('d'), key('s'), key('t'), press(KeyCode::Tab)] {
+    // (`j` `k` `h` `l` move, `e` edits, `d` removes, `q` quits in the list
+    // too: see their tests)
+    for k in [key('x'), key('s'), key('t'), press(KeyCode::Tab)] {
         app.handle_key(k).await;
     }
 
@@ -1309,6 +1309,85 @@ async fn e_in_the_empty_list_says_no_session_selected() {
     assert_eq!(app.mode, Mode::Sessions); // no form
     let toast = app.toast.as_ref().expect("no toast");
     assert_eq!((toast.kind, toast.msg.as_str()), (ToastKind::Error, "no session selected"));
+}
+
+// ---------- removing a session (`d` in the list) ----------
+
+#[tokio::test]
+async fn d_then_y_removes_the_session_and_selects_its_neighbour() {
+    let mut app = list_app(3).await;
+    app.handle_key(key('e')).await; // on the newest
+    let ids = app.newest_ids();
+
+    app.handle_key(key('d')).await;
+    app.handle_key(key('y')).await;
+
+    assert_eq!(app.mode, Mode::Sessions);
+    assert_eq!(app.sessions.len(), 2);
+    assert_eq!(app.session_list.selected, Some(ids[1])); // the row where it was
+    let toast = app.toast.as_ref().expect("no toast");
+    assert_eq!(toast.kind, ToastKind::Info);
+    assert!(toast.msg.starts_with("removed a: "), "got: {}", toast.msg);
+    assert!(toast.msg.ends_with("(10m)"), "got: {}", toast.msg);
+}
+
+#[tokio::test]
+async fn d_then_n_esc_or_enter_keeps_the_session() {
+    for no in [key('n'), press(KeyCode::Esc), press(KeyCode::Enter)] {
+        let mut app = list_app(2).await;
+        app.handle_key(key('e')).await;
+        let selected = app.session_list.selected;
+
+        app.handle_key(key('d')).await;
+        app.handle_key(no).await;
+
+        assert_eq!(app.mode, Mode::Sessions, "{no:?}");
+        assert_eq!(app.sessions.len(), 2, "{no:?}");
+        assert_eq!(app.session_list.selected, selected, "{no:?}");
+    }
+}
+
+#[tokio::test]
+async fn d_on_the_last_session_stays_in_the_empty_list() {
+    let mut app = list_app(1).await;
+    app.handle_key(key('e')).await;
+
+    app.handle_key(key('d')).await;
+    app.handle_key(key('y')).await;
+
+    assert_eq!(app.mode, Mode::Sessions);
+    assert!(app.sessions.is_empty());
+    assert_eq!(app.session_list.selected, None);
+}
+
+#[tokio::test]
+async fn d_in_the_empty_list_says_no_session_selected() {
+    let mut app = list_app(0).await;
+    app.handle_key(key('e')).await; // the empty list
+
+    app.handle_key(key('d')).await;
+
+    assert_eq!(app.mode, Mode::Sessions); // no prompt
+    let toast = app.toast.as_ref().expect("no toast");
+    assert_eq!((toast.kind, toast.msg.as_str()), (ToastKind::Error, "no session selected"));
+}
+
+#[tokio::test]
+async fn removing_the_running_session_says_so_and_stops_the_timer() {
+    let mut app = list_app(0).await;
+    app.handle_key(key('s')).await; // start the timer on "a"
+    app.handle_key(key('e')).await;
+
+    app.handle_key(key('d')).await;
+    let Mode::Confirm(c) = &app.mode else {
+        panic!("no prompt: {:?}", app.mode);
+    };
+    assert!(c.question.ends_with("? (running: the timer stops)"), "{}", c.question);
+    app.handle_key(key('y')).await;
+
+    assert_eq!(app.running, None);
+    let toast = app.toast.as_ref().expect("no toast");
+    assert!(toast.msg.ends_with("–now, timer stopped"), "got: {}", toast.msg);
 }
 
 // ---------- the session form (`e` in the list) ----------

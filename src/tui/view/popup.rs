@@ -53,7 +53,7 @@ fn draw_type_to_confirm(frame: &mut Frame, c: &Confirm, expected: &str, input: &
     let mut lines = question_lines(c, max_text_w);
     match &c.action {
         ConfirmAction::PurgeNode { plan } => lines.extend(purge_rows(plan, max_text_w)),
-        ConfirmAction::RemoveNode { .. } => {}
+        ConfirmAction::RemoveNode { .. } | ConfirmAction::RemoveSession { .. } => {}
     }
     lines.extend(note_lines(c, max_text_w));
     lines.push(Line::from(c.type_prompt));

@@ -2,7 +2,9 @@
 //! (`j` `k` across pages, `h` `l` page by page), leave (`esc`), and stay on
 //! its session across reloads. The rules live in `SessionList`; this file
 //! maps keys and reloads to them. `e` in the list opens the session's edit
-//! form; saving it (`save_session`) returns to the list.
+//! form; saving it (`save_session`) returns to the list. `d` asks before
+//! removing the session (`Confirm::remove_session`); either answer returns
+//! to the list.
 
 use chrono::Local;
 use crossterm::event::KeyEvent;
@@ -14,9 +16,9 @@ use crate::{
         time::{Minutes, Time},
     },
     tui::{
-        app::{App, Flow, Mode, forms::Saved},
+        app::{App, Confirm, ConfirmAction, ConfirmStage, Flow, Mode, forms::Saved, timer_note},
         form::Form,
-        keys::{Action, LIST_KEYMAP, action_for_in},
+        keys::{Action, SESSION_LIST_KEYMAP, action_for_in},
     },
 };
 
@@ -30,11 +32,11 @@ impl App<'_> {
         self.mode = Mode::Sessions;
     }
 
-    /// A key while the cursor is in the list. Keys not in `LIST_KEYMAP`
+    /// A key while the cursor is in the list. Keys not in `SESSION_LIST_KEYMAP`
     /// (the tree's) do nothing here.
     pub(super) async fn handle_list_key(&mut self, key: KeyEvent) -> Flow {
         let ids = self.newest_ids();
-        match action_for_in(LIST_KEYMAP, key) {
+        match action_for_in(SESSION_LIST_KEYMAP, key) {
             Some(Action::Quit) => return Flow::Quit,
             Some(Action::Down) => self.session_list.move_by(&ids, 1),
             Some(Action::Up) => self.session_list.move_by(&ids, -1),
@@ -42,6 +44,7 @@ impl App<'_> {
             Some(Action::Out) => self.session_list.turn_page(&ids, -1),
             Some(Action::Edit) => self.open_session_form(),
             Some(Action::Back) => self.leave_list(),
+            Some(Action::Delete) => self.ask_remove_session(),
             _ => {} // keys of the tree do nothing here
         }
         Flow::Continue
@@ -93,6 +96,31 @@ impl App<'_> {
         self.mode = Mode::Form(Box::new(Form::edit_session(&s)));
     }
 
+    /// `d` in the list: ask before removing the selected session.
+    fn ask_remove_session(&mut self) {
+        let Some(s) = self.selected_session() else {
+            return;
+        };
+        self.mode = Mode::Confirm(Box::new(Confirm::remove_session(&s)));
+    }
+
+    /// `y` on `RemoveSession`. The cursor goes to the neighbour on the
+    /// next reload (`follow`), the keys back to the list (`mode_after`). A
+    /// running session is stopped by the store first.
+    pub(super) async fn remove_session(&mut self, id: SessionId) {
+        let Some(s) = self.sessions.iter().find(|s| s.id == id).cloned() else {
+            return self.error("that session is gone (removed elsewhere?)");
+        };
+        match self.core.delete_session(id).await {
+            Ok(()) => self.info(format!(
+                "removed {}{}",
+                saved_text(&s.task.name, s.start, s.end),
+                timer_note(s.end.is_none())
+            )),
+            Err(e) => self.error(e.to_string()),
+        }
+    }
+
     /// Save the session form: only changed times go into the patch (an
     /// unchanged form is no edit, so no `edited` marker). Back to the list
     /// comes from `mode_after`; errors are shown by the caller.
@@ -128,6 +156,29 @@ impl App<'_> {
     fn leave_list(&mut self) {
         self.session_list.selected = None;
         self.mode = Mode::Normal;
+    }
+}
+
+impl Confirm {
+    /// `d` in the list: `remove session lab 3: 14:00–15:30 (1h30)?`; a
+    /// running one says the timer stops.
+    pub fn remove_session(s: &Session) -> Self {
+        let running = if s.end.is_none() {
+            " (running: the timer stops)"
+        } else {
+            ""
+        };
+        let what = saved_text(&s.task.name, s.start, s.end);
+        Self {
+            title: " remove? ",
+            question: format!("remove session {what}?{running}"),
+            notes: vec!["hidden from every list; the data stays".into()],
+            keys: vec![("y", "remove"), ("n/esc", "cancel")],
+            type_prompt: "",
+            mismatch: "",
+            action: ConfirmAction::RemoveSession { id: s.id },
+            stage: ConfirmStage::Ask,
+        }
     }
 }
 

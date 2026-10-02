@@ -78,13 +78,14 @@ pub const KEYMAP: &[Section] = &[
 
 /// Keys while the cursor is in the sessions list (`Mode::Sessions`).
 #[rustfmt::skip]
-pub const LIST_KEYMAP: &[Section] = &[
+pub const SESSION_LIST_KEYMAP: &[Section] = &[
     Section { title: "sessions", bindings: &[
         Binding { keys: &[KeyCode::Char('j'), KeyCode::Down], action: Action::Down, help: "next (older) session" },
         Binding { keys: &[KeyCode::Char('k'), KeyCode::Up], action: Action::Up, help: "previous (newer) session" },
         Binding { keys: &[KeyCode::Char('l'), KeyCode::Right], action: Action::In, help: "next page" },
         Binding { keys: &[KeyCode::Char('h'), KeyCode::Left], action: Action::Out, help: "previous page" },
         Binding { keys: &[KeyCode::Char('e')], action: Action::Edit, help: "edit session" },
+        Binding { keys: &[KeyCode::Char('d')], action: Action::Delete, help: "remove session" },
         Binding { keys: &[KeyCode::Esc], action: Action::Back, help: "back to the tree" },
     ]},
     Section { title: "app", bindings: &[
@@ -98,7 +99,7 @@ pub fn bindings() -> impl Iterator<Item = &'static Binding> {
     bindings_in(KEYMAP)
 }
 
-/// All bindings of all sections of `keymap` (`KEYMAP`, `LIST_KEYMAP`), in
+/// All bindings of all sections of `keymap` (`KEYMAP`, `SESSION_LIST_KEYMAP`), in
 /// order.
 pub fn bindings_in(keymap: &[Section]) -> impl Iterator<Item = &'static Binding> {
     keymap.iter().flat_map(|s| s.bindings)
@@ -156,7 +157,7 @@ mod tests {
 
     /// Every keymap of a mode. Duplicates across them are fine (`e` means
     /// something else in the list), within one they are not.
-    const KEYMAPS: [&[Section]; 2] = [KEYMAP, LIST_KEYMAP];
+    const KEYMAPS: [&[Section]; 2] = [KEYMAP, SESSION_LIST_KEYMAP];
 
     #[test]
     fn no_key_is_bound_twice() {
@@ -173,7 +174,7 @@ mod tests {
 
     #[test]
     fn esc_goes_back_in_the_list() {
-        assert_eq!(action_for_in(LIST_KEYMAP, press(KeyCode::Esc)), Some(Action::Back));
+        assert_eq!(action_for_in(SESSION_LIST_KEYMAP, press(KeyCode::Esc)), Some(Action::Back));
         assert_eq!(action_for(press(KeyCode::Esc)), None); // the tree: nothing
     }
 
@@ -223,6 +224,12 @@ mod tests {
     fn create_keys() {
         assert_eq!(action_for(press(KeyCode::Char('c'))), Some(Action::NewContainer));
         assert_eq!(action_for(press(KeyCode::Char('t'))), Some(Action::NewTask));
+    }
+
+    #[test]
+    fn d_removes_in_the_session_list() {
+        let d = press(KeyCode::Char('d'));
+        assert_eq!(action_for_in(SESSION_LIST_KEYMAP, d), Some(Action::Delete));
     }
 
     #[test]
