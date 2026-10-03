@@ -3,15 +3,16 @@
 Priorities as of 2026-10-03, in order. Background and older plans:
 `roadmap.txt` (phase numbers below refer to it).
 
-**Next up:** run configs + tracking by program (sections 2 and 4), spec
-`docs/superpowers/specs/2026-10-02-run-configs-design.md`, stage 6
-(examples `nvim-tmux`, `idea`, `typst-setup`; `docs/run-configs.md`).
-Done lately: stages 1-5 (session owners, `udo track start / stop / run
-[--detach]`, `id:<uuid>` as NODE, run config library and launcher, `udo
-run [--with] [--task] [--list]`, `open_with` / `on_create` / `run_dir`;
-TUI `o` / `O` with task and script pickers, the source in the status
-line; `on_create` after `udo add` and the create forms, `--json` kept
-clean of script output).
+**Next up:** to be picked (the run configs are done). Done lately: run
+configs + tracking by program (sections 2 and 4, spec
+`docs/superpowers/specs/2026-10-02-run-configs-design.md`, all six
+stages): session owners, `udo track start / stop / run [--detach]`,
+`id:<uuid>` as NODE, run config library and launcher, `udo run [--with]
+[--task] [--list]`, `open_with` / `on_create` / `run_dir`; TUI `o` / `O`
+with task and script pickers, the source in the status line; `on_create`
+after `udo add` and the create forms, `--json` kept clean of script
+output; examples (`nvim-tmux`, `idea`, `zed`, `typst-setup`) tested
+against the real binary; guide `docs/run-configs.md`.
 
 ## Done: creation flow
 
@@ -111,7 +112,7 @@ clean of script output).
       "open" the moment it starts.
 - [x] **Timer in the TUI status line** (`▶ lab 3 · 1h12`); open sessions
       found after a crash / power-off are offered for fixing in time tab.
-- [ ] **Tracking by program (with run configs, section 4):** one timer with
+- [x] **Tracking by program (with run configs, section 4):** one timer with
       an owner. `start` takes over, `stop` only stops its own session (a
       foreign stop is a no-op), manual always wins. Rules in the store
       (one transaction). Protocol = the CLI, called by scripts / tmux
@@ -126,11 +127,11 @@ clean of script output).
             with its code, Ctrl+C goes to the child; `--detach` starts the
             session, then re-execs itself as a helper in a new session
             (stage 2)
-      - nvim in tmux: per-session `client-session-changed` -> `track start`;
-        server-wide `client-detached` / `session-closed` -> `track stop
-        --owner tmux:#{hook_session_name}` (spike 2026-10-02)
-      - nvim in the foreground: a run config that blocks; the TUI suspends
-        and waits (roadmap 6.2)
+      - [x] nvim in tmux: `examples/run/nvim-tmux` (the hooks and their
+            pitfalls: `docs/run-configs.md`, tested in
+            `tests/example_nvim_tmux.rs`)
+      - [x] nvim in the foreground: a run config that blocks; the TUI
+            hands the terminal over and waits (stage 4)
 - [ ] **No daemon for now.** A real background service (launchd / systemd)
       later, when idle detection, file watching or reminders come. Same
       session data either way.
@@ -271,8 +272,12 @@ knows no program and never starts a timer for a run (scripts call
       (CLI and TUI); `udo add --no-run`, the form's `setup ‹ run · skip ›`
       row. The node stays if the script fails (CLI: warning, exit 0).
       `--json`: a script's stdout goes to stderr (`tests/cli_json.rs`).
-- [ ] **6. Examples and guide:** `examples/run/` (`nvim-tmux`, `idea`,
-      `typst-setup`), `docs/run-configs.md`.
+- [x] **6. Examples and guide:** `examples/run/` (`nvim-tmux`, `idea`,
+      `zed`, `typst-setup`), `docs/run-configs.md`; tested against the
+      real binary (`tests/example_*.rs`, a tmux server of their own),
+      `shellcheck` clean (`tests/example_lint.rs`). Real Zed checked by
+      hand (needs `--new`, else `--wait` waits for all of Zed). By hand
+      still: real IntelliJ (`settle` long enough?).
 - [ ] Later: per-task `open_with` (task field, section 1), a `done` event,
       script descriptions, editor plugins (focus), idle detection.
 
