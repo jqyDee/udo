@@ -1,7 +1,6 @@
 # udo TODO
 
-Priorities as of 2026-10-03, in order. Background and older plans:
-`roadmap.txt` (phase numbers below refer to it).
+Priorities as of 2026-10-04, in order. Designs: `docs/superpowers/specs/`.
 
 **Next up:** to be picked (the run configs are done). Done lately: run
 configs + tracking by program (sections 2 and 4, spec
@@ -31,7 +30,7 @@ against the real binary; guide `docs/run-configs.md`.
       default as today; allows nested workspaces.
 - [x] **Form defaults from outside:** the app passes `TaskDefaults` into the
       form, so defaults can come from settings later.
-- [x] **Stable IDs** for tasks and containers (roadmap 2.3.2).
+- [x] **Stable IDs** for tasks and containers (UUID v7).
 - [x] **`created_at` + `description`** in a shared `NodeHeader` (tasks and
       containers); one `Tree::create(parent, node)`. Description in the create
       forms, `--description` in the CLI, shown in the details pane. Further
@@ -47,7 +46,7 @@ against the real binary; guide `docs/run-configs.md`.
 - [x] **Inheritance:** a setting not set on a container comes from its parent
       (project -> workspace -> root -> built-in default). Every setting is
       optional, yes/no included, so a child can switch off what its parent
-      switched on. (roadmap 1.2 "fallback hierarchy")
+      switched on.
 - [x] **Only set values are saved** in `.udo.toml`: a file shows exactly
       what that container overrides.
 - [x] **Root-only settings get their own type** (`RootSettings`, `[root]`
@@ -151,11 +150,25 @@ against the real binary; guide `docs/run-configs.md`.
       the same contract as the memory store (plus a differential test
       memory vs. SQLite); migrations via `user_version`; `session_edits`
       log.
+- [ ] **The tree in a store too** (later): today `.udo.toml` per container.
+      A `TreeStore` like `SessionStore`, with the same kind of contract
+      tests: first the files behind it (pure refactor, nothing outside
+      `Tree` touches storage), then a single-file store (cheapest proof the
+      abstraction holds), then SQLite (transactions, cross-workspace
+      queries like "due this week"; loses the readable, git-friendly
+      files). Backend picked by a small root config or by finding `udo.db`;
+      `udo export` / `import` move data between stores. Real folders stay
+      on disk with every backend: work and scripts happen there. Async
+      store methods: an enum over the known backends, or boxed futures
+      (`dyn` needs them).
 - [ ] **Learn:** per container, the average time of tasks replaces the
       default. Unfinished tasks count too, weighted lower (their time so far
       is an "at least"). Averages are calculated from the sessions, not
       stored as settings.
-- [ ] Show estimate vs. actual per task and container (roadmap 5.2).
+- [ ] Show estimate vs. actual per task and container.
+- [ ] **Pace and reports (`udo stats`):** the daily pace still needed per
+      task (time left of the estimate / days until due), and a report of
+      the time per workspace / project over a period.
 - [x] **Sessions tab** in the details pane (a third `DetailsTab`), a pure
       sessions page: sessions newest first (a container: all tasks below
       it, with task names), paged (page length from the space left,
@@ -186,8 +199,8 @@ against the real binary; guide `docs/run-configs.md`.
       manual), opt-in `ai_access` setting (only name, description and times
       by default). Provider behind a small interface, so a local model can be
       used for full privacy. Rust: plain HTTP (no official SDK).
-- [x] Needs **stable task IDs** first (roadmap 2.3.2): time logs must survive
-      renaming a task.
+- [x] Needs **stable task IDs** first: time logs must survive renaming a
+      task.
 
 ## 3. Timetable / scheduling
 
@@ -287,6 +300,12 @@ knows no program and never starts a timer for a run (scripts call
       a group = sum of its parts; the planner can place parts in separate
       slots. Possible use for container kinds beyond labels. Keep in mind:
       tasks may get children one day (stable IDs help).
+- [ ] **`udo archive`:** move a finished workspace / project (or task) into
+      its `archive_dir` (the setting exists, nothing uses it yet) and take
+      it off the active lists; its sessions stay (never deleted).
+- [ ] **Notes per task (`udo note`):** quick notes in the task's folder
+      ("where was I"); the last one shown when you start working on it
+      (`s`, `o`, `udo start`).
 
 ## Smaller / later
 
@@ -319,9 +338,6 @@ knows no program and never starts a timer for a run (scripts call
       `dt`, clearer names for `rm.rs` `fake_trash` and `app/tests.rs`
       `disk_tree`. Plan:
       `docs/superpowers/plans/2026-09-29-test-util-leftovers.md`.
-- [ ] `roadmap.txt` 6.1 status is out of date (event loop is async, TUI
-      writes: status, delete, create, edit, settings; details tabs, root
-      row).
 - [ ] `TaskPatch.dir` can't remove a task's folder: optional fields need
       `Option<Option<T>>` in their patch, like `HeaderPatch.description`.
 - [ ] Maybe a "jump to the root" key (`g`) if walking up with `h` gets
