@@ -16,6 +16,7 @@ pub mod dir;
 pub mod model;
 pub mod naming;
 pub mod persist;
+pub mod run;
 pub mod storage;
 pub mod tui;
 
