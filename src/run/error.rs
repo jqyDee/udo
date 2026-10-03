@@ -19,6 +19,8 @@ pub enum RunError {
     NotExecutable { path: PathBuf },
     /// The folder exists but cannot be read.
     Io { dir: PathBuf, error: io::Error },
+    /// The script was found but does not start.
+    Launch { path: PathBuf, error: io::Error },
 }
 
 impl fmt::Display for RunError {
@@ -55,6 +57,17 @@ impl fmt::Display for RunError {
                 write!(f, "run config {name:?} is not executable: chmod +x {}", path.display())
             }
             Self::Io { dir, error } => write!(f, "cannot read {}: {error}", dir.display()),
+            Self::Launch { path, error } => {
+                write!(f, "cannot run {}: {error}", path.display())?;
+                match error.kind() {
+                    // the script is there: its interpreter is not
+                    io::ErrorKind::NotFound => write!(f, " (check its #! line)"),
+                    io::ErrorKind::PermissionDenied => {
+                        write!(f, " (chmod +x {})", path.display())
+                    }
+                    _ => Ok(()),
+                }
+            }
         }
     }
 }

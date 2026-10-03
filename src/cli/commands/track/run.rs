@@ -20,6 +20,7 @@ use crate::{
         sessions::{Owner, SessionSource},
         time::Time,
     },
+    run::{exit_code, wait},
 };
 
 #[derive(clap::Args)]
@@ -140,31 +141,15 @@ fn spawn_helper(task: &str, args: &RunArgs) -> Res<u32> {
     Ok(child.id())
 }
 
-/// Run `cmd` with the terminal inherited (no pipes: some programs then
-/// think they are not on a terminal) and wait for it. Ctrl+C reaches the
-/// child too (same process group) and it decides; udo ignores it, so it
-/// still gets to stop the session.
+/// Run `cmd` (program and arguments) and wait: `run::wait` (terminal
+/// inherited, Ctrl+C left to the child).
 async fn wait_for(cmd: &[String]) -> Res<ExitStatus> {
     let (program, args) = cmd.split_first().ok_or("no command after --")?;
-    let mut child = tokio::process::Command::new(program)
-        .args(args)
-        .spawn()
-        .map_err(|e| format!("cannot start {program:?}: {e}"))?;
-    loop {
-        tokio::select! {
-            status = child.wait() => return Ok(status?),
-            _ = tokio::signal::ctrl_c() => {} // handled now: no longer kills udo
-        }
-    }
-}
-
-/// The child's exit code; killed by a signal: 128 + the signal, like a
-/// shell reports it.
-fn exit_code(status: ExitStatus) -> i32 {
-    use std::os::unix::process::ExitStatusExt;
-    status
-        .code()
-        .unwrap_or_else(|| 128 + status.signal().unwrap_or(0))
+    let mut child = tokio::process::Command::new(program);
+    child.args(args);
+    Ok(wait(child)
+        .await
+        .map_err(|e| format!("cannot start {program:?}: {e}"))?)
 }
 
 impl fmt::Display for Ran {
