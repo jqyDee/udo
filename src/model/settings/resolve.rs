@@ -1,7 +1,12 @@
 //! Looking a setting up: the node's own container, then its ancestors, then
 //! `ContainerSettings::builtin()`.
 
-use crate::model::{NodePath, node::Node, settings::ContainerSettings, tree::Tree};
+use crate::model::{
+    NodePath,
+    node::Node,
+    settings::{ContainerSettings, RunName},
+    tree::Tree,
+};
 
 /// A setting's value plus where it came from (for the editor:
 /// `1h30 (from uni)`).
@@ -51,6 +56,13 @@ impl Tree {
         }
 
         builtin_setting(get)
+    }
+
+    /// The script `open_with` names for the node at `path` (`o`, `udo
+    /// run`). Unset or `none`: None.
+    pub fn open_with(&self, path: &[usize]) -> Option<RunName> {
+        let setting = self.setting(path, |s| s.open_with.clone())?.value;
+        setting.script().cloned()
     }
 
     /// What the container at `path` would get if it didn't set the value

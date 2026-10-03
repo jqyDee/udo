@@ -58,7 +58,8 @@ pub async fn run(core: &Core, cwd: &Path, args: &RunArgs) -> Res<Opened> {
     let node = tree.get(&path).ok_or("no such node")?;
     let name = match &args.with {
         Some(name) => name.clone(),
-        None => open_with(tree, &path)
+        None => tree
+            .open_with(&path)
             .ok_or_else(|| format!("no run config for {} (set open_with)", node.name()))?,
     };
     let library = Library::load(&tree.run_dir())?;
@@ -87,17 +88,8 @@ pub fn list(core: &Core, cwd: &Path, args: &RunArgs) -> Res<Listed> {
     Ok(Listed {
         dir: library.dir().display().to_string(),
         names: library.names().map(ToString::to_string).collect(),
-        default: path
-            .and_then(|p| open_with(tree, &p))
-            .map(|n| n.to_string()),
+        default: path.and_then(|p| tree.open_with(&p)).map(|n| n.to_string()),
     })
-}
-
-/// The script `open_with` names for the node at `path`; unset or `none`:
-/// None.
-fn open_with(tree: &Tree, path: &[usize]) -> Option<RunName> {
-    let setting = tree.setting(path, |s| s.open_with.clone())?.value;
-    setting.script().cloned()
 }
 
 /// The task the time goes to: a task is its own; a container needs
@@ -120,7 +112,7 @@ fn task_for(tree: &Tree, path: &[usize], task: Option<&str>, cwd: &Path) -> Res<
         }
         return Ok(found);
     }
-    let open = open_tasks(tree, path);
+    let open = tree.open_tasks(path);
     match open.as_slice() {
         [one] => Ok(one.clone()),
         [] => Err(format!("no open task in {}", node.name()).into()),
@@ -133,16 +125,6 @@ fn task_for(tree: &Tree, path: &[usize], task: Option<&str>, cwd: &Path) -> Res<
             Err(format!("pick a task: --task {}", names.join(" | ")).into())
         }
     }
-}
-
-/// Tasks at any depth below the container at `path` that are not done.
-fn open_tasks(tree: &Tree, path: &[usize]) -> Vec<NodePath> {
-    tree.rows()
-        .into_iter()
-        .filter(|r| r.path.starts_with(path) && r.path.len() > path.len())
-        .filter(|r| r.node.as_task().is_some_and(|t| t.done_at.is_none()))
-        .map(|r| r.path)
-        .collect()
 }
 
 impl fmt::Display for Opened {

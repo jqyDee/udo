@@ -304,6 +304,20 @@ mod tests {
         );
     }
 
+    /// `Tree::open_with`: just the script to run, whatever set it.
+    #[test]
+    fn open_with_names_the_script_or_nothing() {
+        let mut t = uni_tree();
+        assert_eq!(t.open_with(&[0, 0, 0]), None); // unset
+
+        set_open_with(&mut t, &[0], "nvim-tmux");
+        assert_eq!(t.open_with(&[0, 0, 0]), Some("nvim-tmux".parse().unwrap()));
+
+        set_open_with(&mut t, &[0, 0], "none");
+        assert_eq!(t.open_with(&[0, 0, 0]), None); // switched off
+        assert_eq!(t.open_with(&[1]), None); // "work": not below uni
+    }
+
     #[test]
     fn default_deadline_in_the_file() {
         let s: ContainerSettings = toml::from_str("default_deadline = \"+7d 23:59\"").unwrap();

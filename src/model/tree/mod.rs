@@ -118,6 +118,18 @@ impl Tree {
         }
     }
 
+    /// Paths of the tasks at any depth below the container at `path` that
+    /// are not done, in tree order: what opening a container can time.
+    /// A task or a missing path: empty.
+    pub fn open_tasks(&self, path: &[usize]) -> Vec<NodePath> {
+        self.rows()
+            .into_iter()
+            .filter(|r| r.path.starts_with(path) && r.path.len() > path.len())
+            .filter(|r| r.node.as_task().is_some_and(|t| t.done_at.is_none()))
+            .map(|r| r.path)
+            .collect()
+    }
+
     /// Path of the node with `id`; the root is `Some(vec![])`. `None` if no
     /// node has it (e.g. deleted).
     pub fn path_of(&self, id: NodeId) -> Option<NodePath> {
@@ -136,8 +148,13 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::{
-        model::{id::NodeId, node::Node, tree::Tree},
-        test_util::{container, deep_tree, task, tree_with},
+        model::{
+            NodePath,
+            id::NodeId,
+            node::{Node, NodeBody},
+            tree::Tree,
+        },
+        test_util::{at, container, deep_tree, task, tree_with},
     };
 
     pub(super) fn tree() -> Tree {
@@ -256,6 +273,35 @@ mod tests {
         assert_eq!(t.path_of(id(&[1, 1, 0])), Some(vec![1, 1, 0])); // c, two levels down
         assert_eq!(t.path_of(id(&[1])), Some(vec![1])); // a container
         assert_eq!(t.path_of(id(&[])), Some(vec![])); // the root
+    }
+
+    // ---------- open_tasks (deep_tree: root: [a, inner: [b, deep: [c]], z, empty]) ----------
+
+    fn names(t: &Tree, paths: &[NodePath]) -> Vec<String> {
+        paths
+            .iter()
+            .map(|p| t.get(p).unwrap().name().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn open_tasks_go_all_the_way_down_and_skip_done_ones() {
+        let mut t = deep_tree();
+        if let NodeBody::Task(b) = &mut t.get_mut(&[1, 0]).unwrap().body {
+            b.done_at = Some(at(9, 0));
+        }
+
+        assert_eq!(names(&t, &t.open_tasks(&[1])), ["c"]); // b is done
+        assert_eq!(names(&t, &t.open_tasks(&[])), ["a", "c", "z"]); // the root
+    }
+
+    #[test]
+    fn open_tasks_of_a_task_an_empty_or_a_missing_node_are_none() {
+        let t = deep_tree();
+
+        assert!(t.open_tasks(&[0]).is_empty()); // a task: not "below" itself
+        assert!(t.open_tasks(&[3]).is_empty()); // "empty"
+        assert!(t.open_tasks(&[9]).is_empty());
     }
 
     #[test]
