@@ -1,10 +1,11 @@
-//! `udo add task NODE [--due] [--dir | --no-dir] [--description]`.
+//! `udo add task NODE [--due] [--dir | --no-dir] [--description]
+//! [--no-run]`.
 
 use std::path::{Path, PathBuf, absolute};
 
 use chrono::NaiveDateTime;
 
-use super::Added;
+use super::{Added, RunFlag};
 use crate::{
     Res,
     cli::{
@@ -12,7 +13,7 @@ use crate::{
         resolve::{path_text, resolve_parent},
     },
     core::Core,
-    model::{node::Node, task::Task, time::local_to_fixed},
+    model::{NodePath, node::Node, task::Task, time::local_to_fixed},
 };
 
 #[derive(clap::Args)]
@@ -31,15 +32,19 @@ pub struct AddTaskArgs {
     pub no_dir: bool,
     #[arg(long)]
     pub description: Option<String>,
+    #[command(flatten)]
+    pub run: RunFlag,
 }
 
-/// Add a task; `now` (local) is where relative due rules start.
+/// Add a task; `now` (local) is where relative due rules start. Its path
+/// (for `on_create`, run by the caller) and the report; `args.run` is the
+/// caller's too.
 pub async fn run(
     core: &mut Core,
     cwd: &Path,
     now: NaiveDateTime,
     args: &AddTaskArgs,
-) -> Res<Added> {
+) -> Res<(NodePath, Added)> {
     let (parent, name) = resolve_parent(core.tree(), &args.node, cwd)?;
     let due = match args.due {
         Some(due) => due.after(now),
@@ -55,11 +60,13 @@ pub async fn run(
     let node =
         Node::task(name, Task::new(dir.clone(), due)).with_description(args.description.clone());
     let path = core.create(&parent, node).await?;
-    Ok(Added {
+    let added = Added {
         what: "task".into(),
         path: path_text(core.tree(), &path),
         dir,
-    })
+        ran: None,
+    };
+    Ok((path, added))
 }
 
 #[cfg(test)]
@@ -81,6 +88,7 @@ mod tests {
             dir: None,
             no_dir: false,
             description: None,
+            run: RunFlag { no_run: false },
         }
     }
 
@@ -98,7 +106,7 @@ mod tests {
             ..task_args("ws/lab 4")
         };
 
-        let added = run(&mut core, tmp.path(), thursday_noon(), &args)
+        let (_, added) = run(&mut core, tmp.path(), thursday_noon(), &args)
             .await
             .unwrap();
 
@@ -131,10 +139,10 @@ mod tests {
             ..task_args("ws/lab 5")
         };
 
-        let with = run(&mut core, tmp.path(), thursday_noon(), &task_args("ws/lab 4"))
+        let (_, with) = run(&mut core, tmp.path(), thursday_noon(), &task_args("ws/lab 4"))
             .await
             .unwrap();
-        let without = run(&mut core, tmp.path(), thursday_noon(), &no_dir)
+        let (_, without) = run(&mut core, tmp.path(), thursday_noon(), &no_dir)
             .await
             .unwrap();
 

@@ -1,13 +1,14 @@
-//! `udo add project|workspace NODE [--dir] [--description]`.
+//! `udo add project|workspace NODE [--dir] [--description] [--no-run]`.
 
 use std::path::{Path, PathBuf, absolute};
 
-use super::Added;
+use super::{Added, RunFlag};
 use crate::{
     Res,
     cli::resolve::{path_text, resolve_parent},
     core::Core,
     model::{
+        NodePath,
         container::{Container, ContainerKind},
         node::Node,
     },
@@ -22,15 +23,18 @@ pub struct AddContainerArgs {
     pub dir: Option<PathBuf>,
     #[arg(long)]
     pub description: Option<String>,
+    #[command(flatten)]
+    pub run: RunFlag,
 }
 
-/// Add a workspace or project.
+/// Add a workspace or project: its path (for `on_create`, run by the
+/// caller) and the report. `args.run` is the caller's too.
 pub async fn run(
     core: &mut Core,
     cwd: &Path,
     args: &AddContainerArgs,
     kind: ContainerKind,
-) -> Res<Added> {
+) -> Res<(NodePath, Added)> {
     let (parent, name) = resolve_parent(core.tree(), &args.node, cwd)?;
     let dir = match &args.dir {
         Some(dir) => absolute(cwd.join(dir))?,
@@ -41,11 +45,13 @@ pub async fn run(
     let node = Node::container(name, Container::new(dir.clone(), kind))
         .with_description(args.description.clone());
     let path = core.create(&parent, node).await?;
-    Ok(Added {
+    let added = Added {
         what: kind.to_string(),
         path: path_text(core.tree(), &path),
         dir: Some(dir),
-    })
+        ran: None,
+    };
+    Ok((path, added))
 }
 
 #[cfg(test)]
@@ -60,9 +66,10 @@ mod tests {
             node: "ws/cs 101".into(),
             dir: None,
             description: None,
+            run: RunFlag { no_run: false },
         };
 
-        let added = run(&mut core, tmp.path(), &args, ContainerKind::Project)
+        let (_, added) = run(&mut core, tmp.path(), &args, ContainerKind::Project)
             .await
             .unwrap();
 

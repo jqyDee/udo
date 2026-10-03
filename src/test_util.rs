@@ -182,6 +182,29 @@ pub async fn core() -> (TempDir, Core) {
     (tmp, Core::new(tree, Storage::in_memory()))
 }
 
+// ---------- run configs ----------
+
+/// An executable script `name` in `<root>/run` (the default `run_dir`):
+/// `body` after a `sh` shebang.
+pub fn run_script(root: &Path, name: &str, body: &str) -> PathBuf {
+    use std::{fs, os::unix::fs::PermissionsExt};
+    let dir = root.join("run");
+    fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(name);
+    fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+/// A run script `name` that writes `$UDO_EVENT $UDO_NODE_NAME
+/// $UDO_TASK_NAME` into the returned file (`<root>/<name>.out`).
+pub fn recorder(root: &Path, name: &str) -> PathBuf {
+    let out = root.join(format!("{name}.out"));
+    let body = format!("echo \"$UDO_EVENT $UDO_NODE_NAME $UDO_TASK_NAME\" > '{}'", out.display());
+    run_script(root, name, &body);
+    out
+}
+
 /// Fake Trash: deletes for real (inside the tempdir only).
 pub fn fake_trash(p: &Path) -> Result<(), String> {
     std::fs::remove_dir_all(p).map_err(|e| e.to_string())

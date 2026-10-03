@@ -152,23 +152,14 @@ impl Report for Listed {}
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf};
+    use std::fs;
 
     use super::*;
     use crate::{
         model::settings::ContainerSettings,
-        test_util::{at, core}, // core: disk_tree, root (tmp): [a, ws (tmp/ws): [b]]
+        // core: disk_tree, root (tmp): [a, ws (tmp/ws): [b]]
+        test_util::{at, core, recorder, run_script as script},
     };
-
-    /// An executable script `name` in `<root>/run` (the default `run_dir`).
-    fn script(root: &Path, name: &str, body: &str) -> PathBuf {
-        let dir = root.join("run");
-        fs::create_dir_all(&dir).unwrap();
-        let path = dir.join(name);
-        fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-        path
-    }
 
     async fn set_open_with(core: &mut Core, path: &[usize], name: &str) {
         let settings = ContainerSettings {
@@ -188,14 +179,6 @@ mod tests {
         }
     }
 
-    /// A script that writes `$UDO_NODE_NAME $UDO_TASK_NAME` into `out`.
-    fn recorder(root: &Path, name: &str) -> PathBuf {
-        let out = root.join(format!("{name}.out"));
-        let body = format!("echo \"$UDO_NODE_NAME $UDO_TASK_NAME\" > '{}'", out.display());
-        script(root, name, &body);
-        out
-    }
-
     #[tokio::test]
     async fn a_task_opens_with_its_inherited_open_with() {
         let (tmp, mut core) = core().await;
@@ -208,7 +191,7 @@ mod tests {
             (opened.node.as_str(), opened.script.as_str(), opened.code),
             ("ws/b", "editor", 0)
         );
-        assert_eq!(fs::read_to_string(out).unwrap(), "b b\n");
+        assert_eq!(fs::read_to_string(out).unwrap(), "open b b\n");
         assert_eq!(opened.to_string(), "");
     }
 
@@ -223,7 +206,7 @@ mod tests {
 
         run(&core, tmp.path(), &args).await.unwrap();
 
-        assert_eq!(fs::read_to_string(other).unwrap(), "a a\n");
+        assert_eq!(fs::read_to_string(other).unwrap(), "open a a\n");
     }
 
     #[tokio::test]
@@ -269,7 +252,7 @@ mod tests {
 
         run(&core, tmp.path(), &open("ws")).await.unwrap();
 
-        assert_eq!(fs::read_to_string(out).unwrap(), "ws b\n");
+        assert_eq!(fs::read_to_string(out).unwrap(), "open ws b\n");
     }
 
     /// The root has two open tasks (`a`, `b`): `--task` picks one, without
@@ -286,7 +269,7 @@ mod tests {
         let mut args = open("/");
         args.task = Some("b".into());
         run(&core, tmp.path(), &args).await.unwrap();
-        assert_eq!(fs::read_to_string(out).unwrap(), "root b\n");
+        assert_eq!(fs::read_to_string(out).unwrap(), "open root b\n");
     }
 
     #[tokio::test]
