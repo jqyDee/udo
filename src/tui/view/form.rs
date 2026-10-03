@@ -199,8 +199,9 @@ fn choice_spans(c: &ChoiceInput, is_active: bool) -> Vec<Span<'static>> {
         spans.push(Span::styled(option, style));
     }
     spans.push(Span::raw(" ›").dim());
-    // what "not set" means here, e.g. the inherited value
-    if let Some(hint) = c.hint.as_ref().filter(|_| c.is_unset()) {
+    // what "not set" means here, e.g. the inherited value, or what
+    // the row is about (a plain one, e.g. setup's script: always)
+    if let Some(hint) = c.hint.as_ref().filter(|_| !c.unset || c.is_unset()) {
         spans.push(Span::raw(format!("  {hint}")).dim());
     }
     spans
@@ -338,6 +339,16 @@ mod tests {
         assert_eq!(choice_text(&c, false), "‹ inherit · auto · none ›  none (default)");
         c.selected = 1; // auto
         assert_eq!(choice_text(&c, false), "‹ inherit · auto · none ›");
+    }
+
+    /// A plain choice (no "not set") says what it is about, whatever is
+    /// chosen: the `setup` row names its script.
+    #[test]
+    fn a_plain_choice_shows_its_hint_always() {
+        let mut c = ChoiceInput::new(crate::tui::form::SETUP_CHOICES, "run").with_hint("typst");
+        assert_eq!(choice_text(&c, false), "‹ run · skip ›  typst");
+        c.selected = 1; // skip
+        assert_eq!(choice_text(&c, false), "‹ run · skip ›  typst");
     }
 
     #[test]

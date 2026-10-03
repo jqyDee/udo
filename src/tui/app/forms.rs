@@ -36,6 +36,7 @@ impl App<'_> {
         let parent_node = self.core.tree().get(&parent);
         let parent_name = parent_node.map_or("root", |n| n.name());
         let parent_dir = parent_node.and_then(|n| n.dir().map(|d| d.to_path_buf()));
+        let setup_script = self.core.tree().on_create(&parent);
 
         let kind = if parent.is_empty() {
             ContainerKind::Workspace
@@ -43,8 +44,9 @@ impl App<'_> {
             ContainerKind::Project
         };
 
-        self.mode =
-            Mode::Form(Box::new(Form::new_container(parent, parent_name, parent_dir, kind)));
+        self.mode = Mode::Form(Box::new(
+            Form::new_container(parent, parent_name, parent_dir, kind).with_setup(setup_script),
+        ));
     }
 
     pub(super) fn open_task_form(&mut self) {
@@ -52,6 +54,7 @@ impl App<'_> {
         let parent_node = self.core.tree().get(&parent);
         let parent_name = parent_node.map_or("root", |n| n.name());
         let parent_dir = parent_node.and_then(|n| n.dir().map(|d| d.to_path_buf()));
+        let setup_script = self.core.tree().on_create(&parent);
 
         let d = self.core.task_defaults(&parent, Local::now().naive_local());
         let defaults = TaskDefaults {
@@ -59,7 +62,9 @@ impl App<'_> {
             folder: FolderMode::from(d.task_folders),
         };
 
-        self.mode = Mode::Form(Box::new(Form::new_task(parent, parent_name, parent_dir, defaults)));
+        self.mode = Mode::Form(Box::new(
+            Form::new_task(parent, parent_name, parent_dir, defaults).with_setup(setup_script),
+        ));
     }
 
     /// Edit form for the node at the cursor, prefilled with its values.
@@ -109,7 +114,13 @@ impl App<'_> {
                     unreachable!("matched Mode::Form above");
                 };
                 match self.save(&form).await {
-                    Ok(saved) => self.after_save(&form.action, saved),
+                    Ok(saved) => {
+                        let setup = saved.reveal.clone().filter(|_| form.runs_setup());
+                        self.after_save(&form.action, saved);
+                        if let Some(path) = setup {
+                            return self.run_on_create(&path);
+                        }
+                    }
                     Err(e) => {
                         self.mode = Mode::Form(form);
                         self.error(e.to_string());

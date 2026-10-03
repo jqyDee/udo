@@ -890,3 +890,65 @@ fn add_times_refuse_a_dst_gap() {
     let err = form.add_times().expect_err("a DST gap is refused");
     assert!(err.contains("DST"), "{err}");
 }
+
+// --------------- the `setup` row (`with_setup`) ---------------
+
+/// No `on_create`: the form exactly as before, nothing to run.
+#[test]
+fn without_a_script_there_is_no_setup_row() {
+    let plain = task_form(FolderMode::Auto, "lab 4");
+
+    let form = plain.clone().with_setup(None);
+
+    assert_eq!(form, plain);
+    assert!(!form.runs_setup());
+}
+
+#[test]
+fn the_setup_row_comes_last_and_starts_on_run() {
+    let form = task_form(FolderMode::Auto, "lab 4").with_setup(Some("typst".parse().unwrap()));
+
+    assert_eq!(ids(&form).last(), Some(&FieldId::Setup));
+    let FieldInput::Choice(c) = &form.fields.last().unwrap().input else {
+        panic!("setup is no choice");
+    };
+    assert_eq!(c.options, SETUP_CHOICES);
+    assert_eq!(c.selected_label(), Some("run"));
+    assert_eq!(c.hint.as_deref(), Some("typst"), "the script, shown after it");
+    assert!(form.runs_setup());
+}
+
+/// ←/→ on the row switches between run and skip.
+#[test]
+fn skip_on_the_setup_row_runs_nothing() {
+    let mut form = task_form(FolderMode::Auto, "lab 4").with_setup(Some("typst".parse().unwrap()));
+    form.active_field = form.fields.len() - 1;
+
+    form.handle_key(press(KeyCode::Right));
+    assert_eq!(form.choice_label(FieldId::Setup), Some("skip"));
+    assert!(!form.runs_setup());
+
+    form.handle_key(press(KeyCode::Left));
+    assert!(form.runs_setup());
+}
+
+#[test]
+fn a_container_form_gets_the_setup_row_too() {
+    let form = Form::new_container(vec![0], "uni", Some("/uni".into()), ContainerKind::Project)
+        .with_setup(Some("typst".parse().unwrap()));
+
+    assert_eq!(ids(&form).last(), Some(&FieldId::Setup));
+    assert!(form.runs_setup());
+}
+
+/// The row is only a choice: the node it builds is the same with or
+/// without it.
+#[test]
+fn the_setup_row_does_not_change_the_new_node() {
+    let plain = task_form(FolderMode::None, "lab 4");
+    let with = plain.clone().with_setup(Some("typst".parse().unwrap()));
+
+    let (a, b) = (plain.new_task_node().unwrap(), with.new_task_node().unwrap());
+
+    assert_eq!((a.name(), a.as_task()), (b.name(), b.as_task()));
+}

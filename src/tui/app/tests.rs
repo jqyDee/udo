@@ -20,7 +20,8 @@ use crate::{
     },
     run::{Event, RunError},
     test_util::{
-        at, container, container_at, fake_trash, press, state_at, task, test_app, tree_with,
+        at, container, container_at, fake_trash, press, run_script, state_at, task, test_app,
+        tree_with,
     },
     tui::{
         form::{FieldId, FieldInput, FolderMode, Form, FormAction, TextInput},
@@ -2373,4 +2374,184 @@ async fn a_picked_script_that_is_gone_is_a_toast() {
 
     assert!(error_toast(&app).starts_with("no run config \"shell\""));
     assert_eq!(app.mode, Mode::Normal);
+}
+
+// ---------- `on_create` after a create form (the `setup` row) ----------
+
+/// An empty root on disk in `tmp` with a script `setup` in its run folder
+/// (`<root>/run`); `on_create = setup` on the root if `on_create`.
+async fn setup_app(tmp: &Path, on_create: bool) -> App<'static> {
+    run_script(tmp, "setup", "");
+    let mut t = Tree::load_from(tmp).await.unwrap();
+    if on_create {
+        let root = t.get_mut(&[]).and_then(Node::as_container_mut).unwrap();
+        root.settings.on_create = Some("setup".parse().unwrap());
+    }
+    test_app(t, TreeState::default())
+}
+
+/// `form_key` (`t` / `c`), `name`, Enter: what the save returned.
+async fn create(app: &mut App<'_>, form_key: char, name: &str) -> Flow {
+    app.handle_key(key(form_key)).await;
+    type_into(app, name).await;
+    app.handle_key(press(KeyCode::Enter)).await
+}
+
+#[tokio::test]
+async fn the_create_forms_get_the_setup_row_with_on_create() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut app = setup_app(tmp.path(), true).await;
+
+    for form_key in ['t', 'c'] {
+        app.handle_key(key(form_key)).await;
+
+        let form = open_form(&app);
+        assert_eq!(form.fields.last().map(|f| f.id), Some(FieldId::Setup), "{form_key}");
+        assert!(form.runs_setup(), "{form_key}: run is the default");
+        app.handle_key(press(KeyCode::Esc)).await;
+    }
+}
+
+/// Without `on_create` the forms stay as they were, and saving runs
+/// nothing.
+#[tokio::test]
+async fn without_on_create_no_row_and_nothing_runs() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut app = setup_app(tmp.path(), false).await;
+
+    app.handle_key(key('t')).await;
+    assert!(
+        open_form(&app)
+            .fields
+            .iter()
+            .all(|f| f.id != FieldId::Setup)
+    );
+    app.handle_key(press(KeyCode::Esc)).await;
+
+    assert_eq!(create(&mut app, 't', "exam").await, Flow::Continue);
+    assert_eq!(app.toast.as_ref().unwrap().kind, ToastKind::Info);
+}
+
+/// Saved, then `Flow::Run` for the new task: `create`, the task timed.
+#[tokio::test]
+async fn saving_a_task_form_runs_on_create_for_the_new_task() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut app = setup_app(tmp.path(), true).await;
+
+    let Flow::Run(request) = create(&mut app, 't', "exam").await else {
+        panic!("no run: {:?}", app.toast);
+    };
+
+    let exam = app.core.tree().get(&[0]).unwrap();
+    assert_eq!(exam.name(), "exam", "saved before it runs");
+    assert_eq!(request.name.as_str(), "setup");
+    assert_eq!(request.script, tmp.path().join("run").join("setup"));
+    assert_eq!(request.ctx.event, Event::Create);
+    assert_eq!(request.ctx.node.id, exam.id());
+    assert_eq!(request.ctx.task.as_ref().map(|t| t.id), Some(exam.id()));
+    assert_eq!(app.mode, Mode::Normal, "the form is closed");
+    assert_eq!(app.tree_state.cursor, vec![0], "on the new node");
+}
+
+/// A container has no task: `UDO_TASK_*` stay unset.
+#[tokio::test]
+async fn saving_a_container_form_runs_on_create_without_a_task() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut app = setup_app(tmp.path(), true).await;
+
+    let Flow::Run(request) = create(&mut app, 'c', "uni").await else {
+        panic!("no run: {:?}", app.toast);
+    };
+
+    assert_eq!(request.ctx.event, Event::Create);
+    assert_eq!(request.ctx.node.name, "uni");
+    assert_eq!(request.ctx.task, None);
+}
+
+/// Shift+Tab to the last row, → to `skip`: saved, nothing runs.
+#[tokio::test]
+async fn skip_saves_without_running() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut app = setup_app(tmp.path(), true).await;
+    app.handle_key(key('t')).await;
+    type_into(&mut app, "exam").await;
+
+    app.handle_key(press(KeyCode::BackTab)).await; // wraps to the setup row
+    app.handle_key(press(KeyCode::Right)).await;
+    assert!(!open_form(&app).runs_setup());
+
+    assert_eq!(app.handle_key(press(KeyCode::Enter)).await, Flow::Continue);
+    assert_eq!(app.core.tree().get(&[0]).map(|n| n.name()), Some("exam"));
+    assert_eq!(app.mode, Mode::Normal);
+}
+
+/// A failed save runs nothing: the form stays open with the error.
+#[tokio::test]
+async fn a_failed_save_runs_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut app = setup_app(tmp.path(), true).await;
+    create(&mut app, 't', "exam").await;
+
+    let flow = create(&mut app, 't', "exam").await; // the name exists
+
+    assert_eq!(flow, Flow::Continue);
+    assert!(matches!(app.mode, Mode::Form(_)), "the form stays open");
+    assert_eq!(app.toast.as_ref().unwrap().kind, ToastKind::Error);
+}
+
+/// The script is gone when saving: the node stays, the toast says both.
+#[tokio::test]
+async fn a_missing_script_is_a_toast_and_the_node_stays() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut app = setup_app(tmp.path(), true).await;
+    app.handle_key(key('t')).await;
+    type_into(&mut app, "exam").await;
+    fs::remove_file(tmp.path().join("run").join("setup")).unwrap();
+
+    assert_eq!(app.handle_key(press(KeyCode::Enter)).await, Flow::Continue);
+
+    assert_eq!(app.core.tree().get(&[0]).map(|n| n.name()), Some("exam"));
+    let msg = error_toast(&app);
+    assert!(msg.starts_with("no run config \"setup\""), "{msg}");
+    assert!(msg.ends_with("(exam was added)"), "{msg}");
+}
+
+/// The row decides, as shown when the form opened: `on_create` switched
+/// off meanwhile runs nothing.
+#[tokio::test]
+async fn on_create_switched_off_while_the_form_is_open_runs_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut app = setup_app(tmp.path(), true).await;
+    app.handle_key(key('t')).await;
+    type_into(&mut app, "exam").await;
+    let settings = crate::model::settings::ContainerSettings {
+        on_create: Some("none".parse().unwrap()),
+        ..Default::default()
+    };
+    app.core
+        .set_settings(&[], settings, Some(Default::default()))
+        .await
+        .unwrap();
+
+    assert_eq!(app.handle_key(press(KeyCode::Enter)).await, Flow::Continue);
+    assert_eq!(app.core.tree().get(&[0]).map(|n| n.name()), Some("exam"));
+}
+
+/// Editing keeps working as before: no row, no run.
+#[tokio::test]
+async fn the_edit_form_has_no_setup_row() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut app = setup_app(tmp.path(), true).await;
+    let Flow::Run(_) = create(&mut app, 't', "exam").await else {
+        panic!("no run");
+    };
+
+    app.handle_key(key('e')).await;
+    assert!(
+        open_form(&app)
+            .fields
+            .iter()
+            .all(|f| f.id != FieldId::Setup)
+    );
+    assert_eq!(app.handle_key(press(KeyCode::Enter)).await, Flow::Continue);
 }

@@ -88,6 +88,25 @@ impl App<'_> {
         }
     }
 
+    /// After a create form: the new node's `on_create` as `Flow::Run`.
+    /// A problem (script gone, ...) is a toast; the node stays.
+    pub(super) fn run_on_create(&mut self, path: &[usize]) -> Flow {
+        match RunRequest::on_create(self.core.tree(), path) {
+            Ok(Some(request)) => Flow::Run(Box::new(request)),
+            Ok(None) => Flow::Continue, // switched off meanwhile
+            Err(e) => {
+                let name = self
+                    .core
+                    .tree()
+                    .get(path)
+                    .map_or("", Node::name)
+                    .to_string();
+                self.error(format!("{e} ({name} was added)"));
+                Flow::Continue
+            }
+        }
+    }
+
     /// The loop ran `name`'s script: say how it went, then read everything
     /// again (the script may have started a timer through `udo track`).
     pub async fn after_run(&mut self, name: &RunName, result: Result<ExitStatus, RunError>) {

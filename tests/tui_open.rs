@@ -239,3 +239,32 @@ fn shift_o_runs_the_picked_script() {
     tui.send("q");
     assert_eq!(tui.wait_exit(), 0);
 }
+
+/// `t`, a name, Enter: the task is saved and `on_create` gets the terminal
+/// with `UDO_EVENT=create`; then the TUI is back on the new task.
+#[test]
+fn a_create_form_runs_on_create() {
+    let marks = tempfile::tempdir().unwrap();
+    let ran = marks.path().join("setup");
+    let root = root_with_editor("");
+    let body = format!("echo \"$UDO_EVENT $UDO_NODE_NAME\" > '{}'", ran.display());
+    add_script(root.path(), "setup", &body);
+    let out = Command::new(env!("CARGO_BIN_EXE_udo"))
+        .env("UDO_ROOT", root.path())
+        .args(["settings", "set", "/", "on_create=setup"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let mut tui = Tui::start(root.path());
+    tui.wait_for("lab 3");
+
+    tui.send("t");
+    tui.wait_for("setup"); // the row, naming the script
+    tui.send("lab 4\r");
+
+    wait_for_file(&tui, &ran);
+    tui.wait_for("lab 4");
+    assert_eq!(fs::read_to_string(&ran).unwrap(), "create lab 4\n");
+    tui.send("q");
+    assert_eq!(tui.wait_exit(), 0);
+}

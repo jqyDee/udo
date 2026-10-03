@@ -26,7 +26,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 
 pub use choice::{
     CONTAINER_FOLDER_CHOICES, CONTAINER_KIND_CHOICES, ChoiceInput, FOLDER_CHOICES, FolderMode,
-    kind_from_label,
+    SETUP_CHOICES, kind_from_label,
 };
 pub use date::{DateInput, Segment};
 pub use text::TextInput;
@@ -39,7 +39,7 @@ use crate::{
         node::{BodyPatch, HeaderPatch, Node, NodeBody, NodePatch},
         sessions::{Session, SessionId},
         settings::{
-            ContainerSettings, RootSettings,
+            ContainerSettings, RootSettings, RunName,
             view::{ROOT_SETTINGS, SETTINGS, SettingInfo},
         },
         task::{Task, TaskPatch},
@@ -75,6 +75,7 @@ pub enum FieldId {
     /// Cut: the part to remove, `[From, To)`.
     From,
     To,
+    Setup,
 }
 
 impl FieldId {
@@ -94,6 +95,7 @@ impl FieldId {
             Self::At => "at",
             Self::From => "from",
             Self::To => "to",
+            Self::Setup => "setup",
         }
     }
 
@@ -773,6 +775,26 @@ impl Form {
             }
             FolderMode::None => None,
         }
+    }
+
+    /// The `setup ‹ run · skip ›` row (last), for a create form whose new
+    /// node gets an `on_create` (`script`, shown dim after it). None: no
+    /// row, the form as before.
+    pub fn with_setup(mut self, script: Option<RunName>) -> Self {
+        if let Some(script) = script {
+            let choice = ChoiceInput::new(SETUP_CHOICES, "run").with_hint(script.to_string());
+            self.fields.push(FormField {
+                id: FieldId::Setup,
+                input: FieldInput::Choice(choice),
+            });
+        }
+        self
+    }
+
+    /// Run `on_create` after saving: the row is there and says `run`. No
+    /// row: nothing to run (or there was nothing when the form opened).
+    pub fn runs_setup(&self) -> bool {
+        self.choice_label(FieldId::Setup) == Some("run")
     }
 }
 

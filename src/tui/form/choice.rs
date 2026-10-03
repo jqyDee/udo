@@ -22,14 +22,20 @@ pub const CONTAINER_KIND_CHOICES: &[&str] = &[
     ContainerKind::CREATABLE[1].label(),
 ];
 
+/// Options of the `setup` row of the create forms: run the new node's
+/// `on_create` after saving, or not (the TUI's `--no-run`). Read back by
+/// label (`Form::runs_setup`).
+pub const SETUP_CHOICES: &[&str] = &["run", "skip"];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChoiceInput {
     pub options: Vec<&'static str>,
     pub selected: usize,
     /// The first option means "not set" (`unsettable`).
     pub unset: bool,
-    /// Shown dim after the options while "not set" is chosen: what applies
-    /// then (e.g. the inherited value).
+    /// Shown dim after the options. Unsettable: only while "not set" is
+    /// chosen, what applies then (e.g. the inherited value). Plain: always,
+    /// what the row is about (e.g. the `setup` row's script).
     pub hint: Option<String>,
 }
 
