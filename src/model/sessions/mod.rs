@@ -112,7 +112,10 @@ mod tests {
     fn part_of_a_minute_is_rounded_down() {
         let s = session(at(14, 0), None);
 
-        assert_eq!(s.duration(at(14, 0) + TimeDelta::seconds(59)), Minutes::new(0));
+        assert_eq!(
+            s.duration(at(14, 0) + TimeDelta::seconds(59)),
+            Minutes::new(0)
+        );
     }
 
     #[test]

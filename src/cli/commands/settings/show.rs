@@ -124,7 +124,10 @@ pub(super) mod tests {
         let estimate = row(&view, "estimate");
         assert_eq!(estimate.value.as_deref(), Some("1h30"));
         assert_eq!(estimate.source.as_deref(), Some("from root"));
-        assert_eq!(row(&view, "task_folders").source.as_deref(), Some("default"));
+        assert_eq!(
+            row(&view, "task_folders").source.as_deref(),
+            Some("default")
+        );
         assert_eq!(row(&view, "archive_dir").value, None);
     }
 

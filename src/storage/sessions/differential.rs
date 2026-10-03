@@ -214,7 +214,11 @@ impl<S: SessionStore> Side<S> {
     async fn apply(&mut self, op: &Op, tasks: &[TaskRef]) -> Result<Vec<Norm>, SessionError> {
         let at = |n| slot(n, false);
         let returned: Vec<Session> = match *op {
-            Op::Start { task, owner: o, at: n } => {
+            Op::Start {
+                task,
+                owner: o,
+                at: n,
+            } => {
                 let (source, owner) = owner(o);
                 vec![
                     self.store
@@ -222,7 +226,11 @@ impl<S: SessionStore> Side<S> {
                         .await?,
                 ]
             }
-            Op::Stop { owner: o, at: n, west } => {
+            Op::Stop {
+                owner: o,
+                at: n,
+                west,
+            } => {
                 let owner = o.map(|o| owner(o).1);
                 let stopped = self.store.stop(owner.as_ref(), slot(n, west)).await?;
                 stopped.into_iter().collect()
@@ -296,7 +304,10 @@ fn check_invariants(all: &[Session], which: &str, step: usize, op: &Op) {
     let running = visible.iter().filter(|s| s.end.is_none()).count();
     assert!(running <= 1, "{running} sessions running: {at}");
     for s in all {
-        assert!(s.end.is_none_or(|end| end > s.start), "end not after start: {s:?}: {at}");
+        assert!(
+            s.end.is_none_or(|end| end > s.start),
+            "end not after start: {s:?}: {at}"
+        );
     }
     for (i, a) in visible.iter().enumerate() {
         for b in &visible[i + 1..] {
@@ -306,7 +317,10 @@ fn check_invariants(all: &[Session], which: &str, step: usize, op: &Op) {
             );
         }
     }
-    assert!(all.windows(2).all(|w| w[0].start <= w[1].start), "not sorted by start: {at}");
+    assert!(
+        all.windows(2).all(|w| w[0].start <= w[1].start),
+        "not sorted by start: {at}"
+    );
 }
 
 proptest! {

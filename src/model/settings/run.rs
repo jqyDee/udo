@@ -34,11 +34,15 @@ impl FromStr for RunName {
     /// Exact (no trimming): file stems are compared as they are.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s == Self::OFF {
-            return Err(format!("{s:?} switches the setting off, it cannot name a script"));
+            return Err(format!(
+                "{s:?} switches the setting off, it cannot name a script"
+            ));
         }
         let allowed = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
         if s.is_empty() || !s.chars().all(allowed) {
-            return Err(format!("invalid run config name {s:?}: use letters, digits, -, _"));
+            return Err(format!(
+                "invalid run config name {s:?}: use letters, digits, -, _"
+            ));
         }
         Ok(Self(s.to_owned()))
     }

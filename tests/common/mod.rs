@@ -194,7 +194,11 @@ impl Pty {
             if let Some(status) = self.child.try_wait().unwrap() {
                 return status.exit_code();
             }
-            assert!(Instant::now() < deadline, "did not exit:\n{}", self.contents());
+            assert!(
+                Instant::now() < deadline,
+                "did not exit:\n{}",
+                self.contents()
+            );
             thread::sleep(Duration::from_millis(20));
         }
     }

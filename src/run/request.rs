@@ -82,8 +82,14 @@ mod tests {
         let t = tree(run.path());
         let b = t.get(&[1, 0]).unwrap().id();
 
-        let r = RunRequest::new(&t, Event::Open, &[1], Some(&[1, 0]), "setup".parse().unwrap())
-            .unwrap();
+        let r = RunRequest::new(
+            &t,
+            Event::Open,
+            &[1],
+            Some(&[1, 0]),
+            "setup".parse().unwrap(),
+        )
+        .unwrap();
 
         assert_eq!(r.name.as_str(), "setup");
         assert_eq!(r.script, run.path().join("setup"));

@@ -53,8 +53,10 @@ mod tests {
     use super::*;
     use crate::{
         model::{
-            id::NodeId, sessions::{Owner, SessionId, SessionSource, TaskRef},
-        }, test_util::{at, parse_time},
+            id::NodeId,
+            sessions::{Owner, SessionId, SessionSource, TaskRef},
+        },
+        test_util::{at, parse_time},
     };
 
     fn session(start: Time, end: Option<Time>) -> Session {
@@ -139,6 +141,9 @@ mod tests {
 
         assert_eq!(summary(0, 0, false).to_string(), "0m in 0 sessions");
         assert_eq!(summary(45, 1, false).to_string(), "45m in 1 session");
-        assert_eq!(summary(72, 3, true).to_string(), "1h12 in 3 sessions, running");
+        assert_eq!(
+            summary(72, 3, true).to_string(),
+            "1h12 in 3 sessions, running"
+        );
     }
 }

@@ -105,7 +105,15 @@ mod tests {
     #[test]
     fn session_commands_parse() {
         assert!(parses(&["list"]));
-        assert!(parses(&["list", "uni", "--from", "-2h", "--to", "+1h", "--deleted"]));
+        assert!(parses(&[
+            "list",
+            "uni",
+            "--from",
+            "-2h",
+            "--to",
+            "+1h",
+            "--deleted"
+        ]));
         assert!(parses(&["add", "lab 3", "2026-10-15 14:00", "+1h30"]));
         assert!(parses(&["edit", "4f9e2c", "--start", "-45m"]));
         assert!(parses(&["split", "4f9e2c", "2026-10-15 12:00"]));

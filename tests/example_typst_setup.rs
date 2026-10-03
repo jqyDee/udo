@@ -16,7 +16,10 @@ fn root() -> tempfile::TempDir {
     let template = root.path().join("templates/typst");
     fs::create_dir_all(&template).unwrap();
     fs::write(template.join("main.typ"), "= Template\n").unwrap();
-    ok(root.path(), &["settings", "set", "/", "on_create=typst-setup"]);
+    ok(
+        root.path(),
+        &["settings", "set", "/", "on_create=typst-setup"],
+    );
     root
 }
 
@@ -29,7 +32,10 @@ fn a_new_task_gets_the_template() {
     let root = root();
     let dir = root.path().join("lab 1");
 
-    let out = ok(root.path(), &["add", "task", "lab 1", "--dir", dir.to_str().unwrap()]);
+    let out = ok(
+        root.path(),
+        &["add", "task", "lab 1", "--dir", dir.to_str().unwrap()],
+    );
 
     assert_eq!(read(&dir.join("main.typ")), "= Template\n");
     let stdout = String::from_utf8_lossy(&out.stdout);
@@ -45,7 +51,10 @@ fn files_already_there_are_kept() {
     fs::create_dir_all(&dir).unwrap();
     fs::write(dir.join("main.typ"), "mine\n").unwrap();
 
-    ok(root.path(), &["add", "task", "lab 1", "--dir", dir.to_str().unwrap()]);
+    ok(
+        root.path(),
+        &["add", "task", "lab 1", "--dir", dir.to_str().unwrap()],
+    );
 
     assert_eq!(read(&dir.join("main.typ")), "mine\n");
 }
@@ -60,7 +69,10 @@ fn containers_and_tasks_without_a_folder_are_left_alone() {
 
     assert!(!root.path().join("cs/main.typ").exists());
     for out in [project, no_dir] {
-        assert!(!String::from_utf8_lossy(&out.stderr).contains("warning"), "{out:?}");
+        assert!(
+            !String::from_utf8_lossy(&out.stderr).contains("warning"),
+            "{out:?}"
+        );
     }
 }
 
@@ -94,11 +106,17 @@ fn without_a_template_add_warns_and_keeps_the_task() {
     fs::remove_dir_all(root.path().join("templates")).unwrap();
     let dir = root.path().join("lab 1");
 
-    let out = udo(root.path(), &["add", "task", "lab 1", "--dir", dir.to_str().unwrap()]);
+    let out = udo(
+        root.path(),
+        &["add", "task", "lab 1", "--dir", dir.to_str().unwrap()],
+    );
 
     assert!(out.status.success(), "{out:?}");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("typst-setup: no template at"), "{stderr}");
-    assert!(stderr.contains("warning: on_create typst-setup: exited with 1"), "{stderr}");
+    assert!(
+        stderr.contains("warning: on_create typst-setup: exited with 1"),
+        "{stderr}"
+    );
     assert!(String::from_utf8_lossy(&ok(root.path(), &["ls"]).stdout).contains("lab 1"));
 }

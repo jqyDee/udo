@@ -317,28 +317,52 @@ mod tests {
 
     #[test]
     fn step_day_carries_into_next_month_and_year() {
-        assert_eq!(stepped(dt(2026, 1, 31, 12, 0), Segment::Day, true), dt(2026, 2, 1, 12, 0));
-        assert_eq!(stepped(dt(2026, 12, 31, 12, 0), Segment::Day, true), dt(2027, 1, 1, 12, 0));
+        assert_eq!(
+            stepped(dt(2026, 1, 31, 12, 0), Segment::Day, true),
+            dt(2026, 2, 1, 12, 0)
+        );
+        assert_eq!(
+            stepped(dt(2026, 12, 31, 12, 0), Segment::Day, true),
+            dt(2027, 1, 1, 12, 0)
+        );
     }
 
     #[test]
     fn step_month_clamps_to_month_end() {
         // leap year / normal year
-        assert_eq!(stepped(dt(2028, 1, 31, 12, 0), Segment::Month, true), dt(2028, 2, 29, 12, 0));
-        assert_eq!(stepped(dt(2027, 1, 31, 12, 0), Segment::Month, true), dt(2027, 2, 28, 12, 0));
+        assert_eq!(
+            stepped(dt(2028, 1, 31, 12, 0), Segment::Month, true),
+            dt(2028, 2, 29, 12, 0)
+        );
+        assert_eq!(
+            stepped(dt(2027, 1, 31, 12, 0), Segment::Month, true),
+            dt(2027, 2, 28, 12, 0)
+        );
         // down as well
-        assert_eq!(stepped(dt(2026, 3, 31, 12, 0), Segment::Month, false), dt(2026, 2, 28, 12, 0));
+        assert_eq!(
+            stepped(dt(2026, 3, 31, 12, 0), Segment::Month, false),
+            dt(2026, 2, 28, 12, 0)
+        );
     }
 
     #[test]
     fn step_month_carries_across_year() {
-        assert_eq!(stepped(dt(2026, 12, 15, 12, 0), Segment::Month, true), dt(2027, 1, 15, 12, 0));
-        assert_eq!(stepped(dt(2026, 1, 15, 12, 0), Segment::Month, false), dt(2025, 12, 15, 12, 0));
+        assert_eq!(
+            stepped(dt(2026, 12, 15, 12, 0), Segment::Month, true),
+            dt(2027, 1, 15, 12, 0)
+        );
+        assert_eq!(
+            stepped(dt(2026, 1, 15, 12, 0), Segment::Month, false),
+            dt(2025, 12, 15, 12, 0)
+        );
     }
 
     #[test]
     fn step_year_from_leap_day_clamps() {
-        assert_eq!(stepped(dt(2028, 2, 29, 12, 0), Segment::Year, true), dt(2029, 2, 28, 12, 0));
+        assert_eq!(
+            stepped(dt(2028, 2, 29, 12, 0), Segment::Year, true),
+            dt(2029, 2, 28, 12, 0)
+        );
     }
 
     #[test]

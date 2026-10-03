@@ -80,7 +80,11 @@ fn row_line<'a>(row: &Row<'a>, folded: bool, info: &ViewInfo) -> Line<'a> {
                 name,
                 // shown in the current local time (same as entered in the form)
                 Span::raw("  "),
-                Span::raw(format!("{}", t.due_date.with_timezone(&Local).format(DATE_FMT))).dim(),
+                Span::raw(format!(
+                    "{}",
+                    t.due_date.with_timezone(&Local).format(DATE_FMT)
+                ))
+                .dim(),
             ])
         }
     }

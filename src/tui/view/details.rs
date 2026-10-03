@@ -252,9 +252,10 @@ fn session_lines(node: &Node, info: &ViewInfo) -> Vec<Line<'static>> {
 /// `lab 3   Thu 15.10  14:00–15:12   1h12  edited`; running: `–now` + `▶`.
 fn session_row(s: &Session, name_width: Option<usize>, now: Time) -> Line<'static> {
     let start = s.start.with_timezone(&Local);
-    let end = s
-        .end
-        .map_or_else(|| "now".to_string(), |e| e.with_timezone(&Local).format("%H:%M").to_string());
+    let end = s.end.map_or_else(
+        || "now".to_string(),
+        |e| e.with_timezone(&Local).format("%H:%M").to_string(),
+    );
     let mut spans = Vec::new();
     if let Some(w) = name_width {
         spans.push(Span::raw(format!("{:<w$}  ", fit(&s.task.name, w))));

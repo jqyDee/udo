@@ -138,7 +138,12 @@ async fn hand_over(
     }
 
     enable_raw_mode()?;
-    execute!(io::stdout(), EnterAlternateScreen, Clear(ClearType::All), Hide)?;
+    execute!(
+        io::stdout(),
+        EnterAlternateScreen,
+        Clear(ClearType::All),
+        Hide
+    )?;
     // a new `Terminal`, not `terminal.clear()`: that asks the terminal
     // where its cursor is (a round trip through stdin, failing where
     // nothing answers). A new one only reads the size (the window may

@@ -104,7 +104,15 @@ pub fn draw(frame: &mut Frame, app: &mut App, now: Time) {
     // shows the root then
     let node = tree.get(&app.tree_state.cursor);
     let settings = tree.effective_settings(&app.tree_state.cursor);
-    details::draw(frame, details_area, tree, node, app.details_tab, &settings, &info);
+    details::draw(
+        frame,
+        details_area,
+        tree,
+        node,
+        app.details_tab,
+        &settings,
+        &info,
+    );
     if let (Mode::Form(form), Some(area)) = (&app.mode, form_area) {
         form::draw(frame, area, form);
     }

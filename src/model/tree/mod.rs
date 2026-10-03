@@ -177,7 +177,10 @@ mod tests {
     fn task_ids_below_a_task_is_itself() {
         let t = deep_tree();
 
-        assert_eq!(t.task_ids_below(&[1, 0]), vec![t.get(&[1, 0]).unwrap().id()]);
+        assert_eq!(
+            t.task_ids_below(&[1, 0]),
+            vec![t.get(&[1, 0]).unwrap().id()]
+        );
     }
 
     #[test]

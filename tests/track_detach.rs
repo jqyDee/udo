@@ -43,12 +43,24 @@ fn detach_returns_at_once_and_the_helper_stops_the_session() {
     let out = detach(root.path(), "x", &["sleep", "2"]);
 
     assert!(out.status.success(), "{out:?}");
-    assert!(begin.elapsed() < Duration::from_secs(1), "waited {:?}", begin.elapsed());
-    assert!(status(root.path()).contains("running: x"), "{}", status(root.path()));
+    assert!(
+        begin.elapsed() < Duration::from_secs(1),
+        "waited {:?}",
+        begin.elapsed()
+    );
+    assert!(
+        status(root.path()).contains("running: x"),
+        "{}",
+        status(root.path())
+    );
 
     let deadline = Instant::now() + Duration::from_secs(10);
     while !status(root.path()).contains("no session running") {
-        assert!(Instant::now() < deadline, "still running: {}", status(root.path()));
+        assert!(
+            Instant::now() < deadline,
+            "still running: {}",
+            status(root.path())
+        );
         sleep(Duration::from_millis(100));
     }
 }

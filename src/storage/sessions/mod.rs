@@ -99,7 +99,10 @@ mod tests {
         use super::*;
 
         contract::store_contract!(|clock: Clock| {
-            Sessions::Sqlite(SqliteSessions::new(sqlite::open_in_memory().unwrap(), clock))
+            Sessions::Sqlite(SqliteSessions::new(
+                sqlite::open_in_memory().unwrap(),
+                clock,
+            ))
         });
     }
 }

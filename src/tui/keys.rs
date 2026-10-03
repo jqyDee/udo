@@ -209,7 +209,10 @@ mod tests {
 
     #[test]
     fn esc_goes_back_in_the_list() {
-        assert_eq!(action_for_in(SESSION_LIST_KEYMAP, press(KeyCode::Esc)), Some(Action::Back));
+        assert_eq!(
+            action_for_in(SESSION_LIST_KEYMAP, press(KeyCode::Esc)),
+            Some(Action::Back)
+        );
         assert_eq!(action_for(press(KeyCode::Esc)), None); // the tree: nothing
     }
 
@@ -248,8 +251,14 @@ mod tests {
     /// `s` is the timer now.
     #[test]
     fn done_and_timer_keys() {
-        assert_eq!(action_for(press(KeyCode::Char('x'))), Some(Action::ToggleDone));
-        assert_eq!(action_for(press(KeyCode::Char('s'))), Some(Action::ToggleTimer));
+        assert_eq!(
+            action_for(press(KeyCode::Char('x'))),
+            Some(Action::ToggleDone)
+        );
+        assert_eq!(
+            action_for(press(KeyCode::Char('s'))),
+            Some(Action::ToggleTimer)
+        );
         for gone in ['p', 'u'] {
             assert_eq!(action_for(press(KeyCode::Char(gone))), None, "key {gone:?}");
         }
@@ -264,7 +273,10 @@ mod tests {
 
     #[test]
     fn create_keys() {
-        assert_eq!(action_for(press(KeyCode::Char('c'))), Some(Action::NewContainer));
+        assert_eq!(
+            action_for(press(KeyCode::Char('c'))),
+            Some(Action::NewContainer)
+        );
         assert_eq!(action_for(press(KeyCode::Char('t'))), Some(Action::NewTask));
     }
 

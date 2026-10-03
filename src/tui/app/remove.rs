@@ -90,7 +90,10 @@ impl App<'_> {
         match self.core.delete(path, time::now()).await {
             Ok(stopped) => {
                 self.tree_state.after_remove(self.core.tree(), path);
-                self.info(format!("removed {name} (files kept){}", timer_note(stopped.is_some())));
+                self.info(format!(
+                    "removed {name} (files kept){}",
+                    timer_note(stopped.is_some())
+                ));
             }
             Err(e) => self.error(e.to_string()),
         }
@@ -127,7 +130,10 @@ impl App<'_> {
                 let n = report.trashed.len();
                 let folders = if n == 1 { "folder" } else { "folders" };
                 let note = timer_note(stopped.is_some());
-                self.info(format!("deleted {} · {n} {folders} moved to Trash{note}", plan.name));
+                self.info(format!(
+                    "deleted {} · {n} {folders} moved to Trash{note}",
+                    plan.name
+                ));
             }
             Some(((dir, reason), rest)) => {
                 let mut msg = format!(

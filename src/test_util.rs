@@ -200,7 +200,10 @@ pub fn run_script(root: &Path, name: &str, body: &str) -> PathBuf {
 /// $UDO_TASK_NAME` into the returned file (`<root>/<name>.out`).
 pub fn recorder(root: &Path, name: &str) -> PathBuf {
     let out = root.join(format!("{name}.out"));
-    let body = format!("echo \"$UDO_EVENT $UDO_NODE_NAME $UDO_TASK_NAME\" > '{}'", out.display());
+    let body = format!(
+        "echo \"$UDO_EVENT $UDO_NODE_NAME $UDO_TASK_NAME\" > '{}'",
+        out.display()
+    );
     run_script(root, name, &body);
     out
 }

@@ -217,7 +217,10 @@ impl<'a> App<'a> {
                     .map(|(n, t)| t.status(self.with_sessions.contains(&n.id())).to_string());
                 let name = node.map_or("", |n| n.name());
                 let status = status.unwrap_or_default();
-                self.info(format!("{name} -> {status}{}", timer_note(stopped.is_some())));
+                self.info(format!(
+                    "{name} -> {status}{}",
+                    timer_note(stopped.is_some())
+                ));
             }
             Err(e) => self.error(e.to_string()),
         }

@@ -172,7 +172,10 @@ mod tests {
         assert_eq!(loaded.header.name, "w");
         assert_eq!(loaded.children, vec![PathBuf::from("/tmp/sub")]);
         // #[serde(flatten)] settings must survive the round-trip
-        assert_eq!(loaded.settings.archive_dir, Some(PathBuf::from("/tmp/arch")));
+        assert_eq!(
+            loaded.settings.archive_dir,
+            Some(PathBuf::from("/tmp/arch"))
+        );
     }
 
     #[tokio::test]
@@ -357,7 +360,10 @@ mod tests {
 
         let data = ContainerData::load(tmp.path()).await.unwrap();
 
-        assert_eq!(data.children, vec![tmp.path().join("cs"), outside.path().to_path_buf()]);
+        assert_eq!(
+            data.children,
+            vec![tmp.path().join("cs"), outside.path().to_path_buf()]
+        );
         assert_eq!(data.tasks[0].task.dir, Some(tmp.path().join("lab_3")));
         assert_eq!(data.settings.archive_dir, Some(tmp.path().join("archive")));
     }
@@ -437,7 +443,10 @@ mod tests {
         std::fs::rename(&old, &new).unwrap();
         let moved = Tree::load_from(&new).await.unwrap();
 
-        assert_eq!(moved.get(&[0]).unwrap().dir(), Some(new.join("ws").as_path()));
+        assert_eq!(
+            moved.get(&[0]).unwrap().dir(),
+            Some(new.join("ws").as_path())
+        );
         assert_eq!(moved.get(&[0, 0]).unwrap().name(), "b");
     }
 }

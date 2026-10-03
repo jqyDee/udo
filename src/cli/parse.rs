@@ -80,7 +80,10 @@ impl SessionTime {
     pub fn resolve(self, now: Time, first: Option<Time>) -> Res<Time> {
         let t = match self {
             Self::At(local) => local_to_fixed(local).ok_or_else(|| {
-                format!("{} does not exist here (skipped by a DST switch)", local.format(DATE_FMT))
+                format!(
+                    "{} does not exist here (skipped by a DST switch)",
+                    local.format(DATE_FMT)
+                )
             })?,
             Self::Now => now,
             Self::Ago(d) => now - TimeDelta::minutes(d.get().into()),
@@ -149,7 +152,10 @@ mod tests {
     fn a_bad_due_names_both_forms_in_ascii() {
         let err = due("someday").unwrap_err();
 
-        assert!(err.contains("fri 22:00") && err.contains("YYYY-MM-DD HH:MM"), "{err}");
+        assert!(
+            err.contains("fri 22:00") && err.contains("YYYY-MM-DD HH:MM"),
+            "{err}"
+        );
         assert!(err.is_ascii(), "{err}");
     }
 
@@ -167,15 +173,24 @@ mod tests {
             SessionTime::At(dt(2026, 10, 15, 14, 0))
         );
         assert_eq!(session_time("now").unwrap(), SessionTime::Now);
-        assert_eq!(session_time("-1h30").unwrap(), SessionTime::Ago(Minutes::new(90)));
-        assert_eq!(session_time("+45m").unwrap(), SessionTime::After(Minutes::new(45)));
+        assert_eq!(
+            session_time("-1h30").unwrap(),
+            SessionTime::Ago(Minutes::new(90))
+        );
+        assert_eq!(
+            session_time("+45m").unwrap(),
+            SessionTime::After(Minutes::new(45))
+        );
     }
 
     #[test]
     fn other_session_time_forms_are_refused_in_ascii() {
         for bad in ["14:00", "yesterday", "fri 22:00", "-90", "+", ""] {
             let err = session_time(bad).unwrap_err();
-            assert!(err.contains("YYYY-MM-DD HH:MM") && err.contains("-45m"), "{bad}: {err}");
+            assert!(
+                err.contains("YYYY-MM-DD HH:MM") && err.contains("-45m"),
+                "{bad}: {err}"
+            );
             assert!(err.is_ascii(), "{err}");
         }
     }

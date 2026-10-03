@@ -29,7 +29,10 @@ impl Setup {
         let root = tempfile::tempdir().unwrap();
         for task in ["lab 1", "lab 2"] {
             let dir = root.path().join(task);
-            ok(root.path(), &["add", "task", task, "--dir", dir.to_str().unwrap()]);
+            ok(
+                root.path(),
+                &["add", "task", task, "--dir", dir.to_str().unwrap()],
+            );
         }
         install_example(root.path(), "zed");
         ok(root.path(), &["settings", "set", "/", "open_with=zed"]);
@@ -66,7 +69,11 @@ impl Setup {
     }
 
     fn wait_stopped(&self) {
-        wait_until("stopped", || self.running().is_none(), || format!("{:?}", self.running()));
+        wait_until(
+            "stopped",
+            || self.running().is_none(),
+            || format!("{:?}", self.running()),
+        );
     }
 
     fn id(&self, task: &str) -> String {
@@ -86,7 +93,11 @@ fn opens_the_folder_and_times_until_the_window_closes() {
     let begin = Instant::now();
     s.open("lab 1");
 
-    assert!(begin.elapsed() < Duration::from_secs(1), "waited {:?}", begin.elapsed());
+    assert!(
+        begin.elapsed() < Duration::from_secs(1),
+        "waited {:?}",
+        begin.elapsed()
+    );
     assert_eq!(s.running(), Some(("lab 1".into(), "zed".into(), owner)));
     wait_until("zed called", || !s.logged().is_empty(), || s.logged());
     let dir = s.root.path().join("lab 1");
@@ -114,7 +125,10 @@ fn two_windows_do_not_stop_each_other() {
 fn a_container_opens_its_folder_for_the_picked_task() {
     let s = Setup::new();
     let cs = s.root.path().join("cs");
-    ok(s.root.path(), &["add", "project", "cs", "--dir", cs.to_str().unwrap()]);
+    ok(
+        s.root.path(),
+        &["add", "project", "cs", "--dir", cs.to_str().unwrap()],
+    );
     ok(s.root.path(), &["add", "task", "cs/lab 1", "--no-dir"]);
 
     let out = Command::new(UDO)

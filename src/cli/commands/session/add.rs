@@ -55,9 +55,14 @@ mod tests {
     async fn add_records_a_session_and_shows_it() {
         let (tmp, core) = core().await;
 
-        let done = run(&core, tmp.path(), now(), &add_args("ws/b", t(14, 0), t(15, 12)))
-            .await
-            .unwrap();
+        let done = run(
+            &core,
+            tmp.path(),
+            now(),
+            &add_args("ws/b", t(14, 0), t(15, 12)),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(spans(&done), vec![(local(14, 0), Some(local(15, 12)))]);
         let id = &done.sessions[0].id;

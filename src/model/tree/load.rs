@@ -124,7 +124,10 @@ fn fix_ids(
     let header = &mut node.header;
     if !seen.insert(header.id) {
         let fresh = NodeId::new();
-        eprintln!("warning: duplicate id {} ({}), new id {fresh}", header.id, header.name);
+        eprintln!(
+            "warning: duplicate id {} ({}), new id {fresh}",
+            header.id, header.name
+        );
         header.id = fresh;
         seen.insert(fresh);
         changed.push(path.clone());

@@ -110,7 +110,11 @@ impl fmt::Display for SessionList {
         }
         let n = self.rows.len();
         let sessions = if n == 1 { "session" } else { "sessions" };
-        write!(f, "total: {} in {n} {sessions}", Minutes::new(self.total_minutes))
+        write!(
+            f,
+            "total: {} in {n} {sessions}",
+            Minutes::new(self.total_minutes)
+        )
     }
 }
 
@@ -142,9 +146,14 @@ mod tests {
     async fn list_defaults_to_the_last_seven_days() {
         let (tmp, core) = core().await;
         let week = TimeDelta::days(7);
-        core.add_session(&[0], local(9, 0) - week - week, local(10, 0) - week - week, now())
-            .await
-            .unwrap(); // two weeks ago: out
+        core.add_session(
+            &[0],
+            local(9, 0) - week - week,
+            local(10, 0) - week - week,
+            now(),
+        )
+        .await
+        .unwrap(); // two weeks ago: out
         core.add_session(&[0], local(19, 0) - week, local(21, 0) - week, now())
             .await
             .unwrap(); // over the edge: in

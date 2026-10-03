@@ -33,7 +33,10 @@ impl Setup {
         fs::create_dir_all(&log).unwrap();
         for task in ["lab 1", "lab 2"] {
             let dir = root.path().join(task);
-            ok(root.path(), &["add", "task", task, "--dir", dir.to_str().unwrap()]);
+            ok(
+                root.path(),
+                &["add", "task", task, "--dir", dir.to_str().unwrap()],
+            );
         }
         install_example(root.path(), "idea");
         ok(root.path(), &["settings", "set", "/", "open_with=idea"]);
@@ -45,7 +48,11 @@ impl Setup {
         let log = log.display();
         // running once `open` was called (or from the start)
         executable(&bin, "pgrep", &format!("test -e '{}'", up.display()));
-        executable(&bin, "open", &format!("echo \"$@\" >> '{log}/open'; touch '{}'", up.display()));
+        executable(
+            &bin,
+            "open",
+            &format!("echo \"$@\" >> '{log}/open'; touch '{}'", up.display()),
+        );
         // `idea --wait DIR`: lab 1's window closes after 1 s, lab 2's after 4
         let body = format!(
             "echo \"$@\" >> '{log}/idea'\n\
@@ -80,7 +87,11 @@ impl Setup {
     }
 
     fn wait_stopped(&self) {
-        wait_until("stopped", || self.running().is_none(), || format!("{:?}", self.running()));
+        wait_until(
+            "stopped",
+            || self.running().is_none(),
+            || format!("{:?}", self.running()),
+        );
     }
 }
 
@@ -101,9 +112,17 @@ fn opens_the_folder_and_times_until_the_window_closes() {
     let begin = Instant::now();
     s.open("lab 1");
 
-    assert!(begin.elapsed() < Duration::from_secs(1), "waited {:?}", begin.elapsed());
+    assert!(
+        begin.elapsed() < Duration::from_secs(1),
+        "waited {:?}",
+        begin.elapsed()
+    );
     assert_eq!(s.running(), Some(("lab 1".into(), "idea".into(), owner)));
-    wait_until("idea called", || !s.logged("idea").is_empty(), || s.logged("idea"));
+    wait_until(
+        "idea called",
+        || !s.logged("idea").is_empty(),
+        || s.logged("idea"),
+    );
     let dir = s.root.path().join("lab 1");
     assert_eq!(s.logged("idea"), format!("--wait {}\n", dir.display()));
     assert_eq!(s.logged("open"), "", "running already: not started again");

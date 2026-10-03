@@ -124,7 +124,12 @@ impl fmt::Display for Removed {
             write!(f, "deleted {}, {n} {folders} moved to the Trash", self.path)?;
         }
         for failed in &self.failed {
-            write!(f, "\ncould not trash {}: {}", failed.dir.display(), failed.reason)?;
+            write!(
+                f,
+                "\ncould not trash {}: {}",
+                failed.dir.display(),
+                failed.reason
+            )?;
         }
         if let Some(stopped) = &self.stopped {
             write!(f, "\nstopped: {}", stopped.text())?;
@@ -211,9 +216,16 @@ mod tests {
         };
         let mut never = |_: &str| -> Res<bool> { panic!("asked despite --yes") };
 
-        run(&mut core, tmp.path(), at(14, 0), &args, fake_trash, &mut never)
-            .await
-            .unwrap();
+        run(
+            &mut core,
+            tmp.path(),
+            at(14, 0),
+            &args,
+            fake_trash,
+            &mut never,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(core.tree().get(&[0]).unwrap().name(), "ws");
     }
@@ -247,7 +259,10 @@ mod tests {
             )]
         );
         assert_eq!(removed.trashed, vec![ws]);
-        assert_eq!(removed.to_string(), "deleted ws, 1 folder moved to the Trash");
+        assert_eq!(
+            removed.to_string(),
+            "deleted ws, 1 folder moved to the Trash"
+        );
     }
 
     #[tokio::test]
@@ -259,8 +274,15 @@ mod tests {
             ..rm("a")
         };
 
-        let result =
-            run(&mut core, tmp.path(), at(14, 0), &args, fake_trash, &mut |_: &str| Ok(true)).await;
+        let result = run(
+            &mut core,
+            tmp.path(),
+            at(14, 0),
+            &args,
+            fake_trash,
+            &mut |_: &str| Ok(true),
+        )
+        .await;
 
         assert!(
             result
@@ -280,12 +302,21 @@ mod tests {
             ..rm("a")
         };
 
-        let removed =
-            run(&mut core, tmp.path(), at(14, 45), &args, fake_trash, &mut |_: &str| Ok(true))
-                .await
-                .unwrap();
+        let removed = run(
+            &mut core,
+            tmp.path(),
+            at(14, 45),
+            &args,
+            fake_trash,
+            &mut |_: &str| Ok(true),
+        )
+        .await
+        .unwrap();
 
-        assert_eq!(removed.to_string(), "removed a (files kept)\nstopped: a (45m)");
+        assert_eq!(
+            removed.to_string(),
+            "removed a (files kept)\nstopped: a (45m)"
+        );
     }
 
     #[tokio::test]
@@ -296,8 +327,15 @@ mod tests {
             ..rm("/")
         };
 
-        let result =
-            run(&mut core, tmp.path(), at(14, 0), &args, fake_trash, &mut |_: &str| Ok(true)).await;
+        let result = run(
+            &mut core,
+            tmp.path(),
+            at(14, 0),
+            &args,
+            fake_trash,
+            &mut |_: &str| Ok(true),
+        )
+        .await;
 
         assert!(result.is_err());
     }

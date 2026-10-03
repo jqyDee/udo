@@ -64,7 +64,10 @@ mod tests {
         let out = scripts.path().join("out");
         let path = script(
             scripts.path(),
-            &format!("#!/bin/sh\n{{ env | grep '^UDO_' | sort; pwd -P; }} > '{}'\n", out.display()),
+            &format!(
+                "#!/bin/sh\n{{ env | grep '^UDO_' | sort; pwd -P; }} > '{}'\n",
+                out.display()
+            ),
         );
         let ctx = RunContext::new(&tree, Event::Open, &[1, 0], Some(&[1, 0])).unwrap();
 
@@ -74,7 +77,10 @@ mod tests {
         let seen = fs::read_to_string(&out).unwrap();
         let b = tree.get(&[1, 0]).unwrap();
         assert!(seen.contains("UDO_EVENT=open\n"), "{seen}");
-        assert!(seen.contains(&format!("UDO_TASK_ID={}\n", b.id())), "{seen}");
+        assert!(
+            seen.contains(&format!("UDO_TASK_ID={}\n", b.id())),
+            "{seen}"
+        );
         assert!(seen.contains("UDO_NODE_NAME=b\n"), "{seen}");
         assert!(seen.contains("UDO_BIN=/"), "{seen}");
         // `b` has no folder: the container's (`-P`: /tmp is /private/tmp)

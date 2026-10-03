@@ -107,7 +107,11 @@ impl App<'_> {
         else {
             return self.error("pick a task to add a session");
         };
-        self.mode = Mode::Form(Box::new(Form::add_session(task.name(), path, (self.clock)())));
+        self.mode = Mode::Form(Box::new(Form::add_session(
+            task.name(),
+            path,
+            (self.clock)(),
+        )));
     }
 
     /// `e` in the list: the edit form of the selected session. The list
@@ -174,7 +178,10 @@ impl App<'_> {
             .await?;
         Ok(Saved {
             reveal: None,
-            msg: Some(format!("added {}", saved_text(&s.task.name, start, Some(end)))),
+            msg: Some(format!(
+                "added {}",
+                saved_text(&s.task.name, start, Some(end))
+            )),
             reveal_session: Some(s.id),
         })
     }
@@ -229,7 +236,12 @@ impl App<'_> {
         let left = self.core.cut_session(id, from, to, (self.clock)()).await?;
         Ok(Saved {
             reveal: None,
-            msg: Some(format!("cut {}–{} from {}", clock(from), clock(to), s.task.name)),
+            msg: Some(format!(
+                "cut {}–{} from {}",
+                clock(from),
+                clock(to),
+                s.task.name
+            )),
             reveal_session: left.first().map(|p| p.id),
         })
     }

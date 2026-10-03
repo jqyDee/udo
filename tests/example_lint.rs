@@ -54,7 +54,11 @@ fn the_examples_pass_shellcheck() {
         return;
     }
     let out = Command::new("shellcheck").args(scripts()).output().unwrap();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stdout));
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
 }
 
 /// One Python twin per example, by the same name: none forgotten.

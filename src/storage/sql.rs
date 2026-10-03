@@ -78,7 +78,10 @@ mod tests {
     fn source_round_trips_as_its_name() {
         assert_eq!(round_trip(SessionSource::Manual), SessionSource::Manual);
         assert_eq!(round_trip(Owner::manual()), Owner::manual());
-        assert_eq!(read::<String>("'manual'").unwrap(), SessionSource::Manual.to_string());
+        assert_eq!(
+            read::<String>("'manual'").unwrap(),
+            SessionSource::Manual.to_string()
+        );
     }
 
     #[test]

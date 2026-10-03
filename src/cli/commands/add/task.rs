@@ -118,9 +118,14 @@ mod tests {
     async fn without_due_the_containers_default_applies() {
         let (tmp, mut core) = core().await;
 
-        run(&mut core, tmp.path(), thursday_noon(), &task_args("ws/lab 4"))
-            .await
-            .unwrap();
+        run(
+            &mut core,
+            tmp.path(),
+            thursday_noon(),
+            &task_args("ws/lab 4"),
+        )
+        .await
+        .unwrap();
 
         let default = core.task_defaults(&[1], thursday_noon()).due;
         assert_eq!(local_due(&core, &[1, 1]), default);
@@ -139,16 +144,24 @@ mod tests {
             ..task_args("ws/lab 5")
         };
 
-        let (_, with) = run(&mut core, tmp.path(), thursday_noon(), &task_args("ws/lab 4"))
-            .await
-            .unwrap();
+        let (_, with) = run(
+            &mut core,
+            tmp.path(),
+            thursday_noon(),
+            &task_args("ws/lab 4"),
+        )
+        .await
+        .unwrap();
         let (_, without) = run(&mut core, tmp.path(), thursday_noon(), &no_dir)
             .await
             .unwrap();
 
         let lab_4 = tmp.path().join("ws").join("lab_4");
         assert_eq!(with.dir, Some(lab_4.clone()));
-        assert_eq!(with.to_string(), format!("added task ws/lab 4\nfolder: {}", lab_4.display()));
+        assert_eq!(
+            with.to_string(),
+            format!("added task ws/lab 4\nfolder: {}", lab_4.display())
+        );
         assert_eq!(without.dir, None);
     }
 

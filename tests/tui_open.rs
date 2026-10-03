@@ -69,7 +69,10 @@ fn o_hands_the_terminal_over_and_takes_it_back() {
     tui.wait_for("press Enter to return");
     let typed = fs::read_to_string(&out).unwrap();
     assert_eq!(typed, "line 1\nline 2\nline 3\nline 4\nline 5\n"); // no key lost
-    assert!(tui.contents().contains("script ready"), "its output stays readable");
+    assert!(
+        tui.contents().contains("script ready"),
+        "its output stays readable"
+    );
 
     tui.send("\r");
     // the toast, not the prompt line (which says the same after "[udo]")
@@ -109,13 +112,21 @@ fn shift_o_runs_the_picked_script() {
     let marks = tempfile::tempdir().unwrap();
     let (editor_ran, other_ran) = (marks.path().join("editor"), marks.path().join("other"));
     let root = root_with_editor(&format!("touch '{}'", editor_ran.display()));
-    add_script(root.path(), "other", &format!("touch '{}'", other_ran.display()));
+    add_script(
+        root.path(),
+        "other",
+        &format!("touch '{}'", other_ran.display()),
+    );
     let mut tui = tui(root.path());
     tui.wait_for("lab 3");
 
     tui.send("O");
     tui.wait_for("open lab 3 with");
-    assert!(tui.contents().contains("> editor (default)"), "{}", tui.contents());
+    assert!(
+        tui.contents().contains("> editor (default)"),
+        "{}",
+        tui.contents()
+    );
     tui.send("j");
     tui.wait_for("> other");
     tui.send("\r");
@@ -161,7 +172,10 @@ fn a_create_form_runs_on_create() {
 fn o_with_a_detaching_editor_comes_back_at_once() {
     let root = tempfile::tempdir().unwrap();
     let dir = root.path().join("lab 3");
-    ok(root.path(), &["add", "task", "lab 3", "--dir", dir.to_str().unwrap()]);
+    ok(
+        root.path(),
+        &["add", "task", "lab 3", "--dir", dir.to_str().unwrap()],
+    );
     install_example(root.path(), "zed");
     ok(root.path(), &["settings", "set", "/", "open_with=zed"]);
     let bin = root.path().join("bin");
@@ -174,7 +188,11 @@ fn o_with_a_detaching_editor_comes_back_at_once() {
     tui.send("o");
 
     let timed = || running_as(root.path()).map(|r| r.1);
-    wait_until("zed timing", || timed().as_deref() == Some("zed"), || tui.contents());
+    wait_until(
+        "zed timing",
+        || timed().as_deref() == Some("zed"),
+        || tui.contents(),
+    );
     tui.wait_until("the TUI, no prompt", |s| {
         s.contains("lab 3") && s.contains("· zed") && !s.contains("press Enter")
     });

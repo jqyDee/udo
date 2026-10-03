@@ -221,7 +221,10 @@ mod tests {
         let vars = vars(&ctx);
 
         assert_eq!(var(&vars, "UDO_EVENT"), Some("create"));
-        assert!(vars.iter().all(|(k, _)| !k.starts_with("UDO_TASK_")), "{vars:?}");
+        assert!(
+            vars.iter().all(|(k, _)| !k.starts_with("UDO_TASK_")),
+            "{vars:?}"
+        );
     }
 
     /// No folder of its own: the script runs in the container's.

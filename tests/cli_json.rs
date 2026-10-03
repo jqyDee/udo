@@ -37,7 +37,10 @@ fn root_with_talk() -> tempfile::TempDir {
     let script = run.join("talk");
     fs::write(&script, format!("#!/bin/sh\necho '{SAYS}'\n")).unwrap();
     fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
-    ok(root.path(), &["settings", "set", "/", "on_create=talk", "open_with=talk"]);
+    ok(
+        root.path(),
+        &["settings", "set", "/", "on_create=talk", "open_with=talk"],
+    );
     root
 }
 

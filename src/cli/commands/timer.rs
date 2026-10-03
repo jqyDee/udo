@@ -184,10 +184,15 @@ mod tests {
     async fn start_without_argument_takes_the_current_folder() {
         let (tmp, mut core) = core().await;
 
-        let err = start(&mut core, &tmp.path().join("ws"), at(14, 0), &StartArgs { node: None })
-            .await
-            .err()
-            .unwrap();
+        let err = start(
+            &mut core,
+            &tmp.path().join("ws"),
+            at(14, 0),
+            &StartArgs { node: None },
+        )
+        .await
+        .err()
+        .unwrap();
 
         assert!(err.to_string().contains("not a task"), "{err}");
     }

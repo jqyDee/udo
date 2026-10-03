@@ -184,9 +184,18 @@ mod tests {
             ContainerKind::Project,
             vec![task("lab 3", None)],
         );
-        let uni = container_at("uni", &d("uni"), ContainerKind::Workspace, vec![cs, physics]);
-        let root =
-            container_at("root", tmp.path(), ContainerKind::Root, vec![uni, task("notes", None)]);
+        let uni = container_at(
+            "uni",
+            &d("uni"),
+            ContainerKind::Workspace,
+            vec![cs, physics],
+        );
+        let root = container_at(
+            "root",
+            tmp.path(),
+            ContainerKind::Root,
+            vec![uni, task("notes", None)],
+        );
         (tmp, Tree::new(root))
     }
 
@@ -228,7 +237,10 @@ mod tests {
     fn slash_is_the_root() {
         let (_tmp, t) = tree();
 
-        assert_eq!(resolve(&t, Some("/"), elsewhere().path()).unwrap(), Vec::<usize>::new());
+        assert_eq!(
+            resolve(&t, Some("/"), elsewhere().path()).unwrap(),
+            Vec::<usize>::new()
+        );
     }
 
     #[test]
@@ -236,16 +248,28 @@ mod tests {
         let (_tmp, t) = tree();
         let out = elsewhere();
 
-        assert_eq!(resolve(&t, Some("uni/cs/lab 3"), out.path()).unwrap(), vec![0, 0, 0]);
-        assert_eq!(resolve(&t, Some("cs/lab 3"), out.path()).unwrap(), vec![0, 0, 0]);
-        assert_eq!(resolve(&t, Some("physics"), out.path()).unwrap(), vec![0, 1]);
+        assert_eq!(
+            resolve(&t, Some("uni/cs/lab 3"), out.path()).unwrap(),
+            vec![0, 0, 0]
+        );
+        assert_eq!(
+            resolve(&t, Some("cs/lab 3"), out.path()).unwrap(),
+            vec![0, 0, 0]
+        );
+        assert_eq!(
+            resolve(&t, Some("physics"), out.path()).unwrap(),
+            vec![0, 1]
+        );
     }
 
     #[test]
     fn whitespace_in_the_argument_is_cleaned_like_names() {
         let (_tmp, t) = tree();
 
-        assert_eq!(resolve(&t, Some(" uni /  cs "), elsewhere().path()).unwrap(), vec![0, 0]);
+        assert_eq!(
+            resolve(&t, Some(" uni /  cs "), elsewhere().path()).unwrap(),
+            vec![0, 0]
+        );
     }
 
     #[test]
@@ -253,15 +277,22 @@ mod tests {
         let (_tmp, t) = tree();
         let out = elsewhere();
 
-        assert_eq!(resolve(&t, Some("/uni/cs"), out.path()).unwrap(), vec![0, 0]);
+        assert_eq!(
+            resolve(&t, Some("/uni/cs"), out.path()).unwrap(),
+            vec![0, 0]
+        );
         assert!(resolve(&t, Some("/cs"), out.path()).is_err()); // a suffix, not from the root
     }
 
     #[test]
     fn an_exact_path_beats_a_suffix_elsewhere() {
         let (_tmp, mut t) = tree();
-        let inner_uni =
-            container_at("uni", Path::new("/tmp/other/uni"), ContainerKind::Project, vec![]);
+        let inner_uni = container_at(
+            "uni",
+            Path::new("/tmp/other/uni"),
+            ContainerKind::Project,
+            vec![],
+        );
         let other = container_at(
             "other",
             Path::new("/tmp/other"),
@@ -270,7 +301,10 @@ mod tests {
         );
         t.root.as_container_mut().unwrap().children.push(other);
 
-        assert_eq!(resolve(&t, Some("uni"), elsewhere().path()).unwrap(), vec![0]);
+        assert_eq!(
+            resolve(&t, Some("uni"), elsewhere().path()).unwrap(),
+            vec![0]
+        );
     }
 
     #[test]
@@ -281,7 +315,10 @@ mod tests {
             .unwrap_err()
             .to_string();
 
-        assert_eq!(err, "\"lab 3\" matches 2 nodes:\n  uni/cs/lab 3\n  uni/physics/lab 3");
+        assert_eq!(
+            err,
+            "\"lab 3\" matches 2 nodes:\n  uni/cs/lab 3\n  uni/physics/lab 3"
+        );
     }
 
     #[test]
@@ -311,8 +348,14 @@ mod tests {
         let out = elsewhere();
         let id = |path: &[usize]| format!("id:{}", t.get(path).unwrap().id());
 
-        assert_eq!(resolve(&t, Some(&id(&[0, 1, 0])), out.path()).unwrap(), vec![0, 1, 0]);
-        assert_eq!(resolve(&t, Some(&id(&[])), out.path()).unwrap(), Vec::<usize>::new());
+        assert_eq!(
+            resolve(&t, Some(&id(&[0, 1, 0])), out.path()).unwrap(),
+            vec![0, 1, 0]
+        );
+        assert_eq!(
+            resolve(&t, Some(&id(&[])), out.path()).unwrap(),
+            Vec::<usize>::new()
+        );
         let spaced = format!("  {}  ", id(&[0, 0]));
         assert_eq!(resolve(&t, Some(&spaced), out.path()).unwrap(), vec![0, 0]);
     }
@@ -336,7 +379,10 @@ mod tests {
         let odd = Node::task("id:x".into(), Task::new(None, time::now()));
         t.root.as_container_mut().unwrap().children.push(odd);
 
-        assert_eq!(resolve(&t, Some("id:x"), elsewhere().path()).unwrap(), vec![2]);
+        assert_eq!(
+            resolve(&t, Some("id:x"), elsewhere().path()).unwrap(),
+            vec![2]
+        );
         assert!(resolve(&t, Some("id:"), elsewhere().path()).is_err()); // no such name either
     }
 
@@ -346,7 +392,8 @@ mod tests {
         let (_tmp, t) = tree();
         let cs = format!("id:{}", t.get(&[0, 0]).unwrap().id());
 
-        let (parent, name) = resolve_parent(&t, &format!("{cs}/lab 4"), elsewhere().path()).unwrap();
+        let (parent, name) =
+            resolve_parent(&t, &format!("{cs}/lab 4"), elsewhere().path()).unwrap();
 
         assert_eq!((parent, name), (vec![0, 0], "lab 4".to_string()));
     }
@@ -360,8 +407,14 @@ mod tests {
             resolve_parent(&t, "uni/cs/lab 4", out.path()).unwrap(),
             (vec![0, 0], "lab 4".into())
         );
-        assert_eq!(resolve_parent(&t, "/lab 4", out.path()).unwrap(), (vec![], "lab 4".into()));
-        assert_eq!(resolve_parent(&t, "lab 4", out.path()).unwrap(), (vec![], "lab 4".into()));
+        assert_eq!(
+            resolve_parent(&t, "/lab 4", out.path()).unwrap(),
+            (vec![], "lab 4".into())
+        );
+        assert_eq!(
+            resolve_parent(&t, "lab 4", out.path()).unwrap(),
+            (vec![], "lab 4".into())
+        );
     }
 
     /// Standing in a task's folder: the new node goes into its container.

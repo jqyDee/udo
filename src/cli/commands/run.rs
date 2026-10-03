@@ -293,7 +293,10 @@ mod tests {
         let mut on_task = open("b");
         on_task.task = Some("b".into());
         let err = run(&core, tmp.path(), &on_task).await.err().unwrap();
-        assert!(err.to_string().contains("--task is for containers"), "{err}");
+        assert!(
+            err.to_string().contains("--task is for containers"),
+            "{err}"
+        );
     }
 
     #[tokio::test]
@@ -322,7 +325,10 @@ mod tests {
         let dir = tmp.path().join("run");
         assert_eq!(
             listed.to_string(),
-            format!("run configs in {}\n  idea\n  nvim-tmux  (default here)", dir.display())
+            format!(
+                "run configs in {}\n  idea\n  nvim-tmux  (default here)",
+                dir.display()
+            )
         );
     }
 
@@ -337,6 +343,9 @@ mod tests {
         let listed = list(&core, tmp.path(), &args).unwrap();
 
         let dir = tmp.path().join("run");
-        assert_eq!(listed.to_string(), format!("no run configs in {} yet", dir.display()));
+        assert_eq!(
+            listed.to_string(),
+            format!("no run configs in {} yet", dir.display())
+        );
     }
 }

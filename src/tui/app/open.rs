@@ -27,7 +27,10 @@ impl App<'_> {
         match tree.open_with(&path) {
             Some(name) => self.open_as(path, name),
             None => {
-                let msg = format!("no run config for {} (set open_with)", node_name(tree, &path));
+                let msg = format!(
+                    "no run config for {} (set open_with)",
+                    node_name(tree, &path)
+                );
                 self.error(msg);
                 Flow::Continue
             }

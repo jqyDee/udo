@@ -132,7 +132,10 @@ impl Added {
     fn warning(&self) -> Option<String> {
         let ran = self.ran.as_ref()?;
         let error = ran.error.as_ref()?;
-        Some(format!("on_create {}: {error} ({} was added)", ran.script, self.path))
+        Some(format!(
+            "on_create {}: {error} ({} was added)",
+            ran.script, self.path
+        ))
     }
 }
 
@@ -191,9 +194,14 @@ mod tests {
         let out = recorder(tmp.path(), "setup");
         set_on_create(&mut core, &[], "setup").await;
 
-        let added = add(&command(&["task", "ws/lab 4"]), &mut core, tmp.path(), Stdout::Inherit)
-            .await
-            .unwrap();
+        let added = add(
+            &command(&["task", "ws/lab 4"]),
+            &mut core,
+            tmp.path(),
+            Stdout::Inherit,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(fs::read_to_string(out).unwrap(), "create lab 4 lab 4\n");
         let ran = Ran {
@@ -213,9 +221,14 @@ mod tests {
         let out = recorder(tmp.path(), "setup");
         set_on_create(&mut core, &[], "setup").await;
 
-        add(&command(&["project", "ws/cs"]), &mut core, tmp.path(), Stdout::Inherit)
-            .await
-            .unwrap();
+        add(
+            &command(&["project", "ws/cs"]),
+            &mut core,
+            tmp.path(),
+            Stdout::Inherit,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(fs::read_to_string(out).unwrap(), "create cs \n");
     }
@@ -257,9 +270,14 @@ mod tests {
         set_on_create(&mut core, &[], "setup").await;
         set_on_create(&mut core, &[1], "none").await;
 
-        let added = add(&command(&["task", "ws/lab 4"]), &mut core, tmp.path(), Stdout::Inherit)
-            .await
-            .unwrap();
+        let added = add(
+            &command(&["task", "ws/lab 4"]),
+            &mut core,
+            tmp.path(),
+            Stdout::Inherit,
+        )
+        .await
+        .unwrap();
 
         assert!(!out.exists());
         assert_eq!(added.ran, None);
@@ -269,9 +287,14 @@ mod tests {
     async fn without_on_create_nothing_runs_and_nothing_is_said() {
         let (tmp, mut core) = core().await;
 
-        let added = add(&command(&["task", "ws/lab 4"]), &mut core, tmp.path(), Stdout::Inherit)
-            .await
-            .unwrap();
+        let added = add(
+            &command(&["task", "ws/lab 4"]),
+            &mut core,
+            tmp.path(),
+            Stdout::Inherit,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(added.ran, None);
         assert_eq!(added.to_string(), "added task ws/lab 4");
@@ -283,13 +306,21 @@ mod tests {
         run_script(tmp.path(), "setup", "exit 3");
         set_on_create(&mut core, &[], "setup").await;
 
-        let added = add(&command(&["task", "ws/lab 4"]), &mut core, tmp.path(), Stdout::Inherit)
-            .await
-            .unwrap();
+        let added = add(
+            &command(&["task", "ws/lab 4"]),
+            &mut core,
+            tmp.path(),
+            Stdout::Inherit,
+        )
+        .await
+        .unwrap();
 
         assert!(core.tree().get(&[1, 1]).is_some(), "the task is there");
         assert_eq!(added.ran.as_ref().unwrap().code, Some(3));
-        assert_eq!(added.warning().unwrap(), "on_create setup: exited with 3 (ws/lab 4 was added)");
+        assert_eq!(
+            added.warning().unwrap(),
+            "on_create setup: exited with 3 (ws/lab 4 was added)"
+        );
         assert_eq!(added.to_string(), "added task ws/lab 4", "no success line");
     }
 
@@ -299,15 +330,23 @@ mod tests {
         run_script(tmp.path(), "setup", "");
         set_on_create(&mut core, &[], "stup").await;
 
-        let added = add(&command(&["task", "ws/lab 4"]), &mut core, tmp.path(), Stdout::Inherit)
-            .await
-            .unwrap();
+        let added = add(
+            &command(&["task", "ws/lab 4"]),
+            &mut core,
+            tmp.path(),
+            Stdout::Inherit,
+        )
+        .await
+        .unwrap();
 
         assert!(core.tree().get(&[1, 1]).is_some(), "the task is there");
         let ran = added.ran.as_ref().unwrap();
         assert_eq!((ran.script.as_str(), ran.code), ("stup", None));
         let warning = added.warning().unwrap();
-        assert!(warning.starts_with("on_create stup: no run config"), "{warning}");
+        assert!(
+            warning.starts_with("on_create stup: no run config"),
+            "{warning}"
+        );
         assert!(warning.contains("(have: setup)"), "{warning}");
         assert!(warning.ends_with("(ws/lab 4 was added)"), "{warning}");
     }
@@ -319,7 +358,13 @@ mod tests {
         let out = recorder(tmp.path(), "setup");
         set_on_create(&mut core, &[], "setup").await;
 
-        let err = add(&command(&["task", "ws/b"]), &mut core, tmp.path(), Stdout::Inherit).await;
+        let err = add(
+            &command(&["task", "ws/b"]),
+            &mut core,
+            tmp.path(),
+            Stdout::Inherit,
+        )
+        .await;
 
         assert!(err.is_err(), "b exists");
         assert!(!out.exists());
@@ -330,16 +375,29 @@ mod tests {
         let (tmp, mut core) = core().await;
         recorder(tmp.path(), "setup");
 
-        let quiet = add(&command(&["task", "ws/lab 4"]), &mut core, tmp.path(), Stdout::Inherit)
-            .await
-            .unwrap();
+        let quiet = add(
+            &command(&["task", "ws/lab 4"]),
+            &mut core,
+            tmp.path(),
+            Stdout::Inherit,
+        )
+        .await
+        .unwrap();
         assert!(!render(&quiet, true).unwrap().contains("\"ran\""));
 
         set_on_create(&mut core, &[], "setup").await;
-        let ran = add(&command(&["task", "ws/lab 5"]), &mut core, tmp.path(), Stdout::Inherit)
-            .await
-            .unwrap();
+        let ran = add(
+            &command(&["task", "ws/lab 5"]),
+            &mut core,
+            tmp.path(),
+            Stdout::Inherit,
+        )
+        .await
+        .unwrap();
         let json: serde_json::Value = serde_json::from_str(&render(&ran, true).unwrap()).unwrap();
-        assert_eq!(json["ran"], serde_json::json!({"script": "setup", "code": 0, "error": null}));
+        assert_eq!(
+            json["ran"],
+            serde_json::json!({"script": "setup", "code": 0, "error": null})
+        );
     }
 }

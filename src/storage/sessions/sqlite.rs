@@ -176,7 +176,10 @@ fn insert(tx: &Transaction, s: &Session) -> Result<(), SessionError> {
     let (created, created_offset) = time_to_sql(s.created_at);
     let (deleted, deleted_offset) = s.deleted_at.map(time_to_sql).unzip();
     let dir = s.task.container_dir.to_str().ok_or_else(|| {
-        SessionError::Backend(format!("folder name is not UTF-8: {:?}", s.task.container_dir))
+        SessionError::Backend(format!(
+            "folder name is not UTF-8: {:?}",
+            s.task.container_dir
+        ))
     })?;
 
     tx.execute(
@@ -520,7 +523,14 @@ fn delete(conn: &mut Connection, now: Time, id: SessionId) -> Result<(), Session
         "UPDATE sessions SET deleted_at = ?1, deleted_offset = ?2 WHERE id = ?3",
         params![deleted, offset, id],
     )?;
-    log(&tx, id, now, EditKind::Delete, Some((session.start, session.end)), None)?;
+    log(
+        &tx,
+        id,
+        now,
+        EditKind::Delete,
+        Some((session.start, session.end)),
+        None,
+    )?;
     tx.commit()?;
     Ok(())
 }
@@ -550,9 +560,23 @@ fn split(
     };
 
     set_times(&tx, first.id, first.start, first.end)?;
-    log(&tx, first.id, now, EditKind::Split, Some(old), Some((first.start, first.end)))?;
+    log(
+        &tx,
+        first.id,
+        now,
+        EditKind::Split,
+        Some(old),
+        Some((first.start, first.end)),
+    )?;
     insert(&tx, &second)?;
-    log(&tx, second.id, now, EditKind::Split, None, Some((second.start, second.end)))?;
+    log(
+        &tx,
+        second.id,
+        now,
+        EditKind::Split,
+        None,
+        Some((second.start, second.end)),
+    )?;
     tx.commit()?;
     Ok(Some((first, second)))
 }
@@ -595,10 +619,24 @@ fn cut(
     // here, *before* the second piece (the running one now) is inserted
     let first = &left[0];
     set_times(&tx, first.id, first.start, first.end)?;
-    log(&tx, first.id, now, EditKind::Cut, Some(old), Some((first.start, first.end)))?;
+    log(
+        &tx,
+        first.id,
+        now,
+        EditKind::Cut,
+        Some(old),
+        Some((first.start, first.end)),
+    )?;
     if let Some(second) = left.get(1) {
         insert(&tx, second)?;
-        log(&tx, second.id, now, EditKind::Cut, None, Some((second.start, second.end)))?;
+        log(
+            &tx,
+            second.id,
+            now,
+            EditKind::Cut,
+            None,
+            Some((second.start, second.end)),
+        )?;
     }
     tx.commit()?;
     Ok(left)
@@ -759,7 +797,10 @@ mod tests {
         for round in 0..100 {
             let t = at(8, 0) + TimeDelta::minutes(2 * round);
             let switch = t + TimeDelta::minutes(1);
-            let first = hook.start(task(), tmux.clone(), a.clone(), t).await.unwrap();
+            let first = hook
+                .start(task(), tmux.clone(), a.clone(), t)
+                .await
+                .unwrap();
 
             let (stopped, started) = tokio::join!(
                 hook.stop(Some(&a), switch),
@@ -768,7 +809,11 @@ mod tests {
             stopped.unwrap(); // Some (stop first) or None (start first): both fine
             let started = started.unwrap();
 
-            assert_eq!(hook.running().await.unwrap(), Some(started), "round {round}");
+            assert_eq!(
+                hook.running().await.unwrap(),
+                Some(started),
+                "round {round}"
+            );
             let mine = SessionQuery {
                 tasks: Some(vec![first.task.id]),
                 ..Default::default()
@@ -776,7 +821,10 @@ mod tests {
             let first = &hook.query(&mine).await.unwrap()[0];
             assert_eq!(first.end, Some(switch), "round {round}");
 
-            editor.stop(None, switch + TimeDelta::minutes(1)).await.unwrap(); // next round: idle
+            editor
+                .stop(None, switch + TimeDelta::minutes(1))
+                .await
+                .unwrap(); // next round: idle
         }
     }
 }

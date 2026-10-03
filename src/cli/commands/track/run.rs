@@ -227,8 +227,14 @@ mod tests {
         assert_eq!(ran.code, 0);
         let session = ran.session.unwrap();
         assert_eq!((session.task.as_str(), session.minutes), ("a", 60));
-        assert_eq!((session.started, session.ended), (at(14, 0), Some(at(15, 0))));
-        assert_eq!((session.source.as_str(), session.owner.as_str()), ("sh", "sh:1"));
+        assert_eq!(
+            (session.started, session.ended),
+            (at(14, 0), Some(at(15, 0)))
+        );
+        assert_eq!(
+            (session.source.as_str(), session.owner.as_str()),
+            ("sh", "sh:1")
+        );
         assert_eq!(core.sessions().running().await.unwrap(), None);
     }
 
@@ -236,9 +242,14 @@ mod tests {
     async fn the_childs_exit_code_comes_back() {
         let (tmp, mut core) = core().await;
 
-        let ran = run(&mut core, tmp.path(), ticking(), &args(&["sh", "-c", "exit 3"]))
-            .await
-            .unwrap();
+        let ran = run(
+            &mut core,
+            tmp.path(),
+            ticking(),
+            &args(&["sh", "-c", "exit 3"]),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(ran.code, 3);
         assert!(ran.session.is_some()); // a failing child is still timed
@@ -248,9 +259,14 @@ mod tests {
     async fn a_child_killed_by_a_signal_is_128_plus_it() {
         let (tmp, mut core) = core().await;
 
-        let ran = run(&mut core, tmp.path(), ticking(), &args(&["sh", "-c", "kill -TERM $$"]))
-            .await
-            .unwrap();
+        let ran = run(
+            &mut core,
+            tmp.path(),
+            ticking(),
+            &args(&["sh", "-c", "kill -TERM $$"]),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(ran.code, 128 + 15);
     }
@@ -260,10 +276,15 @@ mod tests {
     async fn a_missing_program_is_an_error_and_leaves_nothing_running() {
         let (tmp, mut core) = core().await;
 
-        let err = run(&mut core, tmp.path(), ticking(), &args(&["udo-no-such-program"]))
-            .await
-            .err()
-            .unwrap();
+        let err = run(
+            &mut core,
+            tmp.path(),
+            ticking(),
+            &args(&["udo-no-such-program"]),
+        )
+        .await
+        .err()
+        .unwrap();
 
         assert!(
             err.to_string()

@@ -115,7 +115,12 @@ fn apply(
 
 impl fmt::Display for SettingsSaved {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "saved settings of {}: {}", self.path, self.keys.join(", "))
+        write!(
+            f,
+            "saved settings of {}: {}",
+            self.path,
+            self.keys.join(", ")
+        )
     }
 }
 
@@ -149,10 +154,16 @@ mod tests {
 
         let saved = run(&mut core, tmp.path(), &action).await.unwrap();
 
-        assert_eq!(saved.to_string(), "saved settings of ws: estimate, default_deadline");
+        assert_eq!(
+            saved.to_string(),
+            "saved settings of ws: estimate, default_deadline"
+        );
         let reloaded = Tree::load_from(tmp.path()).await.unwrap();
         let ws = reloaded.get(&[1]).and_then(|n| n.as_container()).unwrap();
-        assert_eq!(ws.settings.estimate.map(|m| m.to_string()).as_deref(), Some("1h30"));
+        assert_eq!(
+            ws.settings.estimate.map(|m| m.to_string()).as_deref(),
+            Some("1h30")
+        );
         assert!(ws.settings.default_deadline.is_some());
     }
 

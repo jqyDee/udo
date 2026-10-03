@@ -69,7 +69,12 @@ pub async fn run(core: &Core, cwd: &Path, now: Time, args: &ShowArgs) -> Res<Sho
         NodeBody::Task(t) => {
             let with_sessions = core.tasks_with_sessions().await?;
             let status = t.status(with_sessions.contains(&node.id()));
-            (None, Some(status.to_string()), Some(t.due_date), Some(t.is_overdue(now)))
+            (
+                None,
+                Some(status.to_string()),
+                Some(t.due_date),
+                Some(t.is_overdue(now)),
+            )
         }
     };
     Ok(Shown {
@@ -156,7 +161,10 @@ mod tests {
 
         assert_eq!(shown.path, "ws/b");
         assert_eq!(shown.status.as_deref(), Some("started"));
-        assert_eq!((shown.minutes, shown.sessions, shown.running), (72, 2, true));
+        assert_eq!(
+            (shown.minutes, shown.sessions, shown.running),
+            (72, 2, true)
+        );
     }
 
     #[tokio::test]
@@ -173,7 +181,10 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!((ws.kind.as_deref(), ws.minutes, ws.sessions), (Some("workspace"), 30, 1));
+        assert_eq!(
+            (ws.kind.as_deref(), ws.minutes, ws.sessions),
+            (Some("workspace"), 30, 1)
+        );
         assert!(!ws.running);
         assert_eq!((root.minutes, root.sessions), (60, 2));
     }
@@ -186,13 +197,19 @@ mod tests {
         let later = due + chrono::TimeDelta::minutes(1);
 
         let shown = run(&core, tmp.path(), later, &named("a")).await.unwrap();
-        assert_eq!((shown.status.as_deref(), shown.overdue), (Some("to do"), Some(true)));
+        assert_eq!(
+            (shown.status.as_deref(), shown.overdue),
+            (Some("to do"), Some(true))
+        );
         let json: serde_json::Value = serde_json::from_str(&render(&shown, true).unwrap()).unwrap();
         assert_eq!(json["overdue"], true);
 
         core.set_done(&[0], true, later).await.unwrap();
         let shown = run(&core, tmp.path(), later, &named("a")).await.unwrap();
-        assert_eq!((shown.status.as_deref(), shown.overdue), (Some("done"), Some(false)));
+        assert_eq!(
+            (shown.status.as_deref(), shown.overdue),
+            (Some("done"), Some(false))
+        );
     }
 
     #[tokio::test]

@@ -221,7 +221,11 @@ mod tests {
     fn check_keys_are_the_fields<S: Serialize>(table: &[SettingInfo<S>], full: &S) {
         let text = toml::to_string(full).unwrap();
         for info in table {
-            assert!(text.contains(&format!("{} = ", info.key)), "{} not in:\n{text}", info.key);
+            assert!(
+                text.contains(&format!("{} = ", info.key)),
+                "{} not in:\n{text}",
+                info.key
+            );
         }
         // and nothing in the file is missing from the table
         assert_eq!(text.lines().count(), table.len(), "got:\n{text}");
@@ -308,7 +312,10 @@ mod tests {
             .iter()
             .map(|i| (i.get)(&all_root_set()))
             .collect();
-        assert_eq!(texts, [Some("dark".to_string()), Some("/dotfiles/run".to_string())]);
+        assert_eq!(
+            texts,
+            [Some("dark".to_string()), Some("/dotfiles/run".to_string())]
+        );
         let empty = RootSettings::default();
         assert!(ROOT_SETTINGS.iter().all(|i| (i.get)(&empty).is_none()));
     }
@@ -353,7 +360,10 @@ mod tests {
     #[test]
     fn effective_settings_lists_all_in_order_with_sources() {
         // root: [uni: [cs: [lab]]]
-        let mut t = tree_with(vec![container("uni", vec![container("cs", vec![task("lab")])])]);
+        let mut t = tree_with(vec![container(
+            "uni",
+            vec![container("cs", vec![task("lab")])],
+        )]);
         let uni = t.get_mut(&[0]).and_then(Node::as_container_mut).unwrap();
         uni.settings.default_deadline = Some("fri 22:00".parse().unwrap());
 
@@ -371,7 +381,10 @@ mod tests {
                 source: Source::Inherited(vec![0]),
             })
         );
-        assert_eq!(by_label("task folders").value.as_ref().unwrap().source, Source::Default);
+        assert_eq!(
+            by_label("task folders").value.as_ref().unwrap().source,
+            Source::Default
+        );
         assert_eq!(by_label("archive").value, None); // no default
     }
 

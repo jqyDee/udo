@@ -153,7 +153,10 @@ mod tests {
     async fn create_makes_a_containers_folder() {
         let (tmp, mut core) = core().await;
         let dir = tmp.path().join("ws").join("cs");
-        let cs = Node::container("cs".into(), Container::new(dir.clone(), ContainerKind::Project));
+        let cs = Node::container(
+            "cs".into(),
+            Container::new(dir.clone(), ContainerKind::Project),
+        );
 
         let path = core.create(&[1], cs).await.unwrap();
 

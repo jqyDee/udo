@@ -75,12 +75,18 @@ mod tests {
 
     #[test]
     fn program_names_parse() {
-        assert_eq!("emacs".parse::<SessionSource>(), Ok(SessionSource::Program("emacs".into())));
+        assert_eq!(
+            "emacs".parse::<SessionSource>(),
+            Ok(SessionSource::Program("emacs".into()))
+        );
         assert_eq!(
             "nvim-tmux".parse::<SessionSource>(),
             Ok(SessionSource::Program("nvim-tmux".into()))
         );
-        assert_eq!("idea2".parse::<SessionSource>(), Ok(SessionSource::Program("idea2".into())));
+        assert_eq!(
+            "idea2".parse::<SessionSource>(),
+            Ok(SessionSource::Program("idea2".into()))
+        );
     }
 
     #[test]

@@ -155,7 +155,10 @@ mod tests {
 
         assert!(names(&library).is_empty());
         let err = library.find(&name("idea")).unwrap_err().to_string();
-        assert_eq!(err, format!("no run config \"idea\" in {} (none yet)", missing.display()));
+        assert_eq!(
+            err,
+            format!("no run config \"idea\" in {} (none yet)", missing.display())
+        );
     }
 
     #[test]
@@ -170,7 +173,10 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(err, RunError::NotFound { .. }));
-        assert!(err.to_string().ends_with("(have: idea, nvim-tmux)"), "{err}");
+        assert!(
+            err.to_string().ends_with("(have: idea, nvim-tmux)"),
+            "{err}"
+        );
     }
 
     /// Two files, one name: `find` refuses it, the others still work.
@@ -203,7 +209,10 @@ mod tests {
         let err = library.find(&name("idea")).unwrap_err();
         assert_eq!(
             err.to_string(),
-            format!("run config \"idea\" is not executable: chmod +x {}", path.display())
+            format!(
+                "run config \"idea\" is not executable: chmod +x {}",
+                path.display()
+            )
         );
     }
 
@@ -233,7 +242,10 @@ mod tests {
         let library = Library::load(dir.path()).unwrap();
 
         assert_eq!(names(&library), ["idea"]);
-        assert_eq!(library.find(&name("idea")).unwrap(), dir.path().join("idea.sh"));
+        assert_eq!(
+            library.find(&name("idea")).unwrap(),
+            dir.path().join("idea.sh")
+        );
     }
 
     #[test]

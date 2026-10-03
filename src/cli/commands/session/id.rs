@@ -49,7 +49,11 @@ fn find_in(sessions: Vec<Session>, ending: &str) -> Res<Session> {
             for s in &found {
                 let hex = hex(s.id);
                 let start = s.start.with_timezone(&Local).format(DATE_FMT);
-                msg.push_str(&format!("\n  {}  {start}  {}", &hex[hex.len() - 12..], s.task.name));
+                msg.push_str(&format!(
+                    "\n  {}  {start}  {}",
+                    &hex[hex.len() - 12..],
+                    s.task.name
+                ));
             }
             Err(msg.into())
         }
@@ -124,7 +128,10 @@ mod tests {
 
         let err = find_in(sessions, "4f9e2c").unwrap_err().to_string();
 
-        assert!(err.contains("00004f9e2c") && err.contains("00014f9e2c"), "{err}");
+        assert!(
+            err.contains("00004f9e2c") && err.contains("00014f9e2c"),
+            "{err}"
+        );
         // each line names the task, to tell them apart
         assert!(err.lines().skip(1).all(|l| l.ends_with("  a")), "{err}");
     }

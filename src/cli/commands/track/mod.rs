@@ -181,7 +181,9 @@ mod tests {
         assert!(!parse(&[
             "start", "--task", "a", "--source", "Tmux", "--owner", "tmux:a"
         ]));
-        assert!(!parse(&["start", "--task", "a", "--source", "tmux", "--owner", "a b"]));
+        assert!(!parse(&[
+            "start", "--task", "a", "--source", "tmux", "--owner", "a b"
+        ]));
         assert!(!parse(&["start", "--source", "tmux", "--owner", "tmux:a"])); // no --task
         assert!(!parse(&["stop"])); // no --owner
     }

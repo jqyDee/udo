@@ -688,7 +688,10 @@ mod tests {
     #[tokio::test]
     async fn cursor_survives_a_restart() {
         let tmp = tempfile::tempdir().unwrap();
-        let t = root_at(tmp.path(), vec![task("a"), container("ws", vec![task("b"), task("c")])]);
+        let t = root_at(
+            tmp.path(),
+            vec![task("a"), container("ws", vec![task("b"), task("c")])],
+        );
         let mut s = state_at(&[1, 1]); // "c"
 
         s.save(&t).await.unwrap();

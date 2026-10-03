@@ -156,7 +156,10 @@ mod tests {
         let session = core.start(&[1, 0], at(14, 0)).await.unwrap();
 
         assert_eq!(session.task.name, "b");
-        assert_eq!(session.task.container_id, core.tree().get(&[1]).unwrap().id());
+        assert_eq!(
+            session.task.container_id,
+            core.tree().get(&[1]).unwrap().id()
+        );
         assert_eq!(session.task.container_dir, tmp.path().join("ws"));
         assert_eq!(session.start, at(14, 0));
         assert_eq!(core.sessions().running().await.unwrap(), Some(session));
@@ -242,7 +245,10 @@ mod tests {
 
         let session = core.start(&[0], at(14, 0)).await.unwrap();
 
-        assert_eq!((session.source, session.owner), (SessionSource::Manual, Owner::manual()));
+        assert_eq!(
+            (session.source, session.owner),
+            (SessionSource::Manual, Owner::manual())
+        );
     }
 
     #[tokio::test]
@@ -255,7 +261,10 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!((session.source.clone(), session.owner.clone()), (source, owner));
+        assert_eq!(
+            (session.source.clone(), session.owner.clone()),
+            (source, owner)
+        );
         assert_eq!(core.sessions().running().await.unwrap(), Some(session));
     }
 
@@ -316,7 +325,10 @@ mod tests {
             assert!(err.is_err(), "{path:?}");
         }
         let (source, owner) = tmux("tmux:a");
-        let err = core.track_start(&[0], source, owner, at(14, 0)).await.unwrap_err();
+        let err = core
+            .track_start(&[0], source, owner, at(14, 0))
+            .await
+            .unwrap_err();
         assert!(err.downcast_ref::<IsDone>().is_some());
 
         assert!(all(&core).await.is_empty());

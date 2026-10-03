@@ -40,7 +40,10 @@ impl Setup {
             ok(root.path(), &["add", "task", task]);
         }
         install_example(root.path(), "nvim-tmux");
-        ok(root.path(), &["settings", "set", "/", "open_with=nvim-tmux"]);
+        ok(
+            root.path(),
+            &["settings", "set", "/", "open_with=nvim-tmux"],
+        );
         executable(&bin, "nvim", "read _"); // Enter quits it
         let s = Setup {
             root,
@@ -128,7 +131,11 @@ impl Setup {
     /// Wait until `udo status` says `want`.
     fn wait_running(&self, want: Option<(String, String, String)>) {
         let what = format!("running = {want:?}");
-        wait_until(&what, || self.running() == want, || format!("{:?}", self.running()));
+        wait_until(
+            &what,
+            || self.running() == want,
+            || format!("{:?}", self.running()),
+        );
     }
 
     /// The one client's name (for `switch-client -c`).
@@ -233,7 +240,10 @@ fn the_users_own_hooks_stay() {
 
     let hooks = s.tmux_ok(&["show-hooks", "-g", "client-detached"]);
 
-    assert!(hooks.contains("client-detached[0] run-shell true"), "{hooks}");
+    assert!(
+        hooks.contains("client-detached[0] run-shell true"),
+        "{hooks}"
+    );
     assert!(hooks.contains("client-detached[77]"), "{hooks}");
     s.tmux_ok(&["detach-client", "-s", &format!("={}", s.session("a"))]);
     client.wait_exit();

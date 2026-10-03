@@ -258,7 +258,10 @@ async fn x_again_reopens_started_with_sessions() {
     app.handle_key(key('x')).await;
     app.handle_key(key('x')).await;
 
-    assert_eq!(app.toast.as_ref().expect("no toast").msg, "sheet -> started");
+    assert_eq!(
+        app.toast.as_ref().expect("no toast").msg,
+        "sheet -> started"
+    );
     assert_eq!(sheet_status(&app), TaskStatus::Started);
 }
 
@@ -332,7 +335,10 @@ async fn s_on_a_done_task_is_refused() {
     app.handle_key(key('s')).await;
 
     assert_eq!(timed(&app), None);
-    let expected = (ToastKind::Error, "sheet is done: press x to reopen it".to_string());
+    let expected = (
+        ToastKind::Error,
+        "sheet is done: press x to reopen it".to_string(),
+    );
     assert_eq!(toast_of(&app), expected);
 }
 
@@ -374,7 +380,11 @@ async fn d_opens_confirm_for_selected_node() {
     assert_eq!(
         app.mode,
         // task without dir
-        Mode::Confirm(Box::new(Confirm::remove_node(vec![0], "a".into(), PurgeOption::NoFolder)))
+        Mode::Confirm(Box::new(Confirm::remove_node(
+            vec![0],
+            "a".into(),
+            PurgeOption::NoFolder
+        )))
     );
 }
 
@@ -697,7 +707,10 @@ async fn task_form_due_date_comes_from_the_deadline_setting() {
         panic!("no form open");
     };
     let due = form.date_value(FieldId::Due).expect("no due field");
-    assert_eq!(due.time(), chrono::NaiveTime::from_hms_opt(18, 0, 0).unwrap());
+    assert_eq!(
+        due.time(),
+        chrono::NaiveTime::from_hms_opt(18, 0, 0).unwrap()
+    );
     // `now` is read inside: allow for the date changing while the test runs
     let days = (due.date() - before).num_days();
     assert!(days == 3 || days == 4, "due {due} is {days} days away");
@@ -1063,7 +1076,12 @@ async fn list_app(n: i64) -> App<'static> {
     for i in 0..n {
         let start = at(0, 0) + chrono::TimeDelta::minutes(i * 20);
         app.core
-            .add_session(&[0], start, start + chrono::TimeDelta::minutes(10), at(20, 0))
+            .add_session(
+                &[0],
+                start,
+                start + chrono::TimeDelta::minutes(10),
+                at(20, 0),
+            )
             .await
             .unwrap();
     }
@@ -1333,7 +1351,12 @@ async fn moving_the_tree_cursor_resets_the_page() {
     for i in 0..7 {
         let start = at(10, 0) + chrono::TimeDelta::minutes(i * 20);
         app.core
-            .add_session(&[1, 0], start, start + chrono::TimeDelta::minutes(10), at(20, 0))
+            .add_session(
+                &[1, 0],
+                start,
+                start + chrono::TimeDelta::minutes(10),
+                at(20, 0),
+            )
             .await
             .unwrap();
     }
@@ -1368,7 +1391,10 @@ async fn e_in_the_empty_list_says_no_session_selected() {
 
     assert_eq!(app.mode, Mode::Sessions); // no form
     let toast = app.toast.as_ref().expect("no toast");
-    assert_eq!((toast.kind, toast.msg.as_str()), (ToastKind::Error, "no session selected"));
+    assert_eq!(
+        (toast.kind, toast.msg.as_str()),
+        (ToastKind::Error, "no session selected")
+    );
 }
 
 // ---------- removing a session (`d` in the list) ----------
@@ -1429,7 +1455,10 @@ async fn d_in_the_empty_list_says_no_session_selected() {
 
     assert_eq!(app.mode, Mode::Sessions); // no prompt
     let toast = app.toast.as_ref().expect("no toast");
-    assert_eq!((toast.kind, toast.msg.as_str()), (ToastKind::Error, "no session selected"));
+    assert_eq!(
+        (toast.kind, toast.msg.as_str()),
+        (ToastKind::Error, "no session selected")
+    );
 }
 
 #[tokio::test]
@@ -1442,12 +1471,20 @@ async fn removing_the_running_session_says_so_and_stops_the_timer() {
     let Mode::Confirm(c) = &app.mode else {
         panic!("no prompt: {:?}", app.mode);
     };
-    assert!(c.question.ends_with("? (running: the timer stops)"), "{}", c.question);
+    assert!(
+        c.question.ends_with("? (running: the timer stops)"),
+        "{}",
+        c.question
+    );
     app.handle_key(key('y')).await;
 
     assert_eq!(app.running, None);
     let toast = app.toast.as_ref().expect("no toast");
-    assert!(toast.msg.ends_with("–now, timer stopped"), "got: {}", toast.msg);
+    assert!(
+        toast.msg.ends_with("–now, timer stopped"),
+        "got: {}",
+        toast.msg
+    );
 }
 
 // ---------- the session form (`e` in the list) ----------
@@ -1547,7 +1584,11 @@ async fn saving_a_changed_start_moves_the_session() {
     assert_eq!(app.session_list.selected, Some(id));
     let toast = app.toast.as_ref().expect("no toast");
     assert_eq!(toast.kind, ToastKind::Info);
-    assert!(toast.msg.starts_with("a: ") && toast.msg.ends_with("(9m)"), "{}", toast.msg);
+    assert!(
+        toast.msg.starts_with("a: ") && toast.msg.ends_with("(9m)"),
+        "{}",
+        toast.msg
+    );
 }
 
 #[tokio::test]
@@ -1713,7 +1754,10 @@ async fn s_on_a_running_session_says_stop_the_timer() {
 
     assert_eq!(app.mode, Mode::Sessions); // no form
     let toast = app.toast.as_ref().expect("no toast");
-    assert_eq!((toast.kind, toast.msg.as_str()), (ToastKind::Error, "stop the timer to split"));
+    assert_eq!(
+        (toast.kind, toast.msg.as_str()),
+        (ToastKind::Error, "stop the timer to split")
+    );
 }
 
 #[tokio::test]
@@ -2048,7 +2092,10 @@ async fn after_a_script_its_timer_shows() {
     app.after_run(&"editor".parse().unwrap(), Ok(exited(0)))
         .await;
 
-    assert_eq!(app.running.as_ref().map(|s| s.task.name.as_str()), Some("b"));
+    assert_eq!(
+        app.running.as_ref().map(|s| s.task.name.as_str()),
+        Some("b")
+    );
 }
 
 // ---------- picker keys (`Mode::Pick`) ----------
@@ -2188,7 +2235,10 @@ fn picker_tree() -> (tempfile::TempDir, Tree) {
     add_script(run.path(), "shell");
     let mut t = tree_with(vec![
         task("a"),
-        container("ws", vec![task("b"), container("wk", vec![task("c")]), task("d")]),
+        container(
+            "ws",
+            vec![task("b"), container("wk", vec![task("c")]), task("d")],
+        ),
     ]);
     let root = t.get_mut(&[]).and_then(Node::as_container_mut).unwrap();
     root.root_settings.run_dir = Some(run.path().to_path_buf());
@@ -2406,7 +2456,11 @@ async fn the_create_forms_get_the_setup_row_with_on_create() {
         app.handle_key(key(form_key)).await;
 
         let form = open_form(&app);
-        assert_eq!(form.fields.last().map(|f| f.id), Some(FieldId::Setup), "{form_key}");
+        assert_eq!(
+            form.fields.last().map(|f| f.id),
+            Some(FieldId::Setup),
+            "{form_key}"
+        );
         assert!(form.runs_setup(), "{form_key}: run is the default");
         app.handle_key(press(KeyCode::Esc)).await;
     }

@@ -54,7 +54,11 @@ impl fmt::Display for RunError {
             }
             Self::NotExecutable { path } => {
                 let name = path.file_stem().unwrap_or_default().to_string_lossy();
-                write!(f, "run config {name:?} is not executable: chmod +x {}", path.display())
+                write!(
+                    f,
+                    "run config {name:?} is not executable: chmod +x {}",
+                    path.display()
+                )
             }
             Self::Io { dir, error } => write!(f, "cannot read {}: {error}", dir.display()),
             Self::Launch { path, error } => {

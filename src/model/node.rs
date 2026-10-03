@@ -204,7 +204,10 @@ mod tests {
     #[test]
     fn dir_none_when_task_has_no_dir() {
         assert!(task("a").dir().is_none());
-        assert_eq!(new_task("a", Some("/tmp/t".into())).dir(), Some(Path::new("/tmp/t")));
+        assert_eq!(
+            new_task("a", Some("/tmp/t".into())).dir(),
+            Some(Path::new("/tmp/t"))
+        );
     }
 
     #[test]

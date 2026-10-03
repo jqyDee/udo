@@ -170,7 +170,10 @@ async fn bottom_line_shows_the_running_timer_and_the_hint() {
 
     let bottom = &rows[23];
     assert!(bottom.starts_with(" ▶ exam · 1h12 "), "{bottom}");
-    assert!(!bottom.contains("manual"), "a manual timer names no source: {bottom}");
+    assert!(
+        !bottom.contains("manual"),
+        "a manual timer names no source: {bottom}"
+    );
     assert!(bottom.trim_end().ends_with("q quit"), "{bottom}");
 }
 
@@ -194,7 +197,10 @@ async fn bottom_line_names_the_program_that_started_the_timer() {
 
     let bottom = &rows[23];
     assert!(bottom.starts_with(" ▶ exam · 1h12 · tmux "), "{bottom}");
-    assert!(!bottom.contains("tmux:1"), "the source, not the owner: {bottom}");
+    assert!(
+        !bottom.contains("tmux:1"),
+        "the source, not the owner: {bottom}"
+    );
 }
 
 /// Task and time first; the program is dim, still green like the rest.
@@ -287,8 +293,14 @@ async fn task_time_rows_show_estimate_duration_and_left() {
 
     let rows = render_rows(&mut app);
 
-    assert_eq!(field_row(&rows, "estimate").as_deref(), Some("2h (from uni)"));
-    assert_eq!(field_row(&rows, "duration").as_deref(), Some("1h12 in 2 sessions"));
+    assert_eq!(
+        field_row(&rows, "estimate").as_deref(),
+        Some("2h (from uni)")
+    );
+    assert_eq!(
+        field_row(&rows, "duration").as_deref(),
+        Some("1h12 in 2 sessions")
+    );
     assert_eq!(field_row(&rows, "left").as_deref(), Some("48m"));
 }
 
@@ -299,7 +311,10 @@ async fn one_session_is_singular() {
 
     let rows = render_rows(&mut app);
 
-    assert_eq!(field_row(&rows, "duration").as_deref(), Some("45m in 1 session"));
+    assert_eq!(
+        field_row(&rows, "duration").as_deref(),
+        Some("45m in 1 session")
+    );
 }
 
 #[tokio::test]
@@ -309,7 +324,10 @@ async fn no_estimate_shows_dashes() {
     let rows = render_rows(&mut app);
 
     assert_eq!(field_row(&rows, "estimate").as_deref(), Some("-"));
-    assert_eq!(field_row(&rows, "duration").as_deref(), Some("0m in 0 sessions"));
+    assert_eq!(
+        field_row(&rows, "duration").as_deref(),
+        Some("0m in 0 sessions")
+    );
     assert_eq!(field_row(&rows, "left").as_deref(), Some("-"));
 }
 
@@ -362,7 +380,10 @@ async fn a_container_shows_only_the_duration_of_the_tasks_below() {
 
     let rows = render_rows(&mut app);
 
-    assert_eq!(field_row(&rows, "duration").as_deref(), Some("1h30 in 2 sessions"));
+    assert_eq!(
+        field_row(&rows, "duration").as_deref(),
+        Some("1h30 in 2 sessions")
+    );
     assert_eq!(field_row(&rows, "estimate"), None);
     assert_eq!(field_row(&rows, "left"), None);
 }
@@ -371,7 +392,10 @@ async fn a_container_shows_only_the_duration_of_the_tasks_below() {
 
 /// root: [uni: [cs: [lab]]], uni sets the deadline, cursor on task "lab".
 fn tabs_tree() -> Tree {
-    let mut t = tree_with(vec![container("uni", vec![container("cs", vec![task("lab")])])]);
+    let mut t = tree_with(vec![container(
+        "uni",
+        vec![container("cs", vec![task("lab")])],
+    )]);
     let uni = t.get_mut(&[0]).and_then(Node::as_container_mut).unwrap();
     uni.settings.default_deadline = Some("fri 22:00".parse().unwrap());
     t
@@ -403,21 +427,33 @@ fn settings_tab_shows_values_and_sources() {
     let rows = render_rows(&mut app);
     let screen = rows.concat();
 
-    assert!(screen.contains("fri 22:00 (from uni)"), "got:\n{}", rows.join("\n"));
+    assert!(
+        screen.contains("fri 22:00 (from uni)"),
+        "got:\n{}",
+        rows.join("\n")
+    );
     assert!(screen.contains("none (default)")); // task folders
     assert!(!screen.contains("to do")); // no info lines
     let archive = rows
         .iter()
         .find(|r| r.contains("archive"))
         .expect("no archive row");
-    assert!(archive.contains('-'), "unset archive should show -: {archive}");
+    assert!(
+        archive.contains('-'),
+        "unset archive should show -: {archive}"
+    );
 }
 
 /// Settings form of "uni" open, with the field of `SETTINGS` entry `key`
 /// active.
 fn settings_form_on(app: &mut App, key: &str) {
-    let mut form =
-        Form::edit_settings(vec![0], "uni", &ContainerSettings::default(), |_| String::new(), None);
+    let mut form = Form::edit_settings(
+        vec![0],
+        "uni",
+        &ContainerSettings::default(),
+        |_| String::new(),
+        None,
+    );
     form.active_field = SETTINGS.iter().position(|i| i.key == key).unwrap();
     app.mode = Mode::Form(Box::new(form));
 }
@@ -452,7 +488,11 @@ fn an_open_form_leaves_less_room() {
     settings_form_on(&mut app, "estimate");
     render_rows(&mut app);
 
-    assert!(app.session_list.page_len < full, "{} vs {full}", app.session_list.page_len);
+    assert!(
+        app.session_list.page_len < full,
+        "{} vs {full}",
+        app.session_list.page_len
+    );
 }
 
 #[test]
@@ -463,7 +503,11 @@ fn settings_form_shows_the_format_of_the_active_field() {
     settings_form_on(&mut app, "default_deadline");
     let rows = render_rows(&mut app);
     let expected = format!("e.g. {}", DeadlineRule::EXAMPLES);
-    assert!(rows.concat().contains(&expected), "got:\n{}", rows.join("\n"));
+    assert!(
+        rows.concat().contains(&expected),
+        "got:\n{}",
+        rows.join("\n")
+    );
 
     settings_form_on(&mut app, "task_folders"); // a choice: no format
     assert!(!render(&mut app).contains("e.g."));
@@ -628,7 +672,10 @@ fn help_overlay_shows_section_headings_in_order() {
         })
         .collect();
     let reading_order: Vec<(usize, usize)> = headings.iter().map(|&(r, c)| (c, r)).collect();
-    assert!(reading_order.is_sorted(), "headings out of order: {headings:?}");
+    assert!(
+        reading_order.is_sorted(),
+        "headings out of order: {headings:?}"
+    );
     // each section's first binding sits right below its heading
     for (s, (row, _)) in KEYMAP.iter().zip(&headings) {
         assert!(
@@ -952,7 +999,10 @@ fn help_overlay_switches_to_two_columns_when_short() {
                 .1
         })
         .collect();
-    assert!(cols.iter().any(|&c| c != cols[0]), "still one column: {cols:?}");
+    assert!(
+        cols.iter().any(|&c| c != cols[0]),
+        "still one column: {cols:?}"
+    );
 }
 
 // ---------- sessions tab: rows ----------
@@ -1000,8 +1050,14 @@ async fn sessions_are_newest_first() {
     let rows = session_rows(&render_rows(&mut app));
 
     assert_eq!(rows.len(), 3, "{rows:?}");
-    assert!(rows[0].contains(&format!("{}–{}", clock(0, 40), clock(0, 50))), "{rows:?}");
-    assert!(rows[2].contains(&format!("{}–{}", clock(0, 0), clock(0, 10))), "{rows:?}");
+    assert!(
+        rows[0].contains(&format!("{}–{}", clock(0, 40), clock(0, 50))),
+        "{rows:?}"
+    );
+    assert!(
+        rows[2].contains(&format!("{}–{}", clock(0, 0), clock(0, 10))),
+        "{rows:?}"
+    );
 }
 
 #[tokio::test]
@@ -1012,7 +1068,10 @@ async fn a_running_session_shows_now() {
 
     let rows = session_rows(&render_rows(&mut app));
 
-    assert!(rows[0].contains("–now") && rows[0].ends_with('▶'), "{rows:?}");
+    assert!(
+        rows[0].contains("–now") && rows[0].ends_with('▶'),
+        "{rows:?}"
+    );
     assert!(!rows[1].contains('▶'));
 }
 
@@ -1064,7 +1123,10 @@ async fn a_container_names_the_task() {
 
 #[tokio::test]
 async fn a_long_task_name_is_cut() {
-    let t = tree_with(vec![container("uni", vec![task("a very long task name here")])]);
+    let t = tree_with(vec![container(
+        "uni",
+        vec![task("a very long task name here")],
+    )]);
     let mut app = test_app(t, state_at(&[0]));
     app.core
         .add_session(&[0, 0], at(9, 0), at(10, 0), at(20, 0))
@@ -1183,11 +1245,17 @@ async fn the_tree_cursor_is_dimmed_while_in_the_list_and_its_form() {
     assert!(dimmed(&tree_cursor_cell(&mut app)), "in the list");
 
     app.handle_key(press(KeyCode::Char('e'))).await; // the session form
-    assert!(dimmed(&tree_cursor_cell(&mut app)), "the form over the list");
+    assert!(
+        dimmed(&tree_cursor_cell(&mut app)),
+        "the form over the list"
+    );
 
     app.handle_key(press(KeyCode::Esc)).await; // back to the list
     app.handle_key(press(KeyCode::Char('?'))).await; // the list's help
-    assert!(dimmed(&tree_cursor_cell(&mut app)), "the help over the list");
+    assert!(
+        dimmed(&tree_cursor_cell(&mut app)),
+        "the help over the list"
+    );
 
     app.handle_key(press(KeyCode::Esc)).await; // closes the help only
     assert!(dimmed(&tree_cursor_cell(&mut app)), "back in the list");
@@ -1207,7 +1275,10 @@ async fn help_in_the_list_shows_the_list_keys() {
     assert!(screen.contains("split session"), "{screen}");
     assert!(screen.contains("previous (newer) session"), "{screen}");
     assert!(screen.contains("back to the tree"), "{screen}");
-    assert!(!screen.contains("new task"), "tree keys leaked in: {screen}");
+    assert!(
+        !screen.contains("new task"),
+        "tree keys leaked in: {screen}"
+    );
 }
 
 /// `?` in the tree: still the tree's keys, not the list's.
@@ -1219,7 +1290,10 @@ async fn help_in_the_tree_shows_the_tree_keys() {
     let screen = render(&mut app);
 
     assert!(screen.contains("new task"), "{screen}");
-    assert!(!screen.contains("split session"), "list keys leaked in: {screen}");
+    assert!(
+        !screen.contains("split session"),
+        "list keys leaked in: {screen}"
+    );
 }
 
 /// The page line is always there, at the same place: `page 1/1` too.

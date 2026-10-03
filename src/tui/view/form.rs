@@ -47,8 +47,10 @@ pub fn draw(frame: &mut Frame, area: Rect, form: &Form) {
     // Bottom help instructions
     lines.push(Line::default());
     // date keys aren't obvious: explain them while a date field is active
-    let date_active =
-        matches!(form.fields.get(form.active_field).map(|f| &f.input), Some(FieldInput::Date(_)));
+    let date_active = matches!(
+        form.fields.get(form.active_field).map(|f| &f.input),
+        Some(FieldInput::Date(_))
+    );
     if date_active {
         lines.push(Line::from(" ←→ part · ↑↓ change · t today ").dim());
     }
@@ -114,7 +116,10 @@ pub(super) fn text_spans(t: &TextInput, is_active: bool, width: usize) -> Vec<Sp
     }
 
     if cursor < chars.len() {
-        spans.push(Span::styled(chars[cursor].to_string(), Style::new().reversed()));
+        spans.push(Span::styled(
+            chars[cursor].to_string(),
+            Style::new().reversed(),
+        ));
         spans.push(Span::raw(text(cursor + 1, end)));
     } else if chars.is_empty() && t.placeholder.is_some() {
         // empty: the cursor sits on the hint's first char, so the hint
@@ -336,7 +341,10 @@ mod tests {
     fn hint_shows_only_while_unset() {
         let mut c =
             ChoiceInput::unsettable("inherit", &["auto", "none"], None).with_hint("none (default)");
-        assert_eq!(choice_text(&c, false), "‹ inherit · auto · none ›  none (default)");
+        assert_eq!(
+            choice_text(&c, false),
+            "‹ inherit · auto · none ›  none (default)"
+        );
         c.selected = 1; // auto
         assert_eq!(choice_text(&c, false), "‹ inherit · auto · none ›");
     }
@@ -375,12 +383,18 @@ mod tests {
             preview(&task_form(FolderMode::Auto, "lab 3")).as_deref(),
             Some("/uni/cs101/lab_3")
         );
-        assert_eq!(preview(&task_form(FolderMode::Auto, "")).as_deref(), Some("/uni/cs101/<name>"));
+        assert_eq!(
+            preview(&task_form(FolderMode::Auto, "")).as_deref(),
+            Some("/uni/cs101/<name>")
+        );
     }
 
     #[test]
     fn none_preview_says_no_folder() {
-        assert_eq!(preview(&task_form(FolderMode::None, "lab 3")).as_deref(), Some("(no folder)"));
+        assert_eq!(
+            preview(&task_form(FolderMode::None, "lab 3")).as_deref(),
+            Some("(no folder)")
+        );
     }
 
     #[test]
@@ -398,7 +412,10 @@ mod tests {
             Some("/home/me/.config/udo".into()),
             ContainerKind::Workspace,
         );
-        assert_eq!(preview(&container).as_deref(), Some("/home/me/.config/udo/<name>"));
+        assert_eq!(
+            preview(&container).as_deref(),
+            Some("/home/me/.config/udo/<name>")
+        );
     }
 
     #[test]
