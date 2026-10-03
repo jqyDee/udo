@@ -65,6 +65,15 @@ impl Tree {
         setting.script().cloned()
     }
 
+    /// The script `on_create` names for a node created at `path` (`udo
+    /// add`, the TUI create forms). Called after `create`: a new container
+    /// sets nothing itself yet, so this is its parent's value; before it
+    /// (the form's `setup` row), ask for the parent. Unset or `none`: None.
+    pub fn on_create(&self, path: &[usize]) -> Option<RunName> {
+        let setting = self.setting(path, |s| s.on_create.clone())?.value;
+        setting.script().cloned()
+    }
+
     /// What the container at `path` would get if it didn't set the value
     /// itself: its parent's value (root: the built-in default). For the
     /// placeholders of the settings form. None: not a container, or set

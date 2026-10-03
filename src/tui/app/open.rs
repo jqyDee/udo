@@ -11,7 +11,7 @@ use std::process::ExitStatus;
 
 use crate::{
     model::{NodePath, node::Node, settings::RunName, tree::Tree},
-    run::{Event, Library, RunContext, RunError, exit_code},
+    run::{Event, Library, RunError, exit_code},
     tui::{
         app::{App, Flow, Mode, RunRequest},
         pick::{PickAction, PickItem, PickValue, Picker},
@@ -79,10 +79,10 @@ impl App<'_> {
     /// `Flow::Run` for `name` on the node at `node`, its time on the task at
     /// `task`; a problem (script missing, not executable, ...) is a toast.
     pub(super) fn run_on(&mut self, node: &[usize], task: &[usize], name: RunName) -> Flow {
-        match run_request(self.core.tree(), node, task, name) {
+        match RunRequest::new(self.core.tree(), Event::Open, node, Some(task), name) {
             Ok(request) => Flow::Run(Box::new(request)),
-            Err(msg) => {
-                self.error(msg);
+            Err(e) => {
+                self.error(e.to_string());
                 Flow::Continue
             }
         }
@@ -98,23 +98,6 @@ impl App<'_> {
         }
         self.reload().await;
     }
-}
-
-/// What runs when `name` opens the node at `node` with its time on the
-/// task at `task` (the node itself, or one picked below a container).
-fn run_request(
-    tree: &Tree,
-    node: &[usize],
-    task: &[usize],
-    name: RunName,
-) -> Result<RunRequest, String> {
-    let library = Library::load(&tree.run_dir()).map_err(|e| e.to_string())?;
-    let script = library
-        .find(&name)
-        .map_err(|e| e.to_string())?
-        .to_path_buf();
-    let ctx = RunContext::new(tree, Event::Open, node, Some(task)).ok_or("no such node")?;
-    Ok(RunRequest { name, script, ctx })
 }
 
 /// `O`'s picker: the library's names, sorted, `open_with` preselected and

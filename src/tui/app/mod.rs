@@ -30,7 +30,7 @@ mod sessions;
 mod tests;
 mod timer;
 
-use std::{collections::HashSet, path::PathBuf, time::Instant};
+use std::{collections::HashSet, time::Instant};
 
 use crossterm::event::{KeyEvent, KeyEventKind};
 
@@ -38,17 +38,18 @@ pub use confirm::{Confirm, ConfirmAction, ConfirmStage};
 pub use mode::Mode;
 pub use remove::PurgeOption;
 
+/// Lives in `run` (the CLI builds them too); here for `Flow::Run`.
+pub use crate::run::RunRequest;
+
 use crate::{
     core::Core,
     model::{
         id::NodeId,
         node::Node,
         sessions::Session,
-        settings::RunName,
         time::{self, Clock},
         tree::{TrashFn, system_trash},
     },
-    run::RunContext,
     tui::{
         app::details::DetailsTab,
         keys::{self, Action},
@@ -68,17 +69,6 @@ pub enum Flow {
     /// the terminal is the loop's. Boxed: every key returns a `Flow`, and
     /// `Continue` should not carry a request's size.
     Run(Box<RunRequest>),
-}
-
-/// A script to run for a node, and what it learns about it (`UDO_*`).
-#[derive(Debug, Clone, PartialEq)]
-pub struct RunRequest {
-    /// For messages: `nvim-tmux exited with 1`.
-    pub name: RunName,
-    /// The script `name` was found as (`Library::find`).
-    pub script: PathBuf,
-    /// The node, the task the time goes to, why it runs.
-    pub ctx: RunContext,
 }
 
 pub struct App<'a> {

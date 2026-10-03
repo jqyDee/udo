@@ -318,6 +318,39 @@ mod tests {
         assert_eq!(t.open_with(&[1]), None); // "work": not below uni
     }
 
+    fn set_on_create(t: &mut Tree, path: &[usize], text: &str) {
+        let c = t.get_mut(path).and_then(Node::as_container_mut).unwrap();
+        c.settings.on_create = Some(text.parse().unwrap());
+    }
+
+    /// `Tree::on_create`: inherited by tasks and containers below, `none`
+    /// switches it off, unset is nothing.
+    #[test]
+    fn on_create_names_the_script_or_nothing() {
+        let mut t = uni_tree();
+        assert_eq!(t.on_create(&[0, 0, 0]), None); // unset
+
+        set_on_create(&mut t, &[0], "typst-setup");
+        let setup = Some("typst-setup".parse().unwrap());
+        assert_eq!(t.on_create(&[0, 0, 0]), setup, "a task below");
+        assert_eq!(t.on_create(&[0, 0]), setup, "a container below");
+
+        set_on_create(&mut t, &[0, 0], "none");
+        assert_eq!(t.on_create(&[0, 0, 0]), None); // switched off
+        assert_eq!(t.on_create(&[1]), None); // "work": not below uni
+    }
+
+    /// Two settings: `open_with` does not run on create, nor the other way.
+    #[test]
+    fn on_create_and_open_with_are_apart() {
+        let mut t = uni_tree();
+        set_open_with(&mut t, &[0], "nvim-tmux");
+        assert_eq!(t.on_create(&[0, 0, 0]), None);
+
+        set_on_create(&mut t, &[0], "typst-setup");
+        assert_eq!(t.open_with(&[0, 0, 0]), Some("nvim-tmux".parse().unwrap()));
+    }
+
     #[test]
     fn default_deadline_in_the_file() {
         let s: ContainerSettings = toml::from_str("default_deadline = \"+7d 23:59\"").unwrap();

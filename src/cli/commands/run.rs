@@ -14,7 +14,7 @@ use crate::{
     },
     core::Core,
     model::{NodePath, node::Node, settings::RunName, tree::Tree},
-    run::{Event, Library, RunContext, exit_code, launch},
+    run::{Event, Library, RunRequest, exit_code, launch},
 };
 
 #[derive(clap::Args)]
@@ -62,15 +62,13 @@ pub async fn run(core: &Core, cwd: &Path, args: &RunArgs) -> Res<Opened> {
             .open_with(&path)
             .ok_or_else(|| format!("no run config for {} (set open_with)", node.name()))?,
     };
-    let library = Library::load(&tree.run_dir())?;
-    let script = library.find(&name)?;
     let task = task_for(tree, &path, args.task.as_deref(), cwd)?;
-    let ctx = RunContext::new(tree, Event::Open, &path, Some(&task)).ok_or("no such node")?;
+    let request = RunRequest::new(tree, Event::Open, &path, Some(&task), name)?;
 
-    let status = launch(script, &ctx).await?;
+    let status = launch(&request.script, &request.ctx).await?;
     Ok(Opened {
         node: path_text(tree, &path),
-        script: name.to_string(),
+        script: request.name.to_string(),
         code: exit_code(status),
     })
 }
