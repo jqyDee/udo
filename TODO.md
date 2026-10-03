@@ -4,11 +4,11 @@ Priorities as of 2026-10-03, in order. Background and older plans:
 `roadmap.txt` (phase numbers below refer to it).
 
 **Next up:** run configs + tracking by program (sections 2 and 4), spec
-`docs/superpowers/specs/2026-10-02-run-configs-design.md`, stage 3
-(library, launcher, `udo run`, settings). Done lately: stages 1 and 2
-(session owners, `udo track start / stop / run [--detach]`, `id:<uuid>`
-as NODE), session corrections in the TUI and `?` help in the sessions
-list.
+`docs/superpowers/specs/2026-10-02-run-configs-design.md`, stage 4 (TUI:
+`o` / `O`, picker, suspend / resume). Done lately: stages 1-3 (session
+owners, `udo track start / stop / run [--detach]`, `id:<uuid>` as NODE,
+run config library and launcher, `udo run [--with] [--task] [--list]`,
+`open_with` / `on_create` / `run_dir`).
 
 ## Done: creation flow
 
@@ -251,7 +251,7 @@ knows no program and never starts a timer for a run (scripts call
 
 - [x] **1. Session data + `track start / stop`** (see section 2).
 - [x] **2. `track run [--detach]`.**
-- [ ] **3. Library, launcher, `udo run`, settings:** root setting `run_dir`
+- [x] **3. Library, launcher, `udo run`, settings:** root setting `run_dir`
       (default `<root>/run/`, `~` allowed); inherited `open_with` /
       `on_create` (`none` switches off); `run::Library` (`NotFound`,
       `Duplicate`, `NotExecutable`), `run::launch` (terminal inherited,

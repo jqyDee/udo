@@ -11,6 +11,7 @@ mod done;
 mod edit;
 mod ls;
 mod rm;
+mod run;
 mod session;
 mod settings;
 mod show;
@@ -58,6 +59,8 @@ pub enum Command {
     /// The timer for programs: tmux hooks, editor wrappers (quiet)
     #[command(subcommand)]
     Track(track::TrackCommand),
+    /// Open a node with its run config (open_with, or --with); --list them
+    Run(run::RunArgs),
 }
 
 /// Run `command` and print its result (`json`: as JSON). `cwd` is where
@@ -83,5 +86,14 @@ pub async fn run(command: &Command, core: &mut Core, cwd: &Path, json: bool) -> 
         Command::Status(a) => emit(&timer::status(core, time::now(), a).await?, json),
         Command::Session(c) => session::run(c, core, cwd, json).await,
         Command::Track(c) => track::run(c, core, cwd, json).await,
+        Command::Run(a) if a.list => emit(&run::list(core, cwd, a)?, json),
+        Command::Run(a) => {
+            let opened = run::run(core, cwd, a).await?;
+            emit(&opened, json)?;
+            if opened.code != 0 {
+                std::process::exit(opened.code); // the script's code, like a wrapper
+            }
+            Ok(())
+        }
     }
 }
