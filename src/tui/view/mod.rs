@@ -2,7 +2,8 @@
 //! - `tree`:    tree list (left)
 //! - `details`: selected node (right)
 //! - `form`:    create / edit form (right, below the details)
-//! - `popup`:   overlays: toast (top right), key help + confirm (center)
+//! - `popup`:   overlays: toast (top right), key help, confirm + picker
+//!   (center)
 
 mod details;
 mod form;
@@ -15,7 +16,7 @@ use ratatui::{
     Frame,
     layout::{Constraint, Layout},
     style::Stylize,
-    text::Line,
+    text::{Line, Span},
 };
 
 use std::collections::HashSet;
@@ -24,7 +25,7 @@ use crate::{
     model::{
         id::NodeId,
         node::Node,
-        sessions::Session,
+        sessions::{Session, SessionSource},
         settings::Resolved,
         task::{Task, TaskStatus},
         time::{Minutes, Time},
@@ -116,8 +117,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, now: Time) {
     .areas(bottom);
 
     if let Some(s) = &app.running {
-        let timer = format!(" ▶ {} · {}", s.task.name, s.duration(now));
-        frame.render_widget(Line::from(timer).green(), timer_area);
+        frame.render_widget(timer_line(s, now), timer_area);
     }
     frame.render_widget(hint, hint_area);
 
@@ -137,4 +137,20 @@ pub fn draw(frame: &mut Frame, app: &mut App, now: Time) {
     if let Mode::Confirm(c) = &app.mode {
         popup::draw_confirm(frame, c);
     }
+}
+
+/// ` ▶ lab 3 · 1h12`; a program's session also names the program, dim
+/// (` · tmux`): `s` stops what that program started (a manual stop wins).
+fn timer_line(s: &Session, now: Time) -> Line<'static> {
+    let mut spans = vec![Span::raw(format!(
+        " ▶ {} · {}",
+        s.task.name,
+        s.duration(now)
+    ))];
+    // the variant, not the text: a new source must be decided on here
+    match &s.source {
+        SessionSource::Manual => {}
+        SessionSource::Program(name) => spans.push(Span::raw(format!(" · {name}")).dim()),
+    }
+    Line::from(spans).green()
 }

@@ -169,8 +169,48 @@ async fn bottom_line_shows_the_running_timer_and_the_hint() {
     let rows = render_rows(&mut app);
 
     let bottom = &rows[23];
-    assert!(bottom.starts_with(" ▶ exam · 1h12"), "{bottom}");
+    assert!(bottom.starts_with(" ▶ exam · 1h12 "), "{bottom}");
+    assert!(!bottom.contains("manual"), "a manual timer names no source: {bottom}");
     assert!(bottom.trim_end().ends_with("q quit"), "{bottom}");
+}
+
+/// The timer on "exam" since 10:48, started by `udo track start` from tmux.
+async fn program_timed_app() -> App<'static> {
+    let mut app = test_app(tree_with(vec![task("exam")]), state_at(&[]));
+    let (source, owner) = ("tmux".parse().unwrap(), "tmux:1".parse().unwrap());
+    app.core
+        .track_start(&[0], source, owner, at(10, 48))
+        .await
+        .unwrap();
+    app.reload().await;
+    app
+}
+
+#[tokio::test]
+async fn bottom_line_names_the_program_that_started_the_timer() {
+    let mut app = program_timed_app().await;
+
+    let rows = render_rows(&mut app);
+
+    let bottom = &rows[23];
+    assert!(bottom.starts_with(" ▶ exam · 1h12 · tmux "), "{bottom}");
+    assert!(!bottom.contains("tmux:1"), "the source, not the owner: {bottom}");
+}
+
+/// Task and time first; the program is dim, still green like the rest.
+#[tokio::test]
+async fn the_program_in_the_bottom_line_is_dim() {
+    let mut app = program_timed_app().await;
+
+    let buf = render_buffer(&mut app, 80, 24);
+    let rows = rows_of(&buf);
+
+    let (y, x) = find(&rows, "tmux").unwrap();
+    let source = &buf[(x as u16, y as u16)];
+    assert!(source.modifier.contains(Modifier::DIM));
+    assert_eq!(source.fg, Color::Green);
+    let (y, x) = find(&rows, "exam · 1h12").unwrap();
+    assert!(!buf[(x as u16, y as u16)].modifier.contains(Modifier::DIM));
 }
 
 #[test]

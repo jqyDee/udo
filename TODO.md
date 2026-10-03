@@ -4,11 +4,12 @@ Priorities as of 2026-10-03, in order. Background and older plans:
 `roadmap.txt` (phase numbers below refer to it).
 
 **Next up:** run configs + tracking by program (sections 2 and 4), spec
-`docs/superpowers/specs/2026-10-02-run-configs-design.md`, stage 4 (TUI:
-`o` / `O`, picker, suspend / resume). Done lately: stages 1-3 (session
-owners, `udo track start / stop / run [--detach]`, `id:<uuid>` as NODE,
-run config library and launcher, `udo run [--with] [--task] [--list]`,
-`open_with` / `on_create` / `run_dir`).
+`docs/superpowers/specs/2026-10-02-run-configs-design.md`, stage 5
+(`create` event: `on_create`, `udo add --no-run`). Done lately: stages
+1-4 (session owners, `udo track start / stop / run [--detach]`,
+`id:<uuid>` as NODE, run config library and launcher, `udo run [--with]
+[--task] [--list]`, `open_with` / `on_create` / `run_dir`; TUI `o` / `O`
+with task and script pickers, the source in the status line).
 
 ## Done: creation flow
 
@@ -257,10 +258,13 @@ knows no program and never starts a timer for a run (scripts call
       `Duplicate`, `NotExecutable`), `run::launch` (terminal inherited,
       "press Enter" on exit != 0); `udo run [NODE] [--with] [--task]`,
       `udo run --list`. Unknown names fail when running, not loading.
-- [ ] **4. TUI:** `o` open, `O` open with… (script picker); a container
+- [x] **4. TUI:** `o` open, `O` open with… (script picker); a container
       opens via a task picker (the time goes to that task); `Flow::Run` ->
       the loop suspends, runs, resumes; status line shows the source
-      (`▶ lab 3 · 1h12 · tmux`).
+      (`▶ lab 3 · 1h12 · tmux`). `tests/tui_open.rs` drives it in a
+      pseudo-terminal.
+- [ ] Help overlay: a box wider than the screen is cut silently (a long
+      help text in `KEYMAP` drops off the right edge).
 - [ ] **5. `create` event:** `on_create` after creating a task / container
       (CLI and TUI); `udo add --no-run`. The node stays if the script
       fails.
