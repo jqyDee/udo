@@ -20,7 +20,7 @@ use crate::{
         sessions::{Owner, SessionSource},
         time::Time,
     },
-    run::{exit_code, wait},
+    run::{Stdout, exit_code, wait},
 };
 
 #[derive(clap::Args)]
@@ -66,15 +66,21 @@ pub struct Detached {
 /// again once the child has ended. The session is stopped even if the
 /// child could not start (then the error is returned): none is left open.
 /// `args.started` (the helper): the session runs already, only wait and
-/// stop.
-pub async fn run(core: &mut Core, cwd: &Path, now: impl Fn() -> Time, args: &RunArgs) -> Res<Ran> {
+/// stop. The child's stdout goes where `stdout` says (stderr for `--json`).
+pub async fn run(
+    core: &mut Core,
+    cwd: &Path,
+    now: impl Fn() -> Time,
+    args: &RunArgs,
+    stdout: Stdout,
+) -> Res<Ran> {
     if !args.started {
         let path = resolve(core.tree(), Some(&args.task), cwd)?;
         core.track_start(&path, args.source.clone(), args.owner.clone(), now())
             .await?;
     }
 
-    let status = wait_for(&args.cmd).await;
+    let status = wait_for(&args.cmd, stdout).await;
     let end = now();
     let stopped = core.track_stop(&args.owner, end).await?; // before `status?`
     let code = exit_code(status?);
@@ -142,11 +148,12 @@ fn spawn_helper(task: &str, args: &RunArgs) -> Res<u32> {
 }
 
 /// Run `cmd` (program and arguments) and wait: `run::wait` (terminal
-/// inherited, Ctrl+C left to the child).
-async fn wait_for(cmd: &[String]) -> Res<ExitStatus> {
+/// inherited, Ctrl+C left to the child), its stdout where `stdout` says.
+async fn wait_for(cmd: &[String], stdout: Stdout) -> Res<ExitStatus> {
     let (program, args) = cmd.split_first().ok_or("no command after --")?;
     let mut child = tokio::process::Command::new(program);
     child.args(args);
+    stdout.apply(&mut child)?;
     Ok(wait(child)
         .await
         .map_err(|e| format!("cannot start {program:?}: {e}"))?)
@@ -188,6 +195,12 @@ mod tests {
             started: false,
             cmd: cmd.iter().map(|s| s.to_string()).collect(),
         }
+    }
+
+    /// `run` with the child's stdout on the terminal, as without `--json`
+    /// (shadows the glob import; `--json`: `tests/cli_json.rs`).
+    async fn run(core: &mut Core, cwd: &Path, now: impl Fn() -> Time, args: &RunArgs) -> Res<Ran> {
+        super::run(core, cwd, now, args, Stdout::Inherit).await
     }
 
     // `detach` itself starts udo's own binary again: tested from outside,

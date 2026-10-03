@@ -1,19 +1,26 @@
 use std::{path::Path, process::ExitStatus};
 
-use crate::run::{RunContext, RunError, child::wait, context::TASK_VARS};
+use crate::run::{RunContext, RunError, Stdout, child::wait, context::TASK_VARS};
 
 /// Run `script` for `ctx`: in its working folder, with the `UDO_*`
 /// variables on top of udo's own environment, the terminal handed over
-/// unchanged (no pipes) and Ctrl+C left to the script. Returns when the
-/// script does; what its exit code means is the caller's business (the
-/// TUI asks for Enter first, the CLI passes it on).
-pub async fn launch(script: &Path, ctx: &RunContext) -> Result<ExitStatus, RunError> {
+/// unchanged (no pipes; stdout to stderr for `--json`, see `Stdout`) and
+/// Ctrl+C left to the script. Returns when the script does; what its exit
+/// code means is the caller's business (the TUI asks for Enter first, the
+/// CLI passes it on).
+pub async fn launch(
+    script: &Path,
+    ctx: &RunContext,
+    stdout: Stdout,
+) -> Result<ExitStatus, RunError> {
     let launch_error = |error| RunError::Launch {
         path: script.to_path_buf(),
         error,
     };
     let bin = std::env::current_exe().map_err(launch_error)?;
-    wait(command(script, ctx, &bin)).await.map_err(launch_error)
+    let mut cmd = command(script, ctx, &bin);
+    stdout.apply(&mut cmd).map_err(launch_error)?;
+    wait(cmd).await.map_err(launch_error)
 }
 
 /// The command `launch` runs, built apart so tests can look at it.
@@ -61,7 +68,7 @@ mod tests {
         );
         let ctx = RunContext::new(&tree, Event::Open, &[1, 0], Some(&[1, 0])).unwrap();
 
-        let status = launch(&path, &ctx).await.unwrap();
+        let status = launch(&path, &ctx, Stdout::Inherit).await.unwrap();
 
         assert!(status.success());
         let seen = fs::read_to_string(&out).unwrap();
@@ -83,7 +90,20 @@ mod tests {
         let path = script(scripts.path(), "#!/bin/sh\nexit 3\n");
         let ctx = RunContext::new(&tree, Event::Open, &[0], Some(&[0])).unwrap();
 
-        let status = launch(&path, &ctx).await.unwrap();
+        let status = launch(&path, &ctx, Stdout::Inherit).await.unwrap();
+
+        assert_eq!(status.code(), Some(3));
+    }
+
+    /// Redirected for `--json`: runs the same, the code comes back.
+    #[tokio::test]
+    async fn stdout_on_stderr_runs_the_same() {
+        let (_tmp, tree) = disk_tree().await;
+        let scripts = tempfile::tempdir().unwrap();
+        let path = script(scripts.path(), "#!/bin/sh\necho hi\nexit 3\n");
+        let ctx = RunContext::new(&tree, Event::Open, &[0], Some(&[0])).unwrap();
+
+        let status = launch(&path, &ctx, Stdout::Stderr).await.unwrap();
 
         assert_eq!(status.code(), Some(3));
     }
@@ -96,7 +116,7 @@ mod tests {
         let path = script(scripts.path(), "#!/usr/bin/pyhton\n");
         let ctx = RunContext::new(&tree, Event::Open, &[0], Some(&[0])).unwrap();
 
-        let err = launch(&path, &ctx).await.unwrap_err();
+        let err = launch(&path, &ctx, Stdout::Inherit).await.unwrap_err();
 
         assert!(matches!(err, RunError::Launch { .. }));
         assert!(err.to_string().ends_with("(check its #! line)"), "{err}");

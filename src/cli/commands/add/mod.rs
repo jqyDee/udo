@@ -17,7 +17,7 @@ use crate::{
     cli::report::{Report, emit},
     core::Core,
     model::{container::ContainerKind, tree::Tree},
-    run::{RunRequest, exit_code, launch},
+    run::{RunRequest, Stdout, exit_code, launch},
 };
 
 #[derive(clap::Subcommand)]
@@ -74,31 +74,32 @@ pub struct Added {
 /// Run `command` and print what it added; a failed `on_create` as a
 /// warning on stderr (stdout stays the report, `--json` stays JSON).
 pub async fn run(command: &AddCommand, core: &mut Core, cwd: &Path, json: bool) -> Res<()> {
-    let added = add(command, core, cwd).await?;
+    let added = add(command, core, cwd, Stdout::for_json(json)).await?;
     if let Some(warning) = added.warning() {
         eprintln!("warning: {warning}");
     }
     emit(&added, json)
 }
 
-/// `run` without printing: create the node, then its `on_create`. Err:
-/// only if nothing was created.
-async fn add(command: &AddCommand, core: &mut Core, cwd: &Path) -> Res<Added> {
+/// `run` without printing: create the node, then its `on_create` (its
+/// stdout where `stdout` says). Err: only if nothing was created.
+async fn add(command: &AddCommand, core: &mut Core, cwd: &Path, stdout: Stdout) -> Res<Added> {
     let (path, mut added) = match command {
         AddCommand::Task(a) => task::run(core, cwd, Local::now().naive_local(), a).await?,
         AddCommand::Project(a) => container::run(core, cwd, a, ContainerKind::Project).await?,
         AddCommand::Workspace(a) => container::run(core, cwd, a, ContainerKind::Workspace).await?,
     };
     if !command.no_run() {
-        added.ran = on_create(core.tree(), &path).await;
+        added.ran = on_create(core.tree(), &path, stdout).await;
     }
     Ok(added)
 }
 
-/// Run `on_create` for the new node at `path`, the terminal handed over.
-/// None: nothing set (or `none`). Never `Err`: the node is there whatever
-/// the script does, so a problem is only reported (`Ran::error`).
-async fn on_create(tree: &Tree, path: &[usize]) -> Option<Ran> {
+/// Run `on_create` for the new node at `path`, the terminal handed over
+/// (its stdout where `stdout` says). None: nothing set (or `none`). Never
+/// `Err`: the node is there whatever the script does, so a problem is only
+/// reported (`Ran::error`).
+async fn on_create(tree: &Tree, path: &[usize], stdout: Stdout) -> Option<Ran> {
     // first: the name is known even if the request fails (unknown script)
     let script = tree.on_create(path)?.to_string();
     let failed = |script, error: String| Ran {
@@ -111,7 +112,7 @@ async fn on_create(tree: &Tree, path: &[usize]) -> Option<Ran> {
         Ok(None) => return None, // not reached: on_create is set
         Err(e) => return Some(failed(script, e.to_string())),
     };
-    match launch(&request.script, &request.ctx).await {
+    match launch(&request.script, &request.ctx, stdout).await {
         Ok(status) => {
             let code = exit_code(status);
             let error = (code != 0).then(|| format!("exited with {code}"));
@@ -190,7 +191,7 @@ mod tests {
         let out = recorder(tmp.path(), "setup");
         set_on_create(&mut core, &[], "setup").await;
 
-        let added = add(&command(&["task", "ws/lab 4"]), &mut core, tmp.path())
+        let added = add(&command(&["task", "ws/lab 4"]), &mut core, tmp.path(), Stdout::Inherit)
             .await
             .unwrap();
 
@@ -212,7 +213,7 @@ mod tests {
         let out = recorder(tmp.path(), "setup");
         set_on_create(&mut core, &[], "setup").await;
 
-        add(&command(&["project", "ws/cs"]), &mut core, tmp.path())
+        add(&command(&["project", "ws/cs"]), &mut core, tmp.path(), Stdout::Inherit)
             .await
             .unwrap();
 
@@ -225,9 +226,14 @@ mod tests {
         let out = recorder(tmp.path(), "setup");
         set_on_create(&mut core, &[], "setup").await;
 
-        let added = add(&command(&["task", "ws/lab 4", "--no-run"]), &mut core, tmp.path())
-            .await
-            .unwrap();
+        let added = add(
+            &command(&["task", "ws/lab 4", "--no-run"]),
+            &mut core,
+            tmp.path(),
+            Stdout::Inherit,
+        )
+        .await
+        .unwrap();
 
         assert!(!out.exists(), "it ran");
         assert_eq!(added.ran, None);
@@ -251,7 +257,7 @@ mod tests {
         set_on_create(&mut core, &[], "setup").await;
         set_on_create(&mut core, &[1], "none").await;
 
-        let added = add(&command(&["task", "ws/lab 4"]), &mut core, tmp.path())
+        let added = add(&command(&["task", "ws/lab 4"]), &mut core, tmp.path(), Stdout::Inherit)
             .await
             .unwrap();
 
@@ -263,7 +269,7 @@ mod tests {
     async fn without_on_create_nothing_runs_and_nothing_is_said() {
         let (tmp, mut core) = core().await;
 
-        let added = add(&command(&["task", "ws/lab 4"]), &mut core, tmp.path())
+        let added = add(&command(&["task", "ws/lab 4"]), &mut core, tmp.path(), Stdout::Inherit)
             .await
             .unwrap();
 
@@ -277,7 +283,7 @@ mod tests {
         run_script(tmp.path(), "setup", "exit 3");
         set_on_create(&mut core, &[], "setup").await;
 
-        let added = add(&command(&["task", "ws/lab 4"]), &mut core, tmp.path())
+        let added = add(&command(&["task", "ws/lab 4"]), &mut core, tmp.path(), Stdout::Inherit)
             .await
             .unwrap();
 
@@ -293,7 +299,7 @@ mod tests {
         run_script(tmp.path(), "setup", "");
         set_on_create(&mut core, &[], "stup").await;
 
-        let added = add(&command(&["task", "ws/lab 4"]), &mut core, tmp.path())
+        let added = add(&command(&["task", "ws/lab 4"]), &mut core, tmp.path(), Stdout::Inherit)
             .await
             .unwrap();
 
@@ -313,7 +319,7 @@ mod tests {
         let out = recorder(tmp.path(), "setup");
         set_on_create(&mut core, &[], "setup").await;
 
-        let err = add(&command(&["task", "ws/b"]), &mut core, tmp.path()).await;
+        let err = add(&command(&["task", "ws/b"]), &mut core, tmp.path(), Stdout::Inherit).await;
 
         assert!(err.is_err(), "b exists");
         assert!(!out.exists());
@@ -324,13 +330,13 @@ mod tests {
         let (tmp, mut core) = core().await;
         recorder(tmp.path(), "setup");
 
-        let quiet = add(&command(&["task", "ws/lab 4"]), &mut core, tmp.path())
+        let quiet = add(&command(&["task", "ws/lab 4"]), &mut core, tmp.path(), Stdout::Inherit)
             .await
             .unwrap();
         assert!(!render(&quiet, true).unwrap().contains("\"ran\""));
 
         set_on_create(&mut core, &[], "setup").await;
-        let ran = add(&command(&["task", "ws/lab 5"]), &mut core, tmp.path())
+        let ran = add(&command(&["task", "ws/lab 5"]), &mut core, tmp.path(), Stdout::Inherit)
             .await
             .unwrap();
         let json: serde_json::Value = serde_json::from_str(&render(&ran, true).unwrap()).unwrap();

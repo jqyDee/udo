@@ -40,7 +40,7 @@ use crate::{
     Res,
     core::Core,
     model::time,
-    run::{self, RunError, exit_code},
+    run::{self, RunError, Stdout, exit_code},
     tui::{
         app::{App, Flow, RunRequest},
         tick::next_tick,
@@ -124,7 +124,8 @@ async fn hand_over(
     disable_raw_mode()?;
     execute!(io::stdout(), LeaveAlternateScreen, Show)?;
 
-    let result = run::launch(&request.script, &request.ctx).await;
+    // no `--json` here: the script has the whole terminal
+    let result = run::launch(&request.script, &request.ctx, Stdout::Inherit).await;
     if let Ok(status) = &result
         && !status.success()
     {

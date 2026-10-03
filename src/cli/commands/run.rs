@@ -14,7 +14,7 @@ use crate::{
     },
     core::Core,
     model::{NodePath, node::Node, settings::RunName, tree::Tree},
-    run::{Event, Library, RunRequest, exit_code, launch},
+    run::{Event, Library, RunRequest, Stdout, exit_code, launch},
 };
 
 #[derive(clap::Args)]
@@ -51,8 +51,9 @@ pub struct Listed {
     pub default: Option<String>,
 }
 
-/// Open `args.node` with its run config and wait for the script.
-pub async fn run(core: &Core, cwd: &Path, args: &RunArgs) -> Res<Opened> {
+/// Open `args.node` with its run config and wait for the script; its
+/// stdout goes where `stdout` says (stderr for `--json`).
+pub async fn run(core: &Core, cwd: &Path, args: &RunArgs, stdout: Stdout) -> Res<Opened> {
     let tree = core.tree();
     let path = resolve(tree, args.node.as_deref(), cwd)?;
     let node = tree.get(&path).ok_or("no such node")?;
@@ -65,7 +66,7 @@ pub async fn run(core: &Core, cwd: &Path, args: &RunArgs) -> Res<Opened> {
     let task = task_for(tree, &path, args.task.as_deref(), cwd)?;
     let request = RunRequest::new(tree, Event::Open, &path, Some(&task), name)?;
 
-    let status = launch(&request.script, &request.ctx).await?;
+    let status = launch(&request.script, &request.ctx, stdout).await?;
     Ok(Opened {
         node: path_text(tree, &path),
         script: request.name.to_string(),
@@ -160,6 +161,12 @@ mod tests {
         // core: disk_tree, root (tmp): [a, ws (tmp/ws): [b]]
         test_util::{at, core, recorder, run_script as script},
     };
+
+    /// `run` with the script's stdout on the terminal, as without `--json`
+    /// (shadows the glob import).
+    async fn run(core: &Core, cwd: &Path, args: &RunArgs) -> Res<Opened> {
+        super::run(core, cwd, args, Stdout::Inherit).await
+    }
 
     async fn set_open_with(core: &mut Core, path: &[usize], name: &str) {
         let settings = ContainerSettings {

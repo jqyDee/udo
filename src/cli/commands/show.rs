@@ -214,7 +214,9 @@ mod tests {
     async fn the_id_resolves_back_to_the_node() {
         let (tmp, core) = core().await;
 
-        let shown = run(&core, tmp.path(), at(12, 0), &named("b")).await.unwrap();
+        let shown = run(&core, tmp.path(), at(12, 0), &named("b"))
+            .await
+            .unwrap();
         let json: serde_json::Value = serde_json::from_str(&render(&shown, true).unwrap()).unwrap();
         let id = json["id"].as_str().unwrap();
 

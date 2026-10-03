@@ -28,6 +28,7 @@ use crate::{
     cli::{confirm::ask_on_terminal, report::emit},
     core::Core,
     model::{time, tree::system_trash},
+    run::Stdout,
 };
 
 #[derive(Subcommand)]
@@ -88,7 +89,7 @@ pub async fn run(command: &Command, core: &mut Core, cwd: &Path, json: bool) -> 
         Command::Track(c) => track::run(c, core, cwd, json).await,
         Command::Run(a) if a.list => emit(&run::list(core, cwd, a)?, json),
         Command::Run(a) => {
-            let opened = run::run(core, cwd, a).await?;
+            let opened = run::run(core, cwd, a, Stdout::for_json(json)).await?;
             emit(&opened, json)?;
             if opened.code != 0 {
                 std::process::exit(opened.code); // the script's code, like a wrapper

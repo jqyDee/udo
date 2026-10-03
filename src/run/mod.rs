@@ -9,7 +9,7 @@
 //!   `udo run`, `udo add`'s `on_create`)
 //! - `launch`:  `launch`, run a script for a context
 //! - `child`:   `wait`, `exit_code`: a child with the terminal handed over
-//!   (also `udo track run`)
+//!   (also `udo track run`); `Stdout`: its output off a `--json` report
 //! - `error`:   `RunError`
 
 mod child;
@@ -19,7 +19,7 @@ mod launch;
 mod library;
 mod request;
 
-pub use child::{exit_code, wait};
+pub use child::{Stdout, exit_code, wait};
 pub use context::{Event, NodeInfo, NodeKind, RunContext, TaskInfo};
 pub use error::RunError;
 pub use launch::launch;

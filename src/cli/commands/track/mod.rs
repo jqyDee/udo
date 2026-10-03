@@ -8,7 +8,7 @@
 
 use std::path::Path;
 
-use crate::{Res, cli::report::emit, core::Core, model::time};
+use crate::{Res, cli::report::emit, core::Core, model::time, run::Stdout};
 
 mod run;
 mod start;
@@ -35,7 +35,7 @@ pub async fn run(command: &TrackCommand, core: &mut Core, cwd: &Path, json: bool
             emit(&run::detach(core, cwd, time::now(), a).await?, json)
         }
         TrackCommand::Run(a) => {
-            let ran = run::run(core, cwd, time::now, a).await?;
+            let ran = run::run(core, cwd, time::now, a, Stdout::for_json(json)).await?;
             emit(&ran, json)?;
             if ran.code != 0 {
                 // a wrapper passes its child's code on; nothing left to
