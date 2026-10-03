@@ -1,0 +1,62 @@
+# udo
+
+A task, time and workflow manager for the terminal: a tree of workspaces,
+projects and tasks with due dates, a timer that records where your time
+goes, and run configs that open a task in your tools (nvim in tmux,
+IntelliJ, Zed) and time it while you work.
+
+## Install
+
+```sh
+cargo install --path .
+```
+
+Data lives in `~/.config/udo` (or `$UDO_ROOT`): the tree, its settings,
+and the recorded sessions (`udo.db`). Workspaces, projects and tasks can
+have folders of their own anywhere on disk.
+
+## Use
+
+`udo` without arguments opens the TUI; `?` shows every key.
+
+| Key | | Key | |
+|-----|-|-----|-|
+| `j` `k` `h` `l` | move | `t` / `c` | new task / container |
+| `Space` | fold | `e` / `d` | edit / remove |
+| `Tab` | details tab | `x` | done / reopen |
+| `s` | start / stop timer | `o` / `O` | open (with…) |
+
+Everything also works from the CLI, for scripts and quick edits:
+
+```sh
+udo add workspace uni --dir ~/uni
+udo add project uni/cs
+udo add task "uni/cs/lab 3" --due "fri 22:00"
+udo ls                      # the tree, due dates, status
+udo start "lab 3"           # NODE: a path, any unique end of one, or
+udo stop                    # nothing for the node of the current folder
+udo session list            # recorded time, last 7 days
+udo settings set uni open_with=nvim-tmux
+udo run "lab 3"             # open it with its run config
+```
+
+`--json` on any command prints the result as JSON; `udo help <command>`
+explains the rest.
+
+## Run configs
+
+Scripts in any language in `~/.config/udo/run/` that open or set up a
+node; udo hands them the node in `UDO_*` variables and the terminal. They
+track time through `udo track`, so a tmux session or an editor window can
+time a task by itself. See [docs/run-configs.md](docs/run-configs.md) and
+the examples in [examples/run/](examples/run/).
+
+## Develop
+
+```sh
+cargo test                  # unit + integration tests (real binary, PTY, tmux)
+scripts/seed-testdata.sh    # throwaway dataset in /tmp/udo-test
+UDO_ROOT=/tmp/udo-test cargo run
+```
+
+`TODO.md` has the plan and what is next.
