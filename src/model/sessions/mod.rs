@@ -5,13 +5,14 @@ use crate::model::{
 
 mod error;
 mod id;
+mod owner;
 mod source;
 mod store;
 mod summary;
 mod task_ref;
 
 pub use crate::model::sessions::{
-    error::SessionError, id::SessionId, source::SessionSource, store::SessionStore,
+    error::SessionError, id::SessionId, owner::Owner, source::SessionSource, store::SessionStore,
     summary::TimeSummary, task_ref::TaskRef,
 };
 
@@ -23,7 +24,11 @@ pub struct Session {
     pub start: Time,
     /// `None` = running.
     pub end: Option<Time>,
+    /// What kind: by hand or which program. Kept forever.
     pub source: SessionSource,
+    /// Who may stop it while it runs (`Owner::manual()` for `s` / `udo
+    /// start` and added sessions). Split / cut pieces inherit it.
+    pub owner: Owner,
     /// When it was recorded (store clock). Split / cut pieces inherit it.
     pub created_at: Time,
     /// Last correction (store clock); `None` = never edited.
@@ -82,6 +87,7 @@ mod tests {
             start,
             end,
             source: SessionSource::Manual,
+            owner: Owner::manual(),
             created_at: start,
             edited_at: None,
             deleted_at: None,

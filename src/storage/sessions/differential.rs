@@ -16,7 +16,7 @@ use crate::{
     model::{
         id::NodeId,
         sessions::{
-            Session, SessionError, SessionId, SessionPatch, SessionQuery, SessionSource,
+            Owner, Session, SessionError, SessionId, SessionPatch, SessionQuery, SessionSource,
             SessionStore, TaskRef,
         },
         time::Time,
@@ -30,6 +30,20 @@ const TASKS: usize = 3;
 const SLOTS: u16 = 60;
 /// Sessions an operation can pick (by creation index, wrapping around).
 const PICK: usize = 8;
+/// Owners `start` / `stop` pick from: manual and two program instances, so
+/// takeovers and foreign stops come up often.
+const OWNERS: [&str; 3] = ["manual", "tmux:a", "tmux:b"];
+
+/// Owner `i` with its source: `manual` by hand, the others from tmux.
+fn owner(i: usize) -> (SessionSource, Owner) {
+    let owner: Owner = OWNERS[i].parse().unwrap();
+    let source = if owner.is_manual() {
+        SessionSource::Manual
+    } else {
+        "tmux".parse().unwrap()
+    };
+    (source, owner)
+}
 
 /// One operation, with times as slots and sessions as creation indices (the
 /// ids differ between the stores).
@@ -37,9 +51,12 @@ const PICK: usize = 8;
 enum Op {
     Start {
         task: usize,
+        owner: usize,
         at: u16,
     },
+    /// `owner: None`: a manual stop (stops anything).
     Stop {
+        owner: Option<usize>,
         at: u16,
         west: bool,
     },
@@ -78,9 +95,11 @@ fn op() -> impl Strategy<Value = Op> {
     let slot = || 0..SLOTS;
     let task = || 0..TASKS;
     let session = || 0..PICK;
+    let owner = || 0..OWNERS.len();
     prop_oneof![
-        3 => (task(), slot()).prop_map(|(task, at)| Op::Start { task, at }),
-        2 => (slot(), any::<bool>()).prop_map(|(at, west)| Op::Stop { at, west }),
+        3 => (task(), owner(), slot()).prop_map(|(task, owner, at)| Op::Start { task, owner, at }),
+        2 => (proptest::option::of(owner()), slot(), any::<bool>())
+            .prop_map(|(owner, at, west)| Op::Stop { owner, at, west }),
         3 => (task(), slot(), 0..12u16, any::<bool>())
             .prop_map(|(task, start, len, west)| Op::Add { task, start, len, west }),
         2 => (session(), proptest::option::of(slot()), proptest::option::of(slot()))
@@ -131,7 +150,8 @@ struct Norm {
     session: Option<usize>,
     task: Option<usize>,
     end: Option<(i64, i32)>,
-    source: &'static str,
+    source: String,
+    owner: String,
     created: (i64, i32),
     edited: Option<(i64, i32)>,
     deleted: Option<(i64, i32)>,
@@ -179,7 +199,8 @@ impl<S: SessionStore> Side<S> {
                 session: self.known.iter().position(|id| *id == s.id),
                 task: tasks.iter().position(|t| t.id == s.task.id),
                 end: s.end.map(time_to_sql),
-                source: s.source.as_str(),
+                source: s.source.to_string(),
+                owner: s.owner.to_string(),
                 created: time_to_sql(s.created_at),
                 edited: s.edited_at.map(time_to_sql),
                 deleted: s.deleted_at.map(time_to_sql),
@@ -193,14 +214,19 @@ impl<S: SessionStore> Side<S> {
     async fn apply(&mut self, op: &Op, tasks: &[TaskRef]) -> Result<Vec<Norm>, SessionError> {
         let at = |n| slot(n, false);
         let returned: Vec<Session> = match *op {
-            Op::Start { task, at: n } => {
+            Op::Start { task, owner: o, at: n } => {
+                let (source, owner) = owner(o);
                 vec![
                     self.store
-                        .start(tasks[task].clone(), SessionSource::Manual, at(n))
+                        .start(tasks[task].clone(), source, owner, at(n))
                         .await?,
                 ]
             }
-            Op::Stop { at: n, west } => self.store.stop(slot(n, west)).await?.into_iter().collect(),
+            Op::Stop { owner: o, at: n, west } => {
+                let owner = o.map(|o| owner(o).1);
+                let stopped = self.store.stop(owner.as_ref(), slot(n, west)).await?;
+                stopped.into_iter().collect()
+            }
             Op::Add {
                 task,
                 start,

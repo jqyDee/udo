@@ -12,14 +12,14 @@ use uuid::Uuid;
 use crate::{
     model::{
         sessions::{
-            Session, SessionError, SessionId, SessionPatch, SessionQuery, SessionSource,
+            Owner, Session, SessionError, SessionId, SessionPatch, SessionQuery, SessionSource,
             SessionStore, TaskRef,
         },
         time::{Clock, Time},
     },
     storage::{
         edit_kind::EditKind,
-        sessions::rules::{Cut, Split, check_span, plan_cut, plan_edit, plan_split},
+        sessions::rules::{Cut, Split, check_span, may_stop, plan_cut, plan_edit, plan_split},
         time::{opt_time_from_row, time_from_row, time_to_sql, to_ms},
     },
 };
@@ -57,16 +57,19 @@ impl SessionStore for SqliteSessions {
         &self,
         task: TaskRef,
         source: SessionSource,
+        owner: Owner,
         at: Time,
     ) -> Result<Session, SessionError> {
         let at = to_ms(at); // round like the database, before any comparison
-        self.run(move |conn, now| start(conn, now, task, source, at))
+        self.run(move |conn, now| start(conn, now, task, source, owner, at))
             .await
     }
 
-    async fn stop(&self, at: Time) -> Result<Option<Session>, SessionError> {
+    async fn stop(&self, owner: Option<&Owner>, at: Time) -> Result<Option<Session>, SessionError> {
         let at = to_ms(at);
-        self.run(move |conn, now| stop(conn, now, at)).await
+        let owner = owner.cloned();
+        self.run(move |conn, now| stop(conn, now, owner.as_ref(), at))
+            .await
     }
 
     async fn running(&self) -> Result<Option<Session>, SessionError> {
@@ -142,6 +145,7 @@ fn session_from_row(row: &Row) -> rusqlite::Result<Session> {
         start: time_from_row(row, "started_at", "start_offset")?,
         end: opt_time_from_row(row, "ended_at", "end_offset")?,
         source: row.get("source")?,
+        owner: row.get("owner")?,
         created_at: time_from_row(row, "created_at", "created_offset")?,
         edited_at: opt_time_from_row(row, "edited_at", "edited_offset")?,
         deleted_at: opt_time_from_row(row, "deleted_at", "deleted_offset")?,
@@ -178,9 +182,9 @@ fn insert(tx: &Transaction, s: &Session) -> Result<(), SessionError> {
     tx.execute(
         "INSERT INTO sessions (
              id, task_id, task_name, task_description, container_id, container_dir,
-             started_at, start_offset, ended_at, end_offset, source,
+             started_at, start_offset, ended_at, end_offset, source, owner,
              created_at, created_offset, deleted_at, deleted_offset
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
         params![
             s.id,
             s.task.id,
@@ -193,6 +197,7 @@ fn insert(tx: &Transaction, s: &Session) -> Result<(), SessionError> {
             end,
             end_offset,
             s.source,
+            s.owner,
             created,
             created_offset,
             deleted,
@@ -215,6 +220,7 @@ fn already_running(e: rusqlite::Error) -> SessionError {
 }
 
 /// What stopping the running session did.
+#[allow(clippy::large_enum_variant)] // returned once, never stored: a Box would only allocate
 enum Stopped {
     Nothing,
     Ended(Session),
@@ -251,6 +257,7 @@ fn start(
     now: Time,
     task: TaskRef,
     source: SessionSource,
+    owner: Owner,
     at: Time,
 ) -> Result<Session, SessionError> {
     let tx = write_tx(conn)?;
@@ -276,6 +283,7 @@ fn start(
         start: at,
         end: None,
         source,
+        owner,
         created_at: now,
         edited_at: None,
         deleted_at: None,
@@ -285,8 +293,16 @@ fn start(
     Ok(session)
 }
 
-fn stop(conn: &mut Connection, now: Time, at: Time) -> Result<Option<Session>, SessionError> {
+fn stop(
+    conn: &mut Connection,
+    now: Time,
+    owner: Option<&Owner>,
+    at: Time,
+) -> Result<Option<Session>, SessionError> {
     let tx = write_tx(conn)?;
+    if !running(&tx)?.is_some_and(|r| may_stop(&r, owner)) {
+        return Ok(None);
+    }
     let stopped = stop_running(&tx, now, at)?;
     tx.commit()?; // for a clock error too: the soft delete must stay
     match stopped {
@@ -458,6 +474,7 @@ fn add(
         start,
         end: Some(end),
         source: SessionSource::Manual,
+        owner: Owner::manual(),
         created_at: now,
         edited_at: None,
         deleted_at: None,
@@ -658,14 +675,14 @@ mod tests {
     async fn recording_is_not_logged() {
         let s = store();
         s.add(task(), at(9, 0), at(10, 0)).await.unwrap();
-        s.start(task(), SessionSource::Manual, at(14, 0))
+        s.start(task(), SessionSource::Manual, Owner::manual(), at(14, 0))
             .await
             .unwrap();
-        s.stop(at(15, 0)).await.unwrap();
-        s.start(task(), SessionSource::Manual, at(16, 0))
+        s.stop(None, at(15, 0)).await.unwrap();
+        s.start(task(), SessionSource::Manual, Owner::manual(), at(16, 0))
             .await
             .unwrap();
-        assert!(s.stop(at(13, 0)).await.is_err()); // a clock error, not a correction
+        assert!(s.stop(None, at(13, 0)).await.is_err()); // a clock error, not a correction
 
         assert!(edits(&s).is_empty());
     }

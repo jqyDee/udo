@@ -8,7 +8,7 @@
 //! translation.
 
 use crate::model::{
-    sessions::{SessionError, SessionPatch},
+    sessions::{Owner, Session, SessionError, SessionPatch},
     time::Time,
 };
 
@@ -115,4 +115,11 @@ pub(super) fn plan_cut(
     } else {
         Cut::Gap { from, to }
     })
+}
+
+/// Whether `stop(owner)` may end `running`: `None` (manual) always, a
+/// program only its own session. No: a no-op, not an error (a server-wide
+/// tmux hook fires for every session, most of them not running).
+pub(super) fn may_stop(running: &Session, owner: Option<&Owner>) -> bool {
+    owner.is_none_or(|o| *o == running.owner)
 }

@@ -6,7 +6,7 @@ use crate::{
     model::{
         id::NodeId,
         sessions::{
-            Session, SessionError, SessionId, SessionPatch, SessionQuery, SessionSource,
+            Owner, Session, SessionError, SessionId, SessionPatch, SessionQuery, SessionSource,
             SessionStore, TaskRef,
         },
         time::Time,
@@ -32,6 +32,16 @@ fn task(name: &str) -> TaskRef {
     }
 }
 
+/// A program's owner, e.g. `tmux:a`.
+fn owner(s: &str) -> Owner {
+    s.parse().unwrap()
+}
+
+/// A program source.
+fn tmux() -> SessionSource {
+    "tmux".parse().unwrap()
+}
+
 /// The rules every SessionStore must keep, one `#[tokio::test]` per check,
 /// so a failing check does not hide the others. `$make` takes a `Clock` and
 /// gives a fresh, empty store using it. Use inside a backend's test module:
@@ -51,6 +61,14 @@ macro_rules! store_contract {
             check_stop_without_running_is_none,
             check_stop_at_start_is_refused,
             check_stop_before_start_errors_and_soft_deletes,
+            check_start_records_source_and_owner,
+            check_start_same_task_keeps_the_owner,
+            check_start_takes_over_another_owner,
+            check_stop_by_its_owner_stops,
+            check_stop_by_another_owner_is_noop,
+            check_stop_by_an_owner_with_nothing_running_is_none,
+            check_stop_without_owner_stops_any,
+            check_foreign_stop_at_the_start_changes_nothing,
             check_add_is_not_edited,
             check_add_refuses_end_before_start,
             check_add_refuses_overlap,
@@ -96,7 +114,7 @@ pub(crate) use store_contract;
 pub(super) async fn check_start_then_running(s: impl SessionStore) {
     let t = task("lab 3");
     let started = s
-        .start(t.clone(), SessionSource::Manual, at(14, 0))
+        .start(t.clone(), SessionSource::Manual, Owner::manual(), at(14, 0))
         .await
         .unwrap();
 
@@ -111,11 +129,11 @@ pub(super) async fn check_start_then_running(s: impl SessionStore) {
 /// Starting another task stops the running session at `at` (one timer).
 pub(super) async fn check_start_stops_previous(s: impl SessionStore) {
     let first = s
-        .start(task("lab 3"), SessionSource::Manual, at(14, 0))
+        .start(task("lab 3"), SessionSource::Manual, Owner::manual(), at(14, 0))
         .await
         .unwrap();
     let second = s
-        .start(task("reading"), SessionSource::Manual, at(15, 0))
+        .start(task("reading"), SessionSource::Manual, Owner::manual(), at(15, 0))
         .await
         .unwrap();
 
@@ -129,10 +147,10 @@ pub(super) async fn check_start_stops_previous(s: impl SessionStore) {
 pub(super) async fn check_start_same_task_is_noop(s: impl SessionStore) {
     let t = task("lab 3");
     let first = s
-        .start(t.clone(), SessionSource::Manual, at(14, 0))
+        .start(t.clone(), SessionSource::Manual, Owner::manual(), at(14, 0))
         .await
         .unwrap();
-    let again = s.start(t, SessionSource::Manual, at(15, 0)).await.unwrap();
+    let again = s.start(t, SessionSource::Manual, Owner::manual(), at(15, 0)).await.unwrap();
 
     assert_eq!(again, first);
     assert_eq!(s.query(&SessionQuery::default()).await.unwrap().len(), 1);
@@ -144,18 +162,18 @@ pub(super) async fn check_start_same_task_is_noop(s: impl SessionStore) {
 pub(super) async fn check_start_refuses_overlap(s: impl SessionStore) {
     let recorded = s.add(task("a"), at(9, 0), at(11, 0)).await.unwrap();
     let running = s
-        .start(task("b"), SessionSource::Manual, at(12, 0))
+        .start(task("b"), SessionSource::Manual, Owner::manual(), at(12, 0))
         .await
         .unwrap();
 
     let err = Err(SessionError::Overlap);
-    assert_eq!(s.start(task("c"), SessionSource::Manual, at(10, 0)).await, err); // inside
-    assert_eq!(s.start(task("c"), SessionSource::Manual, at(8, 0)).await, err); // runs into it
+    assert_eq!(s.start(task("c"), SessionSource::Manual, Owner::manual(), at(10, 0)).await, err); // inside
+    assert_eq!(s.start(task("c"), SessionSource::Manual, Owner::manual(), at(8, 0)).await, err); // runs into it
     assert_eq!(s.running().await.unwrap(), Some(running.clone())); // not stopped
     assert_eq!(visible(&s).await, vec![recorded, running]);
 
     let next = s
-        .start(task("c"), SessionSource::Manual, at(13, 0))
+        .start(task("c"), SessionSource::Manual, Owner::manual(), at(13, 0))
         .await
         .unwrap();
     assert_eq!(s.running().await.unwrap(), Some(next));
@@ -166,12 +184,12 @@ pub(super) async fn check_start_refuses_overlap(s: impl SessionStore) {
 /// (soft-deleted, not edited) and the new one still starts.
 pub(super) async fn check_start_at_the_running_start_replaces_it(s: impl SessionStore) {
     let dropped = s
-        .start(task("lab 3"), SessionSource::Manual, at(14, 0))
+        .start(task("lab 3"), SessionSource::Manual, Owner::manual(), at(14, 0))
         .await
         .unwrap();
 
     let next = s
-        .start(task("reading"), SessionSource::Manual, at(14, 0))
+        .start(task("reading"), SessionSource::Manual, Owner::manual(), at(14, 0))
         .await
         .unwrap();
 
@@ -191,12 +209,12 @@ pub(super) async fn check_start_at_the_running_start_replaces_it(s: impl Session
 /// and the running one keeps running (a clock that went back loses nothing).
 pub(super) async fn check_start_before_the_running_start_is_overlap(s: impl SessionStore) {
     let running = s
-        .start(task("lab 3"), SessionSource::Manual, at(14, 0))
+        .start(task("lab 3"), SessionSource::Manual, Owner::manual(), at(14, 0))
         .await
         .unwrap();
 
     let before = s
-        .start(task("reading"), SessionSource::Manual, at(13, 0))
+        .start(task("reading"), SessionSource::Manual, Owner::manual(), at(13, 0))
         .await;
 
     assert_eq!(before, Err(SessionError::Overlap));
@@ -206,17 +224,17 @@ pub(super) async fn check_start_before_the_running_start_is_overlap(s: impl Sess
 
 /// `stop` without a running session is `Ok(None)`.
 pub(super) async fn check_stop_without_running_is_none(s: impl SessionStore) {
-    assert_eq!(s.stop(at(14, 0)).await, Ok(None));
+    assert_eq!(s.stop(None, at(14, 0)).await, Ok(None));
 }
 
 /// `stop` exactly at the start would leave 0 minutes: refused like a clock
 /// error, no 0-minute session is ever stored.
 pub(super) async fn check_stop_at_start_is_refused(s: impl SessionStore) {
-    s.start(task("lab 3"), SessionSource::Manual, at(14, 0))
+    s.start(task("lab 3"), SessionSource::Manual, Owner::manual(), at(14, 0))
         .await
         .unwrap();
 
-    assert_eq!(s.stop(at(14, 0)).await, Err(SessionError::EndBeforeStart));
+    assert_eq!(s.stop(None, at(14, 0)).await, Err(SessionError::EndBeforeStart));
     assert_eq!(s.running().await.unwrap(), None);
     assert!(visible(&s).await.is_empty());
 }
@@ -225,11 +243,11 @@ pub(super) async fn check_stop_at_start_is_refused(s: impl SessionStore) {
 /// (not edited: a clock error, not a correction).
 pub(super) async fn check_stop_before_start_errors_and_soft_deletes(s: impl SessionStore) {
     let started = s
-        .start(task("lab 3"), SessionSource::Manual, at(14, 0))
+        .start(task("lab 3"), SessionSource::Manual, Owner::manual(), at(14, 0))
         .await
         .unwrap();
 
-    assert_eq!(s.stop(at(13, 0)).await, Err(SessionError::EndBeforeStart));
+    assert_eq!(s.stop(None, at(13, 0)).await, Err(SessionError::EndBeforeStart));
     assert_eq!(s.running().await.unwrap(), None);
     assert!(s.query(&SessionQuery::default()).await.unwrap().is_empty());
 
@@ -244,6 +262,117 @@ pub(super) async fn check_stop_before_start_errors_and_soft_deletes(s: impl Sess
     assert_eq!(kept[0].edited_at, None);
 }
 
+// --------------- owners ---------------
+
+/// `start` keeps the source and owner it was given, also when read back.
+pub(super) async fn check_start_records_source_and_owner(s: impl SessionStore) {
+    let started = s
+        .start(task("lab 3"), tmux(), owner("tmux:a"), at(14, 0))
+        .await
+        .unwrap();
+
+    assert_eq!(started.source, tmux());
+    assert_eq!(started.owner, owner("tmux:a"));
+    assert_eq!(s.running().await.unwrap(), Some(started.clone()));
+    assert_eq!(visible(&s).await, vec![started]);
+}
+
+/// `start` on the running task with another owner: no-op, the first owner
+/// keeps it (`s` on lab 3, then attaching lab 3's tmux session).
+pub(super) async fn check_start_same_task_keeps_the_owner(s: impl SessionStore) {
+    let t = task("lab 3");
+    let first = s
+        .start(t.clone(), SessionSource::Manual, Owner::manual(), at(14, 0))
+        .await
+        .unwrap();
+
+    let again = s.start(t, tmux(), owner("tmux:a"), at(15, 0)).await.unwrap();
+
+    assert_eq!(again, first);
+    assert_eq!(s.running().await.unwrap(), Some(first));
+}
+
+/// `start` on another task takes over, whoever owns the running session.
+pub(super) async fn check_start_takes_over_another_owner(s: impl SessionStore) {
+    let first = s
+        .start(task("lab 3"), SessionSource::Manual, Owner::manual(), at(14, 0))
+        .await
+        .unwrap();
+
+    let second = s
+        .start(task("reading"), tmux(), owner("tmux:a"), at(15, 0))
+        .await
+        .unwrap();
+
+    assert_eq!(s.running().await.unwrap(), Some(second.clone()));
+    let first = visible(&s).await.into_iter().find(|x| x.id == first.id).unwrap();
+    assert_eq!(first.end, Some(at(15, 0)));
+    assert_eq!(first.owner, Owner::manual()); // ended, not handed over
+}
+
+/// `stop(Some(x))` ends a session owned by `x`.
+pub(super) async fn check_stop_by_its_owner_stops(s: impl SessionStore) {
+    s.start(task("lab 3"), tmux(), owner("tmux:a"), at(14, 0))
+        .await
+        .unwrap();
+
+    let stopped = s.stop(Some(&owner("tmux:a")), at(15, 0)).await.unwrap().unwrap();
+
+    assert_eq!(stopped.end, Some(at(15, 0)));
+    assert_eq!(s.running().await.unwrap(), None);
+    assert_eq!(visible(&s).await, vec![stopped]);
+}
+
+/// `stop(Some(x))` on someone else's session: no-op, it keeps running (a
+/// tmux detach does not end a timer started by hand).
+pub(super) async fn check_stop_by_another_owner_is_noop(s: impl SessionStore) {
+    let by_hand = s
+        .start(task("lab 3"), SessionSource::Manual, Owner::manual(), at(14, 0))
+        .await
+        .unwrap();
+    assert_eq!(s.stop(Some(&owner("tmux:a")), at(15, 0)).await, Ok(None));
+    assert_eq!(s.running().await.unwrap(), Some(by_hand));
+
+    let tmux_a = s
+        .start(task("reading"), tmux(), owner("tmux:a"), at(16, 0))
+        .await
+        .unwrap();
+    assert_eq!(s.stop(Some(&owner("tmux:b")), at(17, 0)).await, Ok(None));
+    assert_eq!(s.running().await.unwrap(), Some(tmux_a));
+}
+
+/// `stop(Some(x))` with nothing running: `Ok(None)`.
+pub(super) async fn check_stop_by_an_owner_with_nothing_running_is_none(s: impl SessionStore) {
+    assert_eq!(s.stop(Some(&owner("tmux:a")), at(14, 0)).await, Ok(None));
+}
+
+/// `stop(None)` ends whatever runs: manual always wins.
+pub(super) async fn check_stop_without_owner_stops_any(s: impl SessionStore) {
+    s.start(task("lab 3"), tmux(), owner("tmux:a"), at(14, 0))
+        .await
+        .unwrap();
+
+    let stopped = s.stop(None, at(15, 0)).await.unwrap().unwrap();
+
+    assert_eq!(stopped.end, Some(at(15, 0)));
+    assert_eq!(s.running().await.unwrap(), None);
+}
+
+/// A foreign stop exactly at the running start is a no-op too, not a clock
+/// error: the owner is checked before anything else, so someone else's
+/// session is never soft-deleted.
+pub(super) async fn check_foreign_stop_at_the_start_changes_nothing(s: impl SessionStore) {
+    let running = s
+        .start(task("lab 3"), tmux(), owner("tmux:a"), at(14, 0))
+        .await
+        .unwrap();
+
+    assert_eq!(s.stop(Some(&owner("tmux:b")), at(14, 0)).await, Ok(None));
+    assert_eq!(s.stop(Some(&owner("tmux:b")), at(13, 0)).await, Ok(None));
+    assert_eq!(s.running().await.unwrap(), Some(running.clone()));
+    assert_eq!(everything(&s).await, vec![running]);
+}
+
 // --------------- add ---------------
 
 /// A manual session has source `manual`, is recorded now (not at its start)
@@ -252,6 +381,7 @@ pub(super) async fn check_add_is_not_edited(s: impl SessionStore) {
     let added = s.add(task("lab 3"), at(9, 0), at(10, 30)).await.unwrap();
 
     assert_eq!(added.source, SessionSource::Manual);
+    assert_eq!(added.owner, Owner::manual());
     assert_eq!(added.created_at, now());
     assert_eq!(added.edited_at, None);
     assert_eq!(added.end, Some(at(10, 30)));
@@ -275,7 +405,7 @@ pub(super) async fn check_add_refuses_overlap(s: impl SessionStore) {
     assert_eq!(s.add(task("b"), at(8, 0), at(12, 0)).await, Err(SessionError::Overlap)); // around
     assert_eq!(s.add(task("c"), at(9, 30), at(10, 0)).await, Err(SessionError::Overlap)); // inside
 
-    s.start(task("d"), SessionSource::Manual, at(14, 0))
+    s.start(task("d"), SessionSource::Manual, Owner::manual(), at(14, 0))
         .await
         .unwrap();
     assert_eq!(s.add(task("e"), at(15, 0), at(16, 0)).await, Err(SessionError::Overlap)); // after a running start
@@ -352,7 +482,7 @@ pub(super) async fn check_edit_refuses_overlap(s: impl SessionStore) {
 /// start is fine.
 pub(super) async fn check_edit_end_of_running_errors(s: impl SessionStore) {
     let running = s
-        .start(task("lab 3"), SessionSource::Manual, at(14, 0))
+        .start(task("lab 3"), SessionSource::Manual, Owner::manual(), at(14, 0))
         .await
         .unwrap();
 
@@ -381,6 +511,7 @@ pub(super) async fn check_split_inside(s: impl SessionStore) {
     assert_eq!((second.start, second.end), (at(10, 0), Some(at(11, 0))));
     assert_eq!(second.task, added.task);
     assert_eq!(second.source, added.source);
+    assert_eq!(second.owner, added.owner);
     assert_eq!(second.created_at, added.created_at); // same recording
     assert_eq!((first.edited_at, second.edited_at), (Some(now()), Some(now())));
     assert_eq!(visible(&s).await, vec![first, second]);
@@ -408,7 +539,7 @@ pub(super) async fn check_split_on_edge_is_noop(s: impl SessionStore) {
 /// Splitting a running session: `Running`.
 pub(super) async fn check_split_running_errors(s: impl SessionStore) {
     let running = s
-        .start(task("lab 3"), SessionSource::Manual, at(14, 0))
+        .start(task("lab 3"), SessionSource::Manual, Owner::manual(), at(14, 0))
         .await
         .unwrap();
 
@@ -470,10 +601,11 @@ pub(super) async fn check_cut_refusals(s: impl SessionStore) {
     assert_eq!(visible(&s).await, vec![added.clone()]);
 }
 
-/// Cutting a running session (lunch break): the last piece keeps running.
+/// Cutting a running session (lunch break): the last piece keeps running,
+/// with the same owner (its program can still stop it).
 pub(super) async fn check_cut_running_keeps_running(s: impl SessionStore) {
     let running = s
-        .start(task("lab 3"), SessionSource::Manual, at(9, 0))
+        .start(task("lab 3"), tmux(), owner("tmux:a"), at(9, 0))
         .await
         .unwrap();
 
@@ -482,6 +614,7 @@ pub(super) async fn check_cut_running_keeps_running(s: impl SessionStore) {
     assert_eq!(left.len(), 2);
     assert_eq!((left[0].start, left[0].end), (at(9, 0), Some(at(12, 0))));
     assert_eq!((left[1].start, left[1].end), (at(13, 0), None));
+    assert_eq!(left[1].owner, owner("tmux:a"));
     assert_eq!(s.running().await.unwrap(), Some(left[1].clone()));
 
     // over the start of the running piece: trimmed, still running
@@ -510,7 +643,7 @@ pub(super) async fn check_delete_hides(s: impl SessionStore) {
 /// afterwards, and a new timer can start.
 pub(super) async fn check_delete_running_stops(s: impl SessionStore) {
     let running = s
-        .start(task("lab 3"), SessionSource::Manual, at(14, 0))
+        .start(task("lab 3"), SessionSource::Manual, Owner::manual(), at(14, 0))
         .await
         .unwrap();
 
@@ -520,7 +653,7 @@ pub(super) async fn check_delete_running_stops(s: impl SessionStore) {
     let kept = &everything(&s).await[0];
     assert_eq!(kept.end, Some(now()));
     assert_eq!(kept.deleted_at, Some(now()));
-    s.start(task("reading"), SessionSource::Manual, at(21, 0))
+    s.start(task("reading"), SessionSource::Manual, Owner::manual(), at(21, 0))
         .await
         .unwrap();
 }
@@ -566,7 +699,7 @@ pub(super) async fn check_query_range_intersects(s: impl SessionStore) {
     let a = s.add(task("a"), at(9, 0), at(10, 0)).await.unwrap();
     let b = s.add(task("b"), at(10, 30), at(11, 0)).await.unwrap();
     let running = s
-        .start(task("d"), SessionSource::Manual, at(14, 0))
+        .start(task("d"), SessionSource::Manual, Owner::manual(), at(14, 0))
         .await
         .unwrap();
 
@@ -616,7 +749,7 @@ pub(super) async fn check_returned_is_what_is_stored(s: impl SessionStore) {
         .await
         .unwrap();
     let started = s
-        .start(task("b"), SessionSource::Manual, precise(14, 0))
+        .start(task("b"), SessionSource::Manual, Owner::manual(), precise(14, 0))
         .await
         .unwrap();
 
@@ -627,6 +760,6 @@ pub(super) async fn check_returned_is_what_is_stored(s: impl SessionStore) {
     assert_eq!(stored[0].start.offset(), added.start.offset());
     assert_eq!(stored[0].end.unwrap().offset(), &west);
 
-    let stopped = s.stop(precise(15, 0)).await.unwrap().unwrap();
+    let stopped = s.stop(None, precise(15, 0)).await.unwrap().unwrap();
     assert_eq!(visible(&s).await[1], stopped);
 }

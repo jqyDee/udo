@@ -10,6 +10,7 @@ CREATE TABLE sessions (
     ended_at         INTEGER,            -- NULL = running
     end_offset       INTEGER,
     source           TEXT NOT NULL,      -- manual | nvim | tmux | …
+    owner            TEXT NOT NULL,      -- who may stop it: manual | tmux:udo-… | …
     created_at       INTEGER NOT NULL,   -- store clock
     created_offset   INTEGER NOT NULL,
     deleted_at       INTEGER,            -- NULL = visible

@@ -1,6 +1,6 @@
 use crate::model::{
     sessions::{
-        Session, SessionError, SessionId, SessionPatch, SessionQuery, SessionSource, TaskRef,
+        Owner, Session, SessionError, SessionId, SessionPatch, SessionQuery, SessionSource, TaskRef,
     },
     time::Time,
 };
@@ -14,9 +14,10 @@ use crate::model::{
 /// store's `Clock`, passed when the store is built.
 #[allow(async_fn_in_trait)] // no Send bound needed: dispatch goes through an enum, not dyn
 pub trait SessionStore {
-    /// Start timing; a running session is stopped first (one timer).
-    /// Same task already running: no-op, returns the running session.
-    /// `at` in the past, inside or before a recorded session (the running
+    /// Start timing; a running session is stopped first (one timer), whoever
+    /// owns it (a start takes over). Same task already running: no-op,
+    /// returns the running session, its owner stays (a manual timer is not
+    /// handed to a program). `at` in the past, inside or before a recorded session (the running
     /// one included): `Overlap`, and nothing changes (the running one is not
     /// stopped). `at` exactly at the running one's start: that one would be
     /// 0 minutes, so it is dropped (soft-deleted, not edited).
@@ -24,12 +25,16 @@ pub trait SessionStore {
         &self,
         task: TaskRef,
         source: SessionSource,
+        owner: Owner,
         at: Time,
     ) -> Result<Session, SessionError>;
-    /// Stop the running session, if any. `at` not after its start (0
-    /// minutes or less): `EndBeforeStart`, and the session is soft-deleted
-    /// (a clock error, not a correction: `edited_at` stays unset).
-    async fn stop(&self, at: Time) -> Result<Option<Session>, SessionError>;
+    /// Stop the running session, if any. `owner`: `None` stops whatever runs
+    /// (manual always wins); `Some(o)` only a session owned by `o`, another
+    /// owner's session is a no-op (`Ok(None)`, nothing changes). Checked and
+    /// stopped in one step. `at` not after its start (0 minutes or less):
+    /// `EndBeforeStart`, and the session is soft-deleted (a clock error, not
+    /// a correction: `edited_at` stays unset).
+    async fn stop(&self, owner: Option<&Owner>, at: Time) -> Result<Option<Session>, SessionError>;
     /// The session running right now, if any (at most one: one timer).
     async fn running(&self) -> Result<Option<Session>, SessionError>;
     /// Sessions matching `q`, sorted by start.

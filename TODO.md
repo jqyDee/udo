@@ -1,10 +1,13 @@
 # udo TODO
 
-Priorities as of 2026-10-02, in order. Background and older plans:
+Priorities as of 2026-10-03, in order. Background and older plans:
 `roadmap.txt` (phase numbers below refer to it).
 
-**Next up:** to be decided. Done lately: session corrections in the TUI
-(add, edit, split, cut, remove) and `?` help in the sessions list.
+**Next up:** run configs + tracking by program (sections 2 and 4), spec
+`docs/superpowers/specs/2026-10-02-run-configs-design.md`, stage 1
+(session owner + `udo track start / stop`). Done lately: session
+corrections in the TUI (add, edit, split, cut, remove) and `?` help in the
+sessions list.
 
 ## Done: creation flow
 
@@ -104,13 +107,23 @@ Priorities as of 2026-10-02, in order. Background and older plans:
       "open" the moment it starts.
 - [x] **Timer in the TUI status line** (`▶ lab 3 · 1h12`); open sessions
       found after a crash / power-off are offered for fixing in time tab.
-- [ ] **Tracking by program (with run configs):**
-      - nvim in the foreground: udo suspends the TUI and waits (roadmap 6.2)
-      - nvim in tmux: tmux hooks (`client-attached`, `client-detached`,
-        `session-closed`) call e.g. `udo track attach <task>`; a detached
-        session does not count
-      - GUI editors: only with `--wait` (IntelliJ, Zed); a small background
-        helper `udo track-wait <task> -- <cmd>` waits and records the session
+- [ ] **Tracking by program (with run configs, section 4):** one timer with
+      an owner. `start` takes over, `stop` only stops its own session (a
+      foreign stop is a no-op), manual always wins. Rules in the store
+      (one transaction). Protocol = the CLI, called by scripts / tmux
+      hooks / wrappers:
+      - [ ] `udo track start --task <NODE> --source <name> --owner <owner>`,
+            `udo track stop --owner <owner>` (stage 1); `Owner`, open
+            `SessionSource` (`Manual` / `Program(name)`), `sessions.owner`
+            column; `id:<uuid>` in the NODE resolver
+      - [ ] `udo track run … [--detach] -- <cmd>`: waits for the child
+            (`idea --wait`, `zed --wait`) and records the session; `--detach`
+            re-execs itself in a new session (stage 2)
+      - nvim in tmux: per-session `client-session-changed` -> `track start`;
+        server-wide `client-detached` / `session-closed` -> `track stop
+        --owner tmux:#{hook_session_name}` (spike 2026-10-02)
+      - nvim in the foreground: a run config that blocks; the TUI suspends
+        and waits (roadmap 6.2)
 - [ ] **No daemon for now.** A real background service (launchd / systemd)
       later, when idle detection, file watching or reminders come. Same
       session data either way.
@@ -226,15 +239,31 @@ around your calendar and shows the result on your phone.
 
 ## 4. Run configurations
 
-- [ ] **Library at root:** all run configs are defined once at root, by name
-      (`[run.typst] cmd = "..."`). Workspaces / projects only pick a
-      default by name (inherited like any setting); any task or container
-      can use any config.
-- [ ] Open: one default, or one per occasion (`on_create` once vs.
-      `default_run` repeatedly); placeholders like `{task_dir}`; unknown
-      names warn instead of failing to load.
-- [ ] Use cases: set up files once per task (roadmap 2.2 templates), build,
-      open editor, ...
+Spec: `docs/superpowers/specs/2026-10-02-run-configs-design.md`. Run
+configs are executable scripts (any language, shebang) in a library
+folder, name = file stem; context via `UDO_*` environment variables; udo
+knows no program and never starts a timer for a run (scripts call
+`udo track`). Stages, each its own commit:
+
+- [ ] **1. Session data + `track start / stop`** (see section 2).
+- [ ] **2. `track run [--detach]`.**
+- [ ] **3. Library, launcher, `udo run`, settings:** root setting `run_dir`
+      (default `<root>/run/`, `~` allowed); inherited `open_with` /
+      `on_create` (`none` switches off); `run::Library` (`NotFound`,
+      `Duplicate`, `NotExecutable`), `run::launch` (terminal inherited,
+      "press Enter" on exit != 0); `udo run [NODE] [--with] [--task]`,
+      `udo run --list`. Unknown names fail when running, not loading.
+- [ ] **4. TUI:** `o` open, `O` open with… (script picker); a container
+      opens via a task picker (the time goes to that task); `Flow::Run` ->
+      the loop suspends, runs, resumes; status line shows the source
+      (`▶ lab 3 · 1h12 · tmux`).
+- [ ] **5. `create` event:** `on_create` after creating a task / container
+      (CLI and TUI); `udo add --no-run`. The node stays if the script
+      fails.
+- [ ] **6. Examples and guide:** `examples/run/` (`nvim-tmux`, `idea`,
+      `typst-setup`), `docs/run-configs.md`.
+- [ ] Later: per-task `open_with` (task field, section 1), a `done` event,
+      script descriptions, editor plugins (focus), idle detection.
 
 ## Ideas for later
 

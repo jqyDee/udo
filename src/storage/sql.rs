@@ -6,7 +6,7 @@ use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, 
 use crate::{
     model::{
         id::NodeId,
-        sessions::{SessionError, SessionId, SessionSource},
+        sessions::{Owner, SessionError, SessionId, SessionSource},
     },
     storage::edit_kind::EditKind,
 };
@@ -31,7 +31,7 @@ macro_rules! sql_as_text {
     )*};
 }
 
-sql_as_text!(SessionId, NodeId, SessionSource, EditKind);
+sql_as_text!(SessionId, NodeId, SessionSource, EditKind, Owner);
 
 impl From<rusqlite::Error> for SessionError {
     fn from(e: rusqlite::Error) -> Self {
@@ -77,6 +77,7 @@ mod tests {
     #[test]
     fn source_round_trips_as_its_name() {
         assert_eq!(round_trip(SessionSource::Manual), SessionSource::Manual);
+        assert_eq!(round_trip(Owner::manual()), Owner::manual());
         assert_eq!(read::<String>("'manual'").unwrap(), SessionSource::Manual.to_string());
     }
 
@@ -92,7 +93,8 @@ mod tests {
         assert!(read::<SessionId>("'not a uuid'").is_err());
         assert!(read::<NodeId>("''").is_err());
         assert!(read::<SessionId>("42").is_err()); // not text at all
-        assert!(read::<SessionSource>("'emacs'").is_err());
+        assert!(read::<SessionSource>("'Emacs'").is_err());
         assert!(read::<EditKind>("'spilt'").is_err());
+        assert!(read::<Owner>("'a b'").is_err());
     }
 }

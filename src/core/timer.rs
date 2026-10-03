@@ -8,7 +8,7 @@ use crate::{
     model::{
         id::NodeId,
         node::Node,
-        sessions::{Session, SessionSource, SessionStore, TaskRef},
+        sessions::{Owner, Session, SessionSource, SessionStore, TaskRef},
         time::Time,
     },
 };
@@ -43,7 +43,7 @@ impl Core {
         Ok(self
             .storage
             .sessions
-            .start(task, SessionSource::Manual, at)
+            .start(task, SessionSource::Manual, Owner::manual(), at)
             .await?)
     }
 
@@ -59,7 +59,7 @@ impl Core {
 
     /// Stop the running session at `at`, if any. Callers pass `time::now()`.
     pub async fn stop(&self, at: Time) -> Res<Option<Session>> {
-        Ok(self.storage.sessions.stop(at).await?)
+        Ok(self.storage.sessions.stop(None, at).await?)
     }
 
     /// Stop the running session at `at` if it times one of `tasks` (a task

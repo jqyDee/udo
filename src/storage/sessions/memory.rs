@@ -1,12 +1,15 @@
 use std::sync::Mutex;
 
 use super::rules::{Cut, Split, check_span, intersects, plan_cut, plan_edit, plan_split};
-use crate::model::{
-    sessions::{
-        Session, SessionError, SessionId, SessionPatch, SessionQuery, SessionSource, SessionStore,
-        TaskRef,
+use crate::{
+    model::{
+        sessions::{
+            Owner, Session, SessionError, SessionId, SessionPatch, SessionQuery, SessionSource,
+            SessionStore, TaskRef,
+        },
+        time::{Clock, Time},
     },
-    time::{Clock, Time},
+    storage::sessions::rules::may_stop,
 };
 
 /// Reference backend: everything in a `Vec`. Used by the contract tests.
@@ -39,6 +42,7 @@ impl Inner {
         &mut self,
         task: TaskRef,
         source: SessionSource,
+        owner: Owner,
         at: Time,
     ) -> Result<Session, SessionError> {
         let running = self.running();
@@ -66,6 +70,7 @@ impl Inner {
             start: at,
             end: None,
             source,
+            owner,
             edited_at: None,
             deleted_at: None,
             created_at: self.now(),
@@ -77,6 +82,15 @@ impl Inner {
 
     fn running(&self) -> Option<Session> {
         self.running_index().map(|i| self.sessions[i].clone())
+    }
+
+    /// `stop` with the owner check (`may_stop`); `start` calls `stop_running`
+    /// directly (a start takes over).
+    fn stop(&mut self, owner: Option<&Owner>, at: Time) -> Result<Option<Session>, SessionError> {
+        match self.running() {
+            Some(running) if may_stop(&running, owner) => self.stop_running(at),
+            _ => Ok(None),
+        }
     }
 
     /// Stop the running session at `at`, if any. Shared by `start` and
@@ -120,6 +134,7 @@ impl Inner {
             start,
             end: Some(end),
             source: SessionSource::Manual,
+            owner: Owner::manual(),
             created_at: self.now(),
             edited_at: None, // manual adds have no edit entry
             deleted_at: None,
@@ -239,13 +254,14 @@ impl SessionStore for MemorySessions {
         &self,
         task: TaskRef,
         source: SessionSource,
+        owner: Owner,
         at: Time,
     ) -> Result<Session, SessionError> {
-        self.inner.lock().unwrap().start(task, source, at)
+        self.inner.lock().unwrap().start(task, source, owner, at)
     }
 
-    async fn stop(&self, at: Time) -> Result<Option<Session>, SessionError> {
-        self.inner.lock().unwrap().stop_running(at)
+    async fn stop(&self, owner: Option<&Owner>, at: Time) -> Result<Option<Session>, SessionError> {
+        self.inner.lock().unwrap().stop(owner, at)
     }
 
     async fn running(&self) -> Result<Option<Session>, SessionError> {

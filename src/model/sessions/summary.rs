@@ -53,10 +53,8 @@ mod tests {
     use super::*;
     use crate::{
         model::{
-            id::NodeId,
-            sessions::{SessionId, SessionSource, TaskRef},
-        },
-        test_util::{at, parse_time},
+            id::NodeId, sessions::{Owner, SessionId, SessionSource, TaskRef},
+        }, test_util::{at, parse_time},
     };
 
     fn session(start: Time, end: Option<Time>) -> Session {
@@ -72,6 +70,7 @@ mod tests {
             start,
             end,
             source: SessionSource::Manual,
+            owner: Owner::manual(),
             created_at: start,
             edited_at: None,
             deleted_at: None,

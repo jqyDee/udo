@@ -11,8 +11,8 @@ use sqlite::SqliteSessions;
 
 use crate::model::{
     sessions::{
-        Session, SessionError, SessionId, SessionPatch, SessionQuery, SessionSource, SessionStore,
-        TaskRef,
+        Owner, Session, SessionError, SessionId, SessionPatch, SessionQuery, SessionSource,
+        SessionStore, TaskRef,
     },
     time::Time,
 };
@@ -40,13 +40,14 @@ impl SessionStore for Sessions {
         &self,
         task: TaskRef,
         source: SessionSource,
+        owner: Owner,
         at: Time,
     ) -> Result<Session, SessionError> {
-        dispatch!(self, s => s.start(task, source, at))
+        dispatch!(self, s => s.start(task, source, owner, at))
     }
 
-    async fn stop(&self, at: Time) -> Result<Option<Session>, SessionError> {
-        dispatch!(self, s => s.stop(at))
+    async fn stop(&self, owner: Option<&Owner>, at: Time) -> Result<Option<Session>, SessionError> {
+        dispatch!(self, s => s.stop(owner, at))
     }
 
     async fn running(&self) -> Result<Option<Session>, SessionError> {
