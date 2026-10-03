@@ -8,7 +8,8 @@
 //! - `tree_state`: cursor + folding of the tree pane
 //! - `view`:  drawing
 //!
-//! This file only does terminal I/O: draw, wait, hand keys to `App`.
+//! This file only does terminal I/O: draw, wait, hand keys to `App`, and
+//! hand the whole terminal to a run config when `App` asks (`Flow::Run`).
 
 pub mod app;
 pub mod form;
@@ -19,18 +20,27 @@ pub mod toast;
 pub mod tree_state;
 pub mod view;
 
-use std::{io, time::Instant};
+use std::{io, process::ExitStatus, time::Instant};
 
-use crossterm::event::{Event, EventStream};
+use crossterm::{
+    cursor::{Hide, Show},
+    event::{Event, EventStream},
+    execute,
+    terminal::{
+        Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
+        enable_raw_mode,
+    },
+};
 use futures_util::StreamExt;
-use ratatui::DefaultTerminal;
+use ratatui::{DefaultTerminal, Terminal, backend::CrosstermBackend};
 
 use crate::{
     Res,
     core::Core,
     model::time,
+    run::{self, RunError, exit_code},
     tui::{
-        app::{App, Flow},
+        app::{App, Flow, RunRequest},
         tick::next_tick,
         tree_state::TreeState,
     },
@@ -64,10 +74,15 @@ async fn event_loop(terminal: &mut DefaultTerminal, app: &mut App<'_>) -> Res<()
             }
             Wake::Event(event) => {
                 // non-key events (e.g. resize) just lead to a redraw
-                if let Event::Key(key) = event?
-                    && app.handle_key(key).await == Flow::Quit
-                {
-                    return Ok(());
+                if let Event::Key(key) = event? {
+                    match app.handle_key(key).await {
+                        Flow::Continue => {}
+                        Flow::Quit => return Ok(()),
+                        Flow::Run(request) => {
+                            let result = hand_over(terminal, &mut events, &request).await?;
+                            app.after_run(&request.name, result).await;
+                        }
+                    }
                 }
             }
         }
@@ -91,4 +106,46 @@ async fn next_wake(events: &mut EventStream, deadline: Instant) -> Wake {
         Ok(None) => Wake::Closed,
         Err(_elapsed) => Wake::Timeout,
     }
+}
+
+/// Give the terminal to `request`'s script, then take it back. Its output
+/// stays readable: a failed script asks for Enter before the TUI draws
+/// over it. `events` is made anew afterwards, so the old reader cannot
+/// have kept keys meant for the script. `Err`: the terminal itself failed
+/// (ends the TUI, like a failed draw); the script's own result is the
+/// inner one.
+async fn hand_over(
+    terminal: &mut DefaultTerminal,
+    events: &mut EventStream,
+    request: &RunRequest,
+) -> Res<Result<ExitStatus, RunError>> {
+    disable_raw_mode()?;
+    execute!(io::stdout(), LeaveAlternateScreen, Show)?;
+
+    let result = run::launch(&request.script, &request.ctx).await;
+    if let Ok(status) = &result
+        && !status.success()
+    {
+        println!(
+            "\n[udo] {} exited with {}, press Enter to return",
+            request.name,
+            exit_code(*status)
+        );
+        wait_for_enter().await;
+    }
+
+    enable_raw_mode()?;
+    execute!(io::stdout(), EnterAlternateScreen, Clear(ClearType::All), Hide)?;
+    // a new `Terminal`, not `terminal.clear()`: that asks the terminal
+    // where its cursor is (a round trip through stdin, failing where
+    // nothing answers). A new one only reads the size (the window may
+    // have changed meanwhile) and starts empty, so the next draw is whole.
+    *terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
+    *events = EventStream::new();
+    Ok(result)
+}
+
+/// Block until a line is read from stdin (cooked mode: Enter ends it).
+async fn wait_for_enter() {
+    let _ = tokio::task::spawn_blocking(|| std::io::stdin().read_line(&mut String::new())).await;
 }

@@ -1,4 +1,9 @@
-use std::path::Path;
+use std::{
+    fs,
+    os::unix::{fs::PermissionsExt, process::ExitStatusExt},
+    path::Path,
+    process::ExitStatus,
+};
 
 use crossterm::event::{KeyCode, KeyEventState, KeyModifiers};
 
@@ -13,6 +18,7 @@ use crate::{
         time::{DeadlineRule, Time},
         tree::Tree,
     },
+    run::{Event, RunError},
     test_util::{
         at, container, container_at, fake_trash, press, state_at, task, test_app, tree_with,
     },
@@ -1872,4 +1878,156 @@ async fn an_add_in_the_future_is_refused_and_the_form_stays() {
     assert_eq!(toast.kind, ToastKind::Error);
     assert!(toast.msg.contains("future"), "got: {}", toast.msg);
     assert_eq!(app.sessions.len(), 1);
+}
+
+// ---------- open (`o`) and back from the script ----------
+
+/// `tree()` with `run_dir` in a temp folder holding an executable `editor`,
+/// and `open_with = editor` on the root (inherited by everything).
+fn tree_with_editor() -> (tempfile::TempDir, Tree) {
+    let run = tempfile::tempdir().unwrap();
+    let script = run.path().join("editor");
+    fs::write(&script, "#!/bin/sh\n").unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    let mut t = tree();
+    let root = t.get_mut(&[]).and_then(Node::as_container_mut).unwrap();
+    root.root_settings.run_dir = Some(run.path().to_path_buf());
+    root.settings.open_with = Some("editor".parse().unwrap());
+    (run, t)
+}
+
+/// The error toast's text; fails without one.
+fn error_toast(app: &App) -> String {
+    let toast = app.toast.as_ref().expect("no toast");
+    assert_eq!(toast.kind, ToastKind::Error);
+    toast.msg.clone()
+}
+
+#[tokio::test]
+async fn o_on_a_task_asks_the_loop_to_run_its_open_with() {
+    let (run, t) = tree_with_editor();
+    let b = t.get(&[1, 0]).unwrap().id();
+    let mut app = test_app(t, state_at(&[1, 0]));
+
+    let Flow::Run(request) = app.handle_key(key('o')).await else {
+        panic!("no run, toast: {:?}", app.toast);
+    };
+
+    assert_eq!(request.name.as_str(), "editor");
+    assert_eq!(request.script, run.path().join("editor"));
+    assert_eq!(request.ctx.event, Event::Open);
+    assert_eq!(request.ctx.node.id, b);
+    assert_eq!(request.ctx.task.as_ref().map(|t| t.id), Some(b)); // a task times itself
+    assert!(app.toast.is_none());
+}
+
+/// Problems are toasts; the TUI stays (no `Flow::Run`).
+#[tokio::test]
+async fn o_without_open_with_says_what_to_set() {
+    let mut app = test_app(tree(), state_at(&[1, 0]));
+
+    assert_eq!(app.handle_key(key('o')).await, Flow::Continue);
+    assert_eq!(error_toast(&app), "no run config for b (set open_with)");
+}
+
+#[tokio::test]
+async fn o_with_an_unknown_script_lists_the_ones_there_are() {
+    let (_run, mut t) = tree_with_editor();
+    let root = t.get_mut(&[]).and_then(Node::as_container_mut).unwrap();
+    root.settings.open_with = Some("nope".parse().unwrap());
+    let mut app = test_app(t, state_at(&[1, 0]));
+
+    assert_eq!(app.handle_key(key('o')).await, Flow::Continue);
+    let msg = error_toast(&app);
+    assert!(msg.starts_with("no run config \"nope\""), "{msg}");
+    assert!(msg.ends_with("(have: editor)"), "{msg}");
+}
+
+#[tokio::test]
+async fn o_on_a_script_without_x_says_chmod() {
+    let (run, t) = tree_with_editor();
+    let script = run.path().join("editor");
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o644)).unwrap();
+    let mut app = test_app(t, state_at(&[1, 0]));
+
+    assert_eq!(app.handle_key(key('o')).await, Flow::Continue);
+    assert!(error_toast(&app).contains("chmod +x"));
+}
+
+/// Until the task picker (4b): a container cannot be opened yet.
+#[tokio::test]
+async fn o_on_a_container_is_a_toast_for_now() {
+    let (_run, t) = tree_with_editor();
+    let mut app = test_app(t, state_at(&[1]));
+
+    assert_eq!(app.handle_key(key('o')).await, Flow::Continue);
+    assert!(error_toast(&app).starts_with("ws is no task"));
+}
+
+#[tokio::test]
+async fn o_in_the_sessions_list_does_nothing() {
+    let (_run, t) = tree_with_editor();
+    let mut app = test_app(t, state_at(&[1, 0]));
+    app.details_tab = DetailsTab::Sessions;
+    app.handle_key(key('e')).await; // into the list
+    assert_eq!(app.mode, Mode::Sessions);
+
+    assert_eq!(app.handle_key(key('o')).await, Flow::Continue);
+    assert!(app.toast.is_none());
+}
+
+/// Exit code `code`, as a finished child reports it.
+fn exited(code: i32) -> ExitStatus {
+    ExitStatus::from_raw(code << 8) // a wait status: the code is the high byte
+}
+
+#[tokio::test]
+async fn after_a_script_that_failed_a_toast_says_so() {
+    let mut app = test_app(tree(), state_at(&[1, 0]));
+
+    app.after_run(&"editor".parse().unwrap(), Ok(exited(1)))
+        .await;
+
+    assert_eq!(error_toast(&app), "editor exited with 1");
+}
+
+#[tokio::test]
+async fn after_a_script_that_succeeded_nothing_is_said() {
+    let mut app = test_app(tree(), state_at(&[1, 0]));
+
+    app.after_run(&"editor".parse().unwrap(), Ok(exited(0)))
+        .await;
+
+    assert!(app.toast.is_none());
+}
+
+#[tokio::test]
+async fn after_a_script_that_did_not_start_the_toast_has_the_hint() {
+    let mut app = test_app(tree(), state_at(&[1, 0]));
+    let error = RunError::Launch {
+        path: "/run/editor".into(),
+        error: std::io::ErrorKind::NotFound.into(),
+    };
+
+    app.after_run(&"editor".parse().unwrap(), Err(error)).await;
+
+    assert!(error_toast(&app).ends_with("(check its #! line)"));
+}
+
+/// The script may have started a timer (`udo track`): `after_run` reads
+/// it, so the status line shows it right away.
+#[tokio::test]
+async fn after_a_script_its_timer_shows() {
+    let mut app = test_app(tree(), state_at(&[1, 0]));
+    assert!(app.running.is_none());
+    let (source, owner) = ("editor".parse().unwrap(), "editor:1".parse().unwrap());
+    app.core
+        .track_start(&[1, 0], source, owner, at(14, 0))
+        .await
+        .unwrap();
+
+    app.after_run(&"editor".parse().unwrap(), Ok(exited(0)))
+        .await;
+
+    assert_eq!(app.running.as_ref().map(|s| s.task.name.as_str()), Some("b"));
 }

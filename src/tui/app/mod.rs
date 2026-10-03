@@ -7,6 +7,8 @@
 //! - `details`: `DetailsTab`, which tab the right pane shows (Tab / Shift+Tab)
 //! - `forms`:   create forms (`t` `T` `c` `C`), the edit form (`e`) and the
 //!   settings form (`e` on the settings tab)
+//! - `open`:    open the node at the cursor with its run config (`o`):
+//!   `Flow::Run` for the loop, `after_run` when it is back
 //! - `remove`:  "remove?" prompt (`d`) and full delete (`D`) of a node
 //! - `sessions`: the cursor in the sessions tab's list (`e` on the tab, `esc`),
 //!   adding (`a`), editing (`e`), splitting (`s`), cutting (`c`) and
@@ -17,13 +19,14 @@ mod confirm;
 pub mod details;
 mod forms;
 mod mode;
+mod open;
 mod remove;
 mod sessions;
 #[cfg(test)]
 mod tests;
 mod timer;
 
-use std::{collections::HashSet, time::Instant};
+use std::{collections::HashSet, path::PathBuf, time::Instant};
 
 use crossterm::event::{KeyEvent, KeyEventKind};
 
@@ -37,9 +40,11 @@ use crate::{
         id::NodeId,
         node::Node,
         sessions::Session,
+        settings::RunName,
         time::{self, Clock},
         tree::{TrashFn, system_trash},
     },
+    run::RunContext,
     tui::{
         app::details::DetailsTab,
         keys::{self, Action},
@@ -50,10 +55,26 @@ use crate::{
 };
 
 /// What the event loop should do after a key.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Flow {
     Continue,
     Quit,
+    /// Hand the terminal to a script: the loop leaves the TUI, runs it,
+    /// comes back and calls `App::after_run`. `App` only says what to run;
+    /// the terminal is the loop's. Boxed: every key returns a `Flow`, and
+    /// `Continue` should not carry a request's size.
+    Run(Box<RunRequest>),
+}
+
+/// A script to run for a node, and what it learns about it (`UDO_*`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct RunRequest {
+    /// For messages: `nvim-tmux exited with 1`.
+    pub name: RunName,
+    /// The script `name` was found as (`Library::find`).
+    pub script: PathBuf,
+    /// The node, the task the time goes to, why it runs.
+    pub ctx: RunContext,
 }
 
 pub struct App<'a> {
@@ -175,6 +196,7 @@ impl<'a> App<'a> {
             Action::NewTask => self.open_task_form(),
             Action::NextTab => self.details_tab.next(),
             Action::PrevTab => self.details_tab.prev(),
+            Action::Open => return self.open(),
             // only bound in `SESSION_LIST_KEYMAP`
             Action::Back | Action::Add | Action::Split | Action::Cut => {}
         }

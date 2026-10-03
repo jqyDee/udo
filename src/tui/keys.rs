@@ -33,6 +33,8 @@ pub enum Action {
     Cut,
     /// Session list only: add a session by hand.
     Add,
+    /// Open the node with its run config (`open_with`).
+    Open,
 }
 
 /// One row of the keymap: all keys that trigger `action`, and its help text.
@@ -69,6 +71,7 @@ pub const KEYMAP: &[Section] = &[
     Section { title: "task", bindings: &[
         Binding { keys: &[KeyCode::Char('x')], action: Action::ToggleDone, help: "done / reopen" },
         Binding { keys: &[KeyCode::Char('s')], action: Action::ToggleTimer, help: "start / stop timer" },
+        Binding { keys: &[KeyCode::Char('o')], action: Action::Open, help: "open (run config)" },
         Binding { keys: &[KeyCode::Char('e')], action: Action::Edit, help: "edit" },
         Binding { keys: &[KeyCode::Char('d')], action: Action::Delete, help: "remove from udo" },
     ]},
@@ -227,6 +230,13 @@ mod tests {
         for gone in ['p', 'u'] {
             assert_eq!(action_for(press(KeyCode::Char(gone))), None, "key {gone:?}");
         }
+    }
+
+    #[test]
+    fn o_opens_in_the_tree_only() {
+        let o = press(KeyCode::Char('o'));
+        assert_eq!(action_for(o), Some(Action::Open));
+        assert_eq!(action_for_in(SESSION_LIST_KEYMAP, o), None);
     }
 
     #[test]
