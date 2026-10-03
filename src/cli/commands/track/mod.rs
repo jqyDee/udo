@@ -1,14 +1,16 @@
-//! `udo track start / stop`: the timer for programs (tmux hooks, editor
-//! wrappers, run configs). Quiet: hooks call it on every event, so the
-//! text form is empty; `--json` gives the session. Exit 0 also when
+//! `udo track start / stop / run`: the timer for programs (tmux hooks,
+//! editor wrappers, run configs). Quiet: hooks call it on every event, so
+//! the text form is empty; `--json` gives the session. Exit 0 also when
 //! nothing happens (someone else's session, nothing running); 1 for real
 //! errors (unknown or done task, `--owner manual`); 2 for arguments clap
-//! refuses (an invalid `--source` / `--owner`).
+//! refuses (an invalid `--source` / `--owner`). `run` exits with its
+//! child's code; `run --detach` with 0 once the session is started.
 
 use std::path::Path;
 
 use crate::{Res, cli::report::emit, core::Core, model::time};
 
+mod run;
 mod start;
 mod stop;
 
@@ -20,14 +22,28 @@ pub enum TrackCommand {
     Start(start::StartArgs),
     /// Stop the program's own session (anyone else's: nothing happens)
     Stop(stop::StopArgs),
+    /// Time a task while a program runs (… -- idea --wait DIR); exits with its code
+    Run(run::RunArgs),
 }
 
 /// Run `command` at the current time and print its result.
 pub async fn run(command: &TrackCommand, core: &mut Core, cwd: &Path, json: bool) -> Res<()> {
-    let now = time::now();
     match command {
-        TrackCommand::Start(a) => emit(&start::run(core, cwd, now, a).await?, json),
-        TrackCommand::Stop(a) => emit(&stop::run(core, now, a).await?, json),
+        TrackCommand::Start(a) => emit(&start::run(core, cwd, time::now(), a).await?, json),
+        TrackCommand::Stop(a) => emit(&stop::run(core, time::now(), a).await?, json),
+        TrackCommand::Run(a) if a.detach => {
+            emit(&run::detach(core, cwd, time::now(), a).await?, json)
+        }
+        TrackCommand::Run(a) => {
+            let ran = run::run(core, cwd, time::now, a).await?;
+            emit(&ran, json)?;
+            if ran.code != 0 {
+                // a wrapper passes its child's code on; nothing left to
+                // flush (the stop is committed)
+                std::process::exit(ran.code);
+            }
+            Ok(())
+        }
     }
 }
 
@@ -123,8 +139,16 @@ mod tests {
         let mut args = start_b(&core, "tmux:a");
         args.owner = Owner::manual();
 
-        assert!(start::run(&mut core, tmp.path(), at(14, 0), &args).await.is_err());
-        assert!(stop::run(&core, at(14, 0), &stop_by("manual")).await.is_err());
+        assert!(
+            start::run(&mut core, tmp.path(), at(14, 0), &args)
+                .await
+                .is_err()
+        );
+        assert!(
+            stop::run(&core, at(14, 0), &stop_by("manual"))
+                .await
+                .is_err()
+        );
         assert_eq!(core.sessions().running().await.unwrap(), None);
     }
 
@@ -150,11 +174,32 @@ mod tests {
             Cli::try_parse_from(full).is_ok()
         };
 
-        assert!(parse(&["start", "--task", "a", "--source", "tmux", "--owner", "tmux:a"]));
+        assert!(parse(&[
+            "start", "--task", "a", "--source", "tmux", "--owner", "tmux:a"
+        ]));
         assert!(parse(&["stop", "--owner", "tmux:a"]));
-        assert!(!parse(&["start", "--task", "a", "--source", "Tmux", "--owner", "tmux:a"]));
+        assert!(!parse(&[
+            "start", "--task", "a", "--source", "Tmux", "--owner", "tmux:a"
+        ]));
         assert!(!parse(&["start", "--task", "a", "--source", "tmux", "--owner", "a b"]));
         assert!(!parse(&["start", "--source", "tmux", "--owner", "tmux:a"])); // no --task
         assert!(!parse(&["stop"])); // no --owner
+    }
+
+    /// Everything after `--` is the command, its own flags included.
+    #[test]
+    fn run_takes_the_command_after_the_dashes() {
+        let base = [
+            "udo", "track", "run", "--task", "a", "--source", "idea", "--owner", "idea:1",
+        ];
+        let parse = |rest: &[&str]| Cli::try_parse_from(base.iter().chain(rest));
+
+        assert!(parse(&["--", "idea", "--wait", "/tmp"]).is_ok());
+        assert!(parse(&["--"]).is_err()); // no command
+        assert!(parse(&[]).is_err());
+        assert!(parse(&["idea"]).is_err()); // not after `--`
+        assert!(parse(&["--detach", "--", "idea"]).is_ok());
+        assert!(parse(&["--started", "--", "idea"]).is_ok()); // the helper
+        assert!(parse(&["--detach", "--started", "--", "idea"]).is_err());
     }
 }

@@ -4,10 +4,11 @@ Priorities as of 2026-10-03, in order. Background and older plans:
 `roadmap.txt` (phase numbers below refer to it).
 
 **Next up:** run configs + tracking by program (sections 2 and 4), spec
-`docs/superpowers/specs/2026-10-02-run-configs-design.md`, stage 2
-(`udo track run [--detach]`). Done lately: stage 1 (session owners,
-`udo track start / stop`, `id:<uuid>` as NODE), session corrections in
-the TUI and `?` help in the sessions list.
+`docs/superpowers/specs/2026-10-02-run-configs-design.md`, stage 3
+(library, launcher, `udo run`, settings). Done lately: stages 1 and 2
+(session owners, `udo track start / stop / run [--detach]`, `id:<uuid>`
+as NODE), session corrections in the TUI and `?` help in the sessions
+list.
 
 ## Done: creation flow
 
@@ -117,9 +118,11 @@ the TUI and `?` help in the sessions list.
             `SessionSource` (`Manual` / `Program(name)`), `sessions.owner`
             column; `id:<uuid>` in the NODE resolver; `udo show` prints
             the ID; `status` shows a program's source
-      - [ ] `udo track run … [--detach] -- <cmd>`: waits for the child
-            (`idea --wait`, `zed --wait`) and records the session; `--detach`
-            re-execs itself in a new session (stage 2)
+      - [x] `udo track run … [--detach] -- <cmd>`: waits for the child
+            (`idea --wait`, `zed --wait`) and records the session, exits
+            with its code, Ctrl+C goes to the child; `--detach` starts the
+            session, then re-execs itself as a helper in a new session
+            (stage 2)
       - nvim in tmux: per-session `client-session-changed` -> `track start`;
         server-wide `client-detached` / `session-closed` -> `track stop
         --owner tmux:#{hook_session_name}` (spike 2026-10-02)
@@ -247,7 +250,7 @@ knows no program and never starts a timer for a run (scripts call
 `udo track`). Stages, each its own commit:
 
 - [x] **1. Session data + `track start / stop`** (see section 2).
-- [ ] **2. `track run [--detach]`.**
+- [x] **2. `track run [--detach]`.**
 - [ ] **3. Library, launcher, `udo run`, settings:** root setting `run_dir`
       (default `<root>/run/`, `~` allowed); inherited `open_with` /
       `on_create` (`none` switches off); `run::Library` (`NotFound`,
