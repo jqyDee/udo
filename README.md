@@ -60,3 +60,30 @@ UDO_ROOT=/tmp/udo-test cargo run
 ```
 
 `TODO.md` has the plan and what is next.
+
+## Contributing
+
+Contributions are welcome: bug reports, ideas, fixes, and run configs for
+more tools. Before a pull request:
+
+- `cargo fmt`, `cargo clippy --all-targets` without warnings, `cargo test`
+  green
+- new behaviour comes with a test
+- commit messages in Conventional Commits (`feat(tui): …`, `fix(run): …`)
+
+[CONTRIBUTING.md](CONTRIBUTING.md) has the setup (tools for the full test
+suite), the code layout and the conventions.
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
+
+at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally
+submitted for inclusion in the work by you, as defined in the Apache-2.0
+license, shall be dual licensed as above, without any additional terms or
+conditions.
