@@ -606,6 +606,8 @@ fn cut(
 
 #[cfg(test)]
 mod tests {
+    use chrono::TimeDelta;
+
     use super::*;
     use crate::{
         model::id::NodeId,
@@ -734,5 +736,47 @@ mod tests {
         // delete: gone afterwards
         assert_eq!(log[3].old, Some((at(10, 0), Some(new_end))));
         assert_eq!(log[3].new, None);
+    }
+
+    /// Two processes at once (a tmux hook's `stop`, an editor's `start` on
+    /// another task): either order ends the same way, T1 ended and T2
+    /// running for its new owner, because check and change are one
+    /// transaction each. Were the owner checked outside it, the stop could
+    /// see `a`'s session and then end `b`'s new one (at its own start: 0
+    /// minutes, soft-deleted, `EndBeforeStart`). Verified 2026-10-03 by
+    /// moving the check out with a 5 ms sleep: fails in the first rounds.
+    #[tokio::test]
+    async fn a_stop_and_a_start_at_once_stay_consistent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("udo.db");
+        let hook = SqliteSessions::new(sqlite::open(&path).unwrap(), || at(20, 0));
+        let editor = SqliteSessions::new(sqlite::open(&path).unwrap(), || at(20, 0));
+        let (a, b): (Owner, Owner) = ("tmux:a".parse().unwrap(), "idea:b".parse().unwrap());
+        let (tmux, idea): (SessionSource, SessionSource) =
+            ("tmux".parse().unwrap(), "idea".parse().unwrap());
+
+        // many rounds: the race is short, each round is one more chance
+        for round in 0..100 {
+            let t = at(8, 0) + TimeDelta::minutes(2 * round);
+            let switch = t + TimeDelta::minutes(1);
+            let first = hook.start(task(), tmux.clone(), a.clone(), t).await.unwrap();
+
+            let (stopped, started) = tokio::join!(
+                hook.stop(Some(&a), switch),
+                editor.start(task(), idea.clone(), b.clone(), switch),
+            );
+            stopped.unwrap(); // Some (stop first) or None (start first): both fine
+            let started = started.unwrap();
+
+            assert_eq!(hook.running().await.unwrap(), Some(started), "round {round}");
+            let mine = SessionQuery {
+                tasks: Some(vec![first.task.id]),
+                ..Default::default()
+            };
+            let first = &hook.query(&mine).await.unwrap()[0];
+            assert_eq!(first.end, Some(switch), "round {round}");
+
+            editor.stop(None, switch + TimeDelta::minutes(1)).await.unwrap(); // next round: idle
+        }
     }
 }

@@ -35,6 +35,10 @@ pub struct SessionLine {
     pub ended: Option<Time>,
     /// Whole minutes so far (running) or in total (stopped).
     pub minutes: u32,
+    /// `manual` or the program (`tmux`, `idea`, …).
+    pub source: String,
+    /// Who may stop it (`manual`, `tmux:udo-…`).
+    pub owner: String,
 }
 
 impl SessionLine {
@@ -45,12 +49,17 @@ impl SessionLine {
             started: session.start,
             ended: session.end,
             minutes: session.duration(now).get(),
+            source: session.source.to_string(),
+            owner: session.owner.to_string(),
         }
     }
 
-    /// `lab 3 (1h12)`
+    /// `lab 3 (1h12)`; a program's session: `lab 3 (1h12, tmux)`
     pub(super) fn text(&self) -> String {
-        format!("{} ({})", self.task, Minutes::new(self.minutes))
+        match self.source.as_str() {
+            "manual" => format!("{} ({})", self.task, Minutes::new(self.minutes)),
+            program => format!("{} ({}, {program})", self.task, Minutes::new(self.minutes)),
+        }
     }
 }
 
@@ -210,6 +219,26 @@ mod tests {
         assert_eq!(stopped.to_string(), "no session running");
         assert_eq!(long.to_string(), "no session running");
         assert_eq!(short.to_string(), ""); // `emit` prints nothing
+    }
+
+    /// A program's session names the program; the JSON has source and owner.
+    #[tokio::test]
+    async fn status_of_a_program_session_shows_its_source() {
+        let (_tmp, mut core) = core().await;
+        let (source, owner) = ("tmux".parse().unwrap(), "tmux:a".parse().unwrap());
+        core.track_start(&[0], source, owner, at(14, 0))
+            .await
+            .unwrap();
+
+        let running = status(&core, at(15, 12), &StatusArgs { short: false })
+            .await
+            .unwrap();
+
+        assert_eq!(running.to_string(), "running: a (1h12, tmux)");
+        let json: serde_json::Value =
+            serde_json::from_str(&render(&running, true).unwrap()).unwrap();
+        assert_eq!(json["running"]["source"], "tmux");
+        assert_eq!(json["running"]["owner"], "tmux:a");
     }
 
     #[tokio::test]

@@ -17,6 +17,7 @@ use crate::{
     DATE_FMT, Res,
     core::Core,
     model::{
+        id::NodeId,
         node::NodeBody,
         sessions::TimeSummary,
         time::{Minutes, Time},
@@ -33,6 +34,8 @@ pub struct ShowArgs {
 /// `overdue`.
 #[derive(Serialize)]
 pub struct Shown {
+    /// The plain ID; as NODE: `id:<this>` (survives renames).
+    pub id: NodeId,
     pub path: String,
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -70,6 +73,7 @@ pub async fn run(core: &Core, cwd: &Path, now: Time, args: &ShowArgs) -> Res<Sho
         }
     };
     Ok(Shown {
+        id: node.id(),
         path: path_text(tree, &path),
         name: node.name().into(),
         kind,
@@ -91,6 +95,7 @@ impl fmt::Display for Shown {
         };
         write!(f, "{}", self.name)?;
         line(f, "path", &self.path)?;
+        line(f, "id", &self.id)?;
         if let Some(kind) = &self.kind {
             line(f, "kind", kind)?;
         }
@@ -202,9 +207,28 @@ mod tests {
         assert!(json.get("overdue").is_none());
     }
 
+    /// The JSON's `id` is the plain ID; `id:<it>` names the same node again,
+    /// for any command (hooks written by hand: `udo track start --task
+    /// id:<it> …`).
+    #[tokio::test]
+    async fn the_id_resolves_back_to_the_node() {
+        let (tmp, core) = core().await;
+
+        let shown = run(&core, tmp.path(), at(12, 0), &named("b")).await.unwrap();
+        let json: serde_json::Value = serde_json::from_str(&render(&shown, true).unwrap()).unwrap();
+        let id = json["id"].as_str().unwrap();
+
+        assert_eq!(id, core.tree().get(&[1, 0]).unwrap().id().to_string());
+        let again = run(&core, tmp.path(), at(12, 0), &named(&format!("id:{id}")))
+            .await
+            .unwrap();
+        assert_eq!(again.path, "ws/b");
+    }
+
     #[test]
     fn text_has_one_labelled_line_per_field() {
         let shown = Shown {
+            id: "01a10224-0f2b-77da-adc0-deaeebedad96".parse().unwrap(),
             path: "uni/lab 3".into(),
             name: "lab 3".into(),
             kind: None,
@@ -222,6 +246,7 @@ mod tests {
             shown.to_string(),
             "lab 3\n\
              path:        uni/lab 3\n\
+             id:          01a10224-0f2b-77da-adc0-deaeebedad96\n\
              status:      to do\n\
              folder:      /uni/lab_3\n\
              description: sheet 3\n\
@@ -232,6 +257,7 @@ mod tests {
     #[test]
     fn an_overdue_due_line_says_so() {
         let shown = Shown {
+            id: NodeId::new(),
             path: "lab 3".into(),
             name: "lab 3".into(),
             kind: None,

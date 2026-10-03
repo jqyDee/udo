@@ -15,6 +15,7 @@ mod session;
 mod settings;
 mod show;
 mod timer;
+mod track;
 
 use std::path::Path;
 
@@ -54,6 +55,9 @@ pub enum Command {
     /// List and correct recorded time
     #[command(subcommand)]
     Session(session::SessionCommand),
+    /// The timer for programs: tmux hooks, editor wrappers (quiet)
+    #[command(subcommand)]
+    Track(track::TrackCommand),
 }
 
 /// Run `command` and print its result (`json`: as JSON). `cwd` is where
@@ -78,5 +82,6 @@ pub async fn run(command: &Command, core: &mut Core, cwd: &Path, json: bool) -> 
         Command::Stop => emit(&timer::stop(core, time::now()).await?, json),
         Command::Status(a) => emit(&timer::status(core, time::now(), a).await?, json),
         Command::Session(c) => session::run(c, core, cwd, json).await,
+        Command::Track(c) => track::run(c, core, cwd, json).await,
     }
 }

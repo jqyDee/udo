@@ -4,10 +4,10 @@ Priorities as of 2026-10-03, in order. Background and older plans:
 `roadmap.txt` (phase numbers below refer to it).
 
 **Next up:** run configs + tracking by program (sections 2 and 4), spec
-`docs/superpowers/specs/2026-10-02-run-configs-design.md`, stage 1
-(session owner + `udo track start / stop`). Done lately: session
-corrections in the TUI (add, edit, split, cut, remove) and `?` help in the
-sessions list.
+`docs/superpowers/specs/2026-10-02-run-configs-design.md`, stage 2
+(`udo track run [--detach]`). Done lately: stage 1 (session owners,
+`udo track start / stop`, `id:<uuid>` as NODE), session corrections in
+the TUI and `?` help in the sessions list.
 
 ## Done: creation flow
 
@@ -112,10 +112,11 @@ sessions list.
       foreign stop is a no-op), manual always wins. Rules in the store
       (one transaction). Protocol = the CLI, called by scripts / tmux
       hooks / wrappers:
-      - [ ] `udo track start --task <NODE> --source <name> --owner <owner>`,
+      - [x] `udo track start --task <NODE> --source <name> --owner <owner>`,
             `udo track stop --owner <owner>` (stage 1); `Owner`, open
             `SessionSource` (`Manual` / `Program(name)`), `sessions.owner`
-            column; `id:<uuid>` in the NODE resolver
+            column; `id:<uuid>` in the NODE resolver; `udo show` prints
+            the ID; `status` shows a program's source
       - [ ] `udo track run … [--detach] -- <cmd>`: waits for the child
             (`idea --wait`, `zed --wait`) and records the session; `--detach`
             re-execs itself in a new session (stage 2)
@@ -245,7 +246,7 @@ folder, name = file stem; context via `UDO_*` environment variables; udo
 knows no program and never starts a timer for a run (scripts call
 `udo track`). Stages, each its own commit:
 
-- [ ] **1. Session data + `track start / stop`** (see section 2).
+- [x] **1. Session data + `track start / stop`** (see section 2).
 - [ ] **2. `track run [--detach]`.**
 - [ ] **3. Library, launcher, `udo run`, settings:** root setting `run_dir`
       (default `<root>/run/`, `~` allowed); inherited `open_with` /
