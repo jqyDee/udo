@@ -3,6 +3,10 @@ name = "udo"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
+description = "Task, time and workflow manager for the terminal"
+repository = "https://github.com/jqyDee/udo"
+homepage = "https://github.com/jqyDee/udo"
+readme = "README.md"
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }

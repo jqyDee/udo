@@ -1,0 +1,5 @@
+publish = false
+tag-name = "v{{version}}"
+allow-branch = ["main"]
+pre-release-commit-message = "chore: release {{version}}"
+pre-release-hook = ["git", "cliff", "-o", "CHANGELOG.md", "--tag", "v{{version}}"]
