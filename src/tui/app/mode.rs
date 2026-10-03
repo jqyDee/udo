@@ -4,7 +4,8 @@
 use crate::tui::{
     app::Confirm,
     form::Form,
-    keys::{KEYMAP, SESSION_LIST_KEYMAP, Section},
+    keys::{KEYMAP, PICKER_KEYMAP, SESSION_LIST_KEYMAP, Section},
+    pick::Picker,
 };
 
 /// What the keys currently do. One mode at a time, so e.g. "help open and a
@@ -26,6 +27,9 @@ pub enum Mode {
     /// Cursor in the sessions tab's list (`SessionList::selected`; None:
     /// the list is empty): keys go through `SESSION_LIST_KEYMAP`.
     Sessions,
+    /// Picker open (`o` on a container, `O`): keys go through
+    /// `PICKER_KEYMAP`, its `PickAction` says what the pick leads to.
+    Pick(Box<Picker>),
 }
 
 impl Mode {
@@ -36,6 +40,7 @@ impl Mode {
         match self {
             Mode::Normal => Some(KEYMAP),
             Mode::Sessions => Some(SESSION_LIST_KEYMAP),
+            Mode::Pick(_) => Some(PICKER_KEYMAP),
             Mode::Help(_) | Mode::Form(_) | Mode::Confirm(_) => None,
         }
     }
@@ -48,7 +53,7 @@ impl Mode {
             Mode::Form(form) => super::forms::mode_after(&form.action) == Mode::Sessions,
             Mode::Confirm(c) => super::confirm::mode_after(&c.action) == Mode::Sessions,
             Mode::Help(under) => under.in_list(),
-            Mode::Normal => false,
+            Mode::Normal | Mode::Pick(_) => false,
         }
     }
 }

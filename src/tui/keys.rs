@@ -35,6 +35,11 @@ pub enum Action {
     Add,
     /// Open the node with its run config (`open_with`).
     Open,
+    /// Open the node with a script picked first (the `open_with` one
+    /// preselected).
+    OpenWith,
+    /// Picker only: take the item under the cursor.
+    Pick,
 }
 
 /// One row of the keymap: all keys that trigger `action`, and its help text.
@@ -72,6 +77,7 @@ pub const KEYMAP: &[Section] = &[
         Binding { keys: &[KeyCode::Char('x')], action: Action::ToggleDone, help: "done / reopen" },
         Binding { keys: &[KeyCode::Char('s')], action: Action::ToggleTimer, help: "start / stop timer" },
         Binding { keys: &[KeyCode::Char('o')], action: Action::Open, help: "open (run config)" },
+        Binding { keys: &[KeyCode::Char('O')], action: Action::OpenWith, help: "open with…" },
         Binding { keys: &[KeyCode::Char('e')], action: Action::Edit, help: "edit" },
         Binding { keys: &[KeyCode::Char('d')], action: Action::Delete, help: "remove from udo" },
     ]},
@@ -103,6 +109,19 @@ pub const SESSION_LIST_KEYMAP: &[Section] = &[
     Section { title: "app", bindings: &[
         Binding { keys: &[KeyCode::Char('?')], action: Action::Help, help: "toggle this help" },
         Binding { keys: &[KeyCode::Char('q')], action: Action::Quit, help: "quit" },
+    ]},
+];
+
+/// Keys while a picker is open (`Mode::Pick`: which script, which task).
+/// Esc goes back to the tree; nothing is run.
+#[rustfmt::skip]
+pub const PICKER_KEYMAP: &[Section] = &[
+    Section { title: "pick", bindings: &[
+        Binding { keys: &[KeyCode::Char('j'), KeyCode::Down], action: Action::Down, help: "next" },
+        Binding { keys: &[KeyCode::Char('k'), KeyCode::Up], action: Action::Up, help: "previous" },
+        Binding { keys: &[KeyCode::Enter], action: Action::Pick, help: "pick" },
+        Binding { keys: &[KeyCode::Esc], action: Action::Back, help: "back to the tree" },
+        Binding { keys: &[KeyCode::Char('?')], action: Action::Help, help: "toggle this help" },
     ]},
 ];
 
@@ -169,7 +188,7 @@ mod tests {
 
     /// Every keymap of a mode. Duplicates across them are fine (`e` means
     /// something else in the list), within one they are not.
-    const KEYMAPS: [&[Section]; 2] = [KEYMAP, SESSION_LIST_KEYMAP];
+    const KEYMAPS: [&[Section]; 3] = [KEYMAP, SESSION_LIST_KEYMAP, PICKER_KEYMAP];
 
     #[test]
     fn no_key_is_bound_twice() {

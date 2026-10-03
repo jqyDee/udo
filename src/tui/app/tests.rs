@@ -24,6 +24,8 @@ use crate::{
     },
     tui::{
         form::{FieldId, FieldInput, FolderMode, Form, FormAction, TextInput},
+        keys::PICKER_KEYMAP,
+        pick::{PickAction, PickItem, PickValue, Picker},
         toast::ToastKind,
     },
 };
@@ -2030,4 +2032,109 @@ async fn after_a_script_its_timer_shows() {
         .await;
 
     assert_eq!(app.running.as_ref().map(|s| s.task.name.as_str()), Some("b"));
+}
+
+// ---------- picker keys (`Mode::Pick`) ----------
+
+/// The app on `a` with a script picker over `x`, `y`, `z` open, cursor on
+/// `x`. Put in place directly: these tests are about the keys, not about
+/// how `o` / `O` open it.
+fn picker_app() -> App<'static> {
+    let mut app = test_app(tree(), state_at(&[0]));
+    let items = ["x", "y", "z"]
+        .map(|n| PickItem {
+            label: n.into(),
+            note: None,
+            value: PickValue::Script(n.parse().unwrap()),
+        })
+        .to_vec();
+    app.mode = Mode::Pick(Box::new(Picker {
+        title: "open a with".into(),
+        items,
+        cursor: 0,
+        action: PickAction::Script { path: vec![0] },
+    }));
+    app
+}
+
+fn picker_cursor(app: &App) -> usize {
+    match &app.mode {
+        Mode::Pick(p) => p.cursor,
+        other => panic!("no picker: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn j_and_k_move_in_the_picker_and_stop_at_the_ends() {
+    let mut app = picker_app();
+
+    app.handle_key(key('k')).await;
+    assert_eq!(picker_cursor(&app), 0, "stays on the first");
+    app.handle_key(key('j')).await;
+    assert_eq!(picker_cursor(&app), 1);
+    app.handle_key(press(KeyCode::Down)).await;
+    app.handle_key(key('j')).await;
+    assert_eq!(picker_cursor(&app), 2, "stays on the last");
+    app.handle_key(press(KeyCode::Up)).await;
+    assert_eq!(picker_cursor(&app), 1);
+    assert_eq!(app.tree_state.cursor, vec![0], "the tree did not move");
+}
+
+#[tokio::test]
+async fn esc_closes_the_picker_and_runs_nothing() {
+    let mut app = picker_app();
+    app.handle_key(key('j')).await;
+
+    assert_eq!(app.handle_key(press(KeyCode::Esc)).await, Flow::Continue);
+
+    assert_eq!(app.mode, Mode::Normal);
+    assert_eq!(app.tree_state.cursor, vec![0]);
+    assert!(app.toast.is_none());
+}
+
+/// Help shows the picker's keys; any key brings the picker back as it was.
+#[tokio::test]
+async fn help_over_the_picker_shows_its_keys_and_returns_to_it() {
+    let mut app = picker_app();
+    app.handle_key(key('j')).await;
+    let picker = app.mode.clone();
+
+    app.handle_key(key('?')).await;
+    let Mode::Help(under) = &app.mode else {
+        panic!("no help: {:?}", app.mode);
+    };
+    let keys = under.keymap().expect("a keymap to show");
+    assert!(keys::bindings_in(keys).any(|b| b.action == Action::Pick));
+    assert_eq!(keys.len(), PICKER_KEYMAP.len());
+
+    app.handle_key(key('j')).await; // only closes the help
+    assert_eq!(app.mode, picker);
+}
+
+/// Tree keys mean nothing in the picker: no change, and `q` does not quit.
+#[tokio::test]
+async fn tree_keys_do_nothing_in_the_picker() {
+    let mut app = picker_app();
+    let picker = app.mode.clone();
+
+    // `d` / `t` would open a prompt / form: the mode check covers them
+    for c in ['x', 'd', 's', 't', 'o', 'q', 'l', 'h'] {
+        assert_eq!(app.handle_key(key(c)).await, Flow::Continue, "{c}");
+    }
+
+    assert_eq!(app.mode, picker);
+    let a = app.core.tree().get(&[0]).and_then(Node::as_task).unwrap();
+    assert!(a.done_at.is_none(), "x did not mark it done");
+    assert_eq!(app.tree_state.cursor, vec![0]);
+    assert!(app.running.is_none(), "no timer started");
+}
+
+/// Opened from the tree: its cursor stays lit, it shows what is opened.
+#[test]
+fn the_tree_cursor_stays_lit_while_picking() {
+    let mut app = picker_app();
+    assert!(!app.in_list());
+
+    app.mode = Mode::Help(Box::new(app.mode.clone()));
+    assert!(!app.in_list(), "under the help too");
 }
