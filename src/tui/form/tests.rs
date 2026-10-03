@@ -537,6 +537,7 @@ fn settings_form_bad_input_names_the_setting() {
 fn settings_form_on_the_root_adds_root_settings() {
     let root = RootSettings {
         theme: Some("dark".into()),
+        ..Default::default()
     };
     let mut form = settings_form(Some(&root));
 

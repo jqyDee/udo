@@ -261,6 +261,7 @@ mod tests {
             },
             root: RootSettings {
                 theme: Some("dark".into()),
+                ..Default::default()
             },
         };
         data.save(dir.path()).await.unwrap();

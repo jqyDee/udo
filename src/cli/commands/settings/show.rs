@@ -65,12 +65,15 @@ pub fn run(core: &Core, cwd: &Path, node: Option<&str>) -> Res<SettingsView> {
 
 impl fmt::Display for SettingsView {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // columns as wide as their longest entry (paths are long), plus a gap
         let width = self.rows.iter().map(|r| r.key.len()).max().unwrap_or(0) + 2;
+        let values = self.rows.iter().filter_map(|r| r.value.as_ref());
+        let value_width = values.map(|v| v.chars().count()).max().unwrap_or(0).max(12) + 2;
         write!(f, "settings of {}", self.path)?;
         for row in &self.rows {
             match (&row.value, &row.source) {
                 (Some(value), Some(source)) => {
-                    write!(f, "\n{:<width$}{value:<14}{source}", row.key)?
+                    write!(f, "\n{:<width$}{value:<value_width$}{source}", row.key)?
                 }
                 _ => write!(f, "\n{:<width$}-", row.key)?,
             }
@@ -113,7 +116,9 @@ pub(super) mod tests {
                 "task_folders",
                 "default_deadline",
                 "archive_dir",
-                "estimate"
+                "estimate",
+                "open_with",
+                "on_create"
             ]
         );
         let estimate = row(&view, "estimate");
@@ -123,13 +128,38 @@ pub(super) mod tests {
         assert_eq!(row(&view, "archive_dir").value, None);
     }
 
+    /// A long value (a path) does not run into its source.
+    #[test]
+    fn the_value_column_fits_the_longest_value() {
+        let row = |key: &str, value: &str| SettingRow {
+            key: key.into(),
+            value: Some(value.into()),
+            source: Some("own".into()),
+        };
+        let view = SettingsView {
+            path: "/".into(),
+            rows: vec![
+                row("theme", "dark"),
+                row("run_dir", "/Users/x/dotfiles/udo-run"),
+            ],
+        };
+
+        assert_eq!(
+            view.to_string(),
+            "settings of /\n\
+             theme    dark                       own\n\
+             run_dir  /Users/x/dotfiles/udo-run  own"
+        );
+    }
+
     #[tokio::test]
     async fn the_root_shows_its_own_settings_too() {
         let (tmp, core) = core().await;
 
         let view = run(&core, tmp.path(), Some("/")).unwrap();
 
-        assert_eq!(view.rows.last().unwrap().key, "theme");
+        let keys: Vec<&str> = view.rows.iter().map(|r| r.key.as_str()).collect();
+        assert_eq!(keys[keys.len() - 2..], ["theme", "run_dir"]); // after the others
     }
 
     #[tokio::test]

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::model::{
     NodePath,
     id::NodeId,
@@ -88,6 +90,15 @@ impl Tree {
             .root_settings
     }
 
+    /// The run config library: `run_dir` if set, else `<root>/run`. The
+    /// one place that default lives.
+    pub fn run_dir(&self) -> PathBuf {
+        match &self.root_settings().run_dir {
+            Some(dir) => dir.clone(),
+            None => self.root.dir().expect("the root has a folder").join("run"),
+        }
+    }
+
     /// Ids of the tasks at or below `path`: a task is just itself, a
     /// container every task below it (at any depth), in tree order. No such
     /// node: empty.
@@ -122,8 +133,10 @@ impl Tree {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use crate::{
-        model::{id::NodeId, tree::Tree},
+        model::{id::NodeId, node::Node, tree::Tree},
         test_util::{container, deep_tree, task, tree_with},
     };
 
@@ -243,6 +256,22 @@ mod tests {
         assert_eq!(t.path_of(id(&[1, 1, 0])), Some(vec![1, 1, 0])); // c, two levels down
         assert_eq!(t.path_of(id(&[1])), Some(vec![1])); // a container
         assert_eq!(t.path_of(id(&[])), Some(vec![])); // the root
+    }
+
+    #[test]
+    fn run_dir_defaults_to_run_in_the_root() {
+        let t = tree();
+
+        assert_eq!(t.run_dir(), t.root.dir().unwrap().join("run"));
+    }
+
+    #[test]
+    fn run_dir_set_wins() {
+        let mut t = tree();
+        let root = t.get_mut(&[]).and_then(Node::as_container_mut).unwrap();
+        root.root_settings.run_dir = Some(PathBuf::from("/dotfiles/udo-run"));
+
+        assert_eq!(t.run_dir(), PathBuf::from("/dotfiles/udo-run"));
     }
 
     #[test]

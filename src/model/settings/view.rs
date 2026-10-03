@@ -75,20 +75,57 @@ pub const SETTINGS: &[SettingInfo<ContainerSettings>] = &[
             Ok(())
         },
     },
+    // free text, not `choices`: the names are the scripts in `run_dir`,
+    // known only at runtime; an unknown one fails when run, not here
+    SettingInfo {
+        key: "open_with",
+        label: "open with",
+        choices: &[],
+        format: Some("nvim-tmux · none"),
+        get: |s| s.open_with.as_ref().map(|v| v.to_string()),
+        set: |s, text| {
+            s.open_with = opt(text, str::parse)?;
+            Ok(())
+        },
+    },
+    SettingInfo {
+        key: "on_create",
+        label: "on create",
+        choices: &[],
+        format: Some("typst-setup · none"),
+        get: |s| s.on_create.as_ref().map(|v| v.to_string()),
+        set: |s, text| {
+            s.on_create = opt(text, str::parse)?;
+            Ok(())
+        },
+    },
 ];
 
 /// Every root-only setting, in the order the UI shows them. Not inherited.
-pub const ROOT_SETTINGS: &[SettingInfo<RootSettings>] = &[SettingInfo {
-    key: "theme",
-    label: "theme",
-    choices: &[],
-    format: None,
-    get: |s| s.theme.clone(),
-    set: |s, text| {
-        s.theme = opt(text, |t| Ok(t.to_string()))?;
-        Ok(())
+pub const ROOT_SETTINGS: &[SettingInfo<RootSettings>] = &[
+    SettingInfo {
+        key: "theme",
+        label: "theme",
+        choices: &[],
+        format: None,
+        get: |s| s.theme.clone(),
+        set: |s, text| {
+            s.theme = opt(text, |t| Ok(t.to_string()))?;
+            Ok(())
+        },
     },
-}];
+    SettingInfo {
+        key: "run_dir",
+        label: "run configs",
+        choices: &[],
+        format: Some("/path/to/dir · ~/dir"),
+        get: |s| s.run_dir.as_ref().map(|p| p.display().to_string()),
+        set: |s, text| {
+            s.run_dir = opt(text, parse_abs_dir)?;
+            Ok(())
+        },
+    },
+];
 
 /// Blank -> None (unset), else `parse` on the trimmed text.
 fn opt<T>(text: &str, parse: impl Fn(&str) -> Result<T, String>) -> Result<Option<T>, String> {
@@ -167,12 +204,15 @@ mod tests {
             task_folders: Some(TaskFolderSetting::Auto),
             default_deadline: Some("fri 22:00".parse().unwrap()),
             estimate: Some(Minutes::new(10)),
+            open_with: Some("nvim-tmux".parse().unwrap()),
+            on_create: Some("none".parse().unwrap()),
         }
     }
 
     fn all_root_set() -> RootSettings {
         RootSettings {
             theme: Some("dark".into()),
+            run_dir: Some(PathBuf::from("/dotfiles/run")),
         }
     }
 
@@ -254,6 +294,8 @@ mod tests {
                 Some("fri 22:00".to_string()),
                 Some("/arch".to_string()),
                 Some("10m".to_string()),
+                Some("nvim-tmux".to_string()),
+                Some("none".to_string()),
             ]
         );
         let empty = ContainerSettings::default();
@@ -266,7 +308,7 @@ mod tests {
             .iter()
             .map(|i| (i.get)(&all_root_set()))
             .collect();
-        assert_eq!(texts, [Some("dark".to_string())]);
+        assert_eq!(texts, [Some("dark".to_string()), Some("/dotfiles/run".to_string())]);
         let empty = RootSettings::default();
         assert!(ROOT_SETTINGS.iter().all(|i| (i.get)(&empty).is_none()));
     }
@@ -297,6 +339,8 @@ mod tests {
             ("task_folders", "custom"),
             ("default_deadline", "someday"),
             ("archive_dir", "rel/path"),
+            ("open_with", "my script"),
+            ("on_create", "idea.py"),
         ];
         for (key, text) in bad {
             let info = SETTINGS.iter().find(|i| i.key == key).unwrap();

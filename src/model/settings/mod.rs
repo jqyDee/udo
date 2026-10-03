@@ -5,8 +5,10 @@
 //! - `resolve`: `Tree::setting`, `Resolved`, `Source`
 //! - `view`:    `SETTINGS` (every setting as text, for the UI) and
 //!   `Tree::effective_settings`
+//! - `run`:     `RunName`, `RunSetting` (`open_with`, `on_create`)
 
 mod resolve;
+mod run;
 pub mod view;
 
 use std::{fmt, path::PathBuf, str::FromStr};
@@ -15,6 +17,7 @@ use chrono::NaiveTime;
 use serde::{Deserialize, Serialize};
 
 pub use resolve::{Resolved, Source};
+pub use run::{RunName, RunSetting};
 
 use crate::model::time::{DeadlineRule, Minutes};
 
@@ -31,6 +34,12 @@ pub struct ContainerSettings {
     /// First guess of how long a task takes, e.g. `1h30`. Inherited; no
     /// built-in default.
     pub estimate: Option<Minutes>,
+    /// Run config for opening a node (`o`, `udo run`). Inherited; no
+    /// built-in default; `none` switches it off.
+    pub open_with: Option<RunSetting>,
+    /// Run config after creating a task or container below. Inherited; no
+    /// built-in default; `none` switches it off.
+    pub on_create: Option<RunSetting>,
 }
 
 impl ContainerSettings {
@@ -97,6 +106,10 @@ impl FromStr for TaskFolderSetting {
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RootSettings {
     pub theme: Option<String>,
+    /// Where the run configs live (scripts, name = file stem). Unset:
+    /// `<root>/run` (`Tree::run_dir`). Absolute; `~/…` is expanded when set
+    /// (scripts in a dotfiles repo).
+    pub run_dir: Option<PathBuf>,
 }
 
 impl RootSettings {
@@ -244,6 +257,51 @@ mod tests {
             })
         );
         assert_eq!(deadline(&t, &[1]).unwrap().source, Source::Default); // "work"
+    }
+
+    // ---------- open_with / on_create ----------
+
+    fn open_with(t: &Tree, path: &[usize]) -> Option<Resolved<RunSetting>> {
+        t.setting(path, |s| s.open_with.clone())
+    }
+
+    fn set_open_with(t: &mut Tree, path: &[usize], text: &str) {
+        let c = t.get_mut(path).and_then(Node::as_container_mut).unwrap();
+        c.settings.open_with = Some(text.parse().unwrap());
+    }
+
+    #[test]
+    fn run_settings_have_no_builtin_default() {
+        assert_eq!(open_with(&uni_tree(), &[0, 0]), None);
+        assert_eq!(uni_tree().setting(&[0, 0], |s| s.on_create.clone()), None);
+    }
+
+    #[test]
+    fn open_with_is_inherited() {
+        let mut t = uni_tree();
+        set_open_with(&mut t, &[0], "nvim-tmux");
+
+        assert_eq!(
+            open_with(&t, &[0, 0, 0]), // task "lab" in cs, below uni
+            Some(Resolved {
+                value: "nvim-tmux".parse().unwrap(),
+                source: Source::Inherited(vec![0]),
+            })
+        );
+    }
+
+    #[test]
+    fn none_on_a_child_switches_the_parents_off() {
+        let mut t = uni_tree();
+        set_open_with(&mut t, &[0], "nvim-tmux");
+        set_open_with(&mut t, &[0, 0], "none");
+
+        let resolved = open_with(&t, &[0, 0, 0]).unwrap();
+
+        assert_eq!(
+            (resolved.value, resolved.source),
+            (RunSetting::Off, Source::Inherited(vec![0, 0]))
+        );
     }
 
     #[test]

@@ -700,6 +700,7 @@ mod tests {
     fn theme(name: &str) -> RootSettings {
         RootSettings {
             theme: Some(name.into()),
+            ..Default::default()
         }
     }
 
