@@ -1,6 +1,6 @@
 //! Overlays drawn on top of the panes: toast (top right), key help, confirm
-//! prompt and full delete (center), plus the geometry/text helpers they
-//! share.
+//! prompt, full delete and picker (center), plus the geometry/text helpers
+//! they share.
 
 use ratatui::{
     Frame,
@@ -16,6 +16,7 @@ use crate::{
         app::{Confirm, ConfirmAction, ConfirmStage},
         form::TextInput,
         keys::{Binding, Section, bindings_in, key_label},
+        pick::{PickItem, Picker},
         toast::{Toast, ToastKind},
     },
 };
@@ -43,7 +44,7 @@ fn draw_ask(frame: &mut Frame, c: &Confirm) {
     lines.extend(note_lines(c, max_text_w));
     lines.push(Line::default());
     lines.push(keys_line(c));
-    draw_box(frame, c.title, lines);
+    draw_box(frame, c.title, lines, Color::Red);
 }
 
 /// Question, the action's detail rows, notes, then the text to type and
@@ -64,7 +65,55 @@ fn draw_type_to_confirm(frame: &mut Frame, c: &Confirm, expected: &str, input: &
     lines.push(Line::from(input_line));
     lines.push(Line::default());
     lines.push(keys_line(c));
-    draw_box(frame, c.title, lines);
+    draw_box(frame, c.title, lines, Color::Red);
+}
+
+/// Centered picker: one row per item, the cursor's row reversed (and
+/// marked `>`: readable without colors), notes dim, the keys below. More
+/// items than fit: a window that keeps the cursor in view. It is not
+/// stored: computed from the cursor, it only moves once the cursor would
+/// leave it at the bottom.
+pub fn draw_picker(frame: &mut Frame, p: &Picker) {
+    let width = max_text_w(frame.area());
+    // 1 margin + 2 border + blank + keys line + 1 margin
+    let rows = (frame.area().height as usize).saturating_sub(6).max(1);
+    let first = p.cursor.saturating_sub(rows - 1);
+    let mut lines: Vec<Line> = p
+        .items
+        .iter()
+        .enumerate()
+        .skip(first)
+        .take(rows)
+        .map(|(i, item)| item_line(item, i == p.cursor, width))
+        .collect();
+    lines.push(Line::default());
+    lines.push(Line::from("enter pick · esc back · ? keys").dim());
+    draw_box(frame, &p.title, lines, Color::Blue);
+}
+
+/// `> label (default)`: marker, label, dim note; the cursor's row
+/// reversed. A label too long for `width` is cut with `…` (task paths can
+/// be long; the note stays).
+fn item_line(item: &PickItem, selected: bool, width: usize) -> Line<'static> {
+    let marker = if selected { "> " } else { "  " };
+    let note = item.note.map(|n| format!(" {n}")).unwrap_or_default();
+    let label_w = width.saturating_sub(marker.len() + note.chars().count());
+    let mut spans = vec![Span::raw(marker), Span::raw(cut(&item.label, label_w))];
+    if !note.is_empty() {
+        spans.push(Span::raw(note).dim());
+    }
+    let line = Line::from(spans);
+    if selected { line.reversed() } else { line }
+}
+
+/// `text` in at most `width` chars: cut with `…` at the end if longer.
+fn cut(text: &str, width: usize) -> String {
+    if text.chars().count() <= width {
+        return text.to_string();
+    }
+    let mut short: String = text.chars().take(width.saturating_sub(1)).collect();
+    short.push('…');
+    short
 }
 
 /// Widest text line in a centered box: 1 cell of screen margin each side,
@@ -118,17 +167,25 @@ fn purge_rows(plan: &PurgePlan, max_text_w: usize) -> Vec<Line<'static>> {
     lines
 }
 
-/// Red bordered box around `lines`, centered, as small as they allow.
-fn draw_box(frame: &mut Frame, title: &str, lines: Vec<Line>) {
-    // display width (not bytes: `·`, umlauts), + 2 border + 2 padding
-    let text_w = lines.iter().map(Line::width).max().unwrap_or(0);
+/// Box around `lines` with a `border` colored frame (red: a warning),
+/// centered, as small as they and the title allow.
+fn draw_box(frame: &mut Frame, title: &str, lines: Vec<Line>, border: Color) {
+    // display width (not bytes: `·`, umlauts), + 2 border + 2 padding; the
+    // title sits on the border, 2 cells less than the box
+    let title_w = Line::from(title).width().saturating_sub(2);
+    let text_w = lines
+        .iter()
+        .map(Line::width)
+        .max()
+        .unwrap_or(0)
+        .max(title_w);
     let rect = centered(frame.area(), text_w as u16 + 4, lines.len() as u16 + 2);
     frame.render_widget(Clear, rect); // wipe what's underneath
     frame.render_widget(
         Paragraph::new(lines).block(
             Block::bordered()
                 .title(title)
-                .border_style(Style::new().fg(Color::Red))
+                .border_style(Style::new().fg(border))
                 .padding(Padding::horizontal(1)),
         ),
         rect,

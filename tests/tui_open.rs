@@ -130,12 +130,25 @@ fn root_with_editor(body: &str) -> tempfile::TempDir {
     udo(&["add", "task", "lab 3"]);
     udo(&["settings", "set", "/", "open_with=editor"]);
 
-    let run = root.path().join("run");
-    fs::create_dir(&run).unwrap();
-    let script = run.join("editor");
+    fs::create_dir(root.path().join("run")).unwrap();
+    add_script(root.path(), "editor", body);
+    root
+}
+
+/// An executable `name` in `root`'s run folder: `body` after the shebang.
+fn add_script(root: &Path, name: &str, body: &str) {
+    let script = root.join("run").join(name);
     fs::write(&script, format!("#!/bin/sh\n{body}\n")).unwrap();
     fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
-    root
+}
+
+/// Wait until `path` exists (a script ran); fails with the screen if not.
+fn wait_for_file(tui: &Tui, path: &Path) {
+    let deadline = Instant::now() + TIMEOUT;
+    while !path.exists() {
+        assert!(Instant::now() < deadline, "script did not run:\n{}", tui.contents());
+        thread::sleep(Duration::from_millis(20));
+    }
 }
 
 /// The script reads a line (every key must reach it), fails, and the TUI
@@ -192,14 +205,37 @@ fn a_script_that_succeeds_returns_without_asking() {
     tui.wait_for("lab 3");
 
     tui.send("o");
-    let deadline = Instant::now() + TIMEOUT;
-    while !marker.exists() {
-        assert!(Instant::now() < deadline, "script did not run:\n{}", tui.contents());
-        thread::sleep(Duration::from_millis(20));
-    }
+    wait_for_file(&tui, &marker);
 
     tui.wait_for("lab 3");
     tui.send("q"); // keys reach the TUI again: no Enter needed first
     assert_eq!(tui.wait_exit(), 0);
     assert!(!tui.contents().contains("press Enter"));
+}
+
+/// `O`: the script picker is drawn (the default marked), `j` + Enter run
+/// the other script, not `open_with`.
+#[test]
+fn shift_o_runs_the_picked_script() {
+    let marks = tempfile::tempdir().unwrap();
+    let (editor_ran, other_ran) = (marks.path().join("editor"), marks.path().join("other"));
+    let root = root_with_editor(&format!("touch '{}'", editor_ran.display()));
+    add_script(root.path(), "other", &format!("touch '{}'", other_ran.display()));
+    let mut tui = Tui::start(root.path());
+    tui.wait_for("lab 3");
+
+    tui.send("O");
+    tui.wait_for("open lab 3 with");
+    assert!(tui.contents().contains("> editor (default)"), "{}", tui.contents());
+    tui.send("j");
+    tui.wait_for("> other");
+    tui.send("\r");
+
+    wait_for_file(&tui, &other_ran);
+    tui.wait_until("the TUI without the picker", |s| {
+        s.contains("lab 3") && !s.contains("open lab 3 with")
+    });
+    assert!(!editor_ran.exists(), "the default ran instead");
+    tui.send("q");
+    assert_eq!(tui.wait_exit(), 0);
 }

@@ -94,17 +94,19 @@ pub const KEYMAP: &[Section] = &[
 /// Keys while the cursor is in the sessions list (`Mode::Sessions`).
 #[rustfmt::skip]
 pub const SESSION_LIST_KEYMAP: &[Section] = &[
-    Section { title: "sessions", bindings: &[
+    Section { title: "move", bindings: &[
         Binding { keys: &[KeyCode::Char('j'), KeyCode::Down], action: Action::Down, help: "next (older) session" },
         Binding { keys: &[KeyCode::Char('k'), KeyCode::Up], action: Action::Up, help: "previous (newer) session" },
         Binding { keys: &[KeyCode::Char('l'), KeyCode::Right], action: Action::In, help: "next page" },
         Binding { keys: &[KeyCode::Char('h'), KeyCode::Left], action: Action::Out, help: "previous page" },
+        Binding { keys: &[KeyCode::Esc], action: Action::Back, help: "back to the tree" },
+    ]},
+    Section { title: "edit", bindings: &[
         Binding { keys: &[KeyCode::Char('a')], action: Action::Add, help: "add session" },
         Binding { keys: &[KeyCode::Char('e')], action: Action::Edit, help: "edit session" },
         Binding { keys: &[KeyCode::Char('d')], action: Action::Delete, help: "remove session" },
         Binding { keys: &[KeyCode::Char('s')], action: Action::Split, help: "split session" },
         Binding { keys: &[KeyCode::Char('c')], action: Action::Cut, help: "cut a part out" },
-        Binding { keys: &[KeyCode::Esc], action: Action::Back, help: "back to the tree" },
     ]},
     Section { title: "app", bindings: &[
         Binding { keys: &[KeyCode::Char('?')], action: Action::Help, help: "toggle this help" },
@@ -121,8 +123,10 @@ pub const PICKER_KEYMAP: &[Section] = &[
         Binding { keys: &[KeyCode::Char('k'), KeyCode::Up], action: Action::Up, help: "previous" },
         Binding { keys: &[KeyCode::Enter], action: Action::Pick, help: "pick" },
         Binding { keys: &[KeyCode::Esc], action: Action::Back, help: "back to the tree" },
-        Binding { keys: &[KeyCode::Char('?')], action: Action::Help, help: "toggle this help" },
     ]},
+    Section { title: "app", bindings: &[
+        Binding { keys: &[KeyCode::Char('?')], action: Action::Help, help: "toggle this help" },
+    ]}
 ];
 
 /// All bindings of all sections, in `KEYMAP` order.

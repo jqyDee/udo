@@ -121,7 +121,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, now: Time) {
     }
     frame.render_widget(hint, hint_area);
 
-    // overlays last, so they lie on top; help above the toast
+    // overlays last, so they lie on top; the toast above the picker (an
+    // error must stay readable), help above the toast
+    if let Mode::Pick(p) = &app.mode {
+        popup::draw_picker(frame, p);
+    }
     if let Some(toast) = &app.toast {
         popup::draw_toast(frame, toast);
     }

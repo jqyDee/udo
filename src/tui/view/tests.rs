@@ -27,6 +27,7 @@ use crate::{
         app::{Confirm, ConfirmStage, PurgeOption, details::DetailsTab},
         form::{Form, TextInput},
         keys::{KEYMAP, bindings},
+        pick::{PickAction, PickItem, PickValue, Picker},
         toast::Toast,
         tree_state::TreeState,
     },
@@ -633,6 +634,151 @@ fn confirm_popup_keeps_long_names_visible() {
 
     assert!(screen.contains(name), "name cut off");
     assert!(screen.contains("from udo?"), "question cut off");
+}
+
+// ---------- picker (`Mode::Pick`) ----------
+
+/// The app with a picker over `names` (titled `open a with`), the cursor
+/// on `cursor`; `default` gets the `(default)` note. The values do not
+/// matter for drawing: all the task `a` (labels need not be script names).
+fn picker_app(names: &[&str], default: Option<&str>, cursor: usize) -> App<'static> {
+    let mut app = test_app(tree_with(vec![task("a")]), state_at(&[0]));
+    let items = names
+        .iter()
+        .map(|&n| PickItem {
+            label: n.into(),
+            note: (Some(n) == default).then_some("(default)"),
+            value: PickValue::Task(vec![0]),
+        })
+        .collect();
+    app.mode = Mode::Pick(Box::new(Picker {
+        title: "open a with".into(),
+        items,
+        cursor,
+        action: PickAction::Script { path: vec![0] },
+    }));
+    app
+}
+
+#[test]
+fn picker_popup_shows_title_items_and_keys() {
+    let mut app = picker_app(&["editor", "shell"], Some("shell"), 1);
+
+    let screen = render(&mut app);
+
+    assert!(screen.contains("open a with"));
+    assert!(screen.contains("editor"));
+    assert!(screen.contains("shell (default)"));
+    assert!(screen.contains("enter pick · esc back · ? keys"));
+}
+
+/// `>` and reversed: the cursor's row, and only that one.
+#[test]
+fn picker_marks_the_cursor_row() {
+    let mut app = picker_app(&["editor", "shell"], None, 1);
+
+    let buf = render_buffer(&mut app, 80, 24);
+    let rows = rows_of(&buf);
+
+    let (y, x) = find(&rows, "> shell").expect("cursor row marked");
+    assert!(find(&rows, "> editor").is_none());
+    let cell = &buf[(x as u16 + 2, y as u16)]; // the `s`
+    assert!(cell.modifier.contains(Modifier::REVERSED));
+    let (y, x) = find(&rows, "editor").unwrap();
+    assert!(
+        !buf[(x as u16, y as u16)]
+            .modifier
+            .contains(Modifier::REVERSED)
+    );
+}
+
+/// Blue, not the red of a warning (confirm prompts).
+#[test]
+fn picker_border_is_not_red() {
+    let mut app = picker_app(&["editor"], None, 0);
+
+    let buf = render_buffer(&mut app, 80, 24);
+
+    let (y, x) = find(&rows_of(&buf), "open a with").unwrap();
+    assert_eq!(buf[(x as u16 - 1, y as u16)].fg, Color::Blue); // the border left of it
+}
+
+/// 40 items on 20 rows: the window follows the cursor.
+#[test]
+fn a_long_picker_keeps_the_cursor_in_view() {
+    let names: Vec<String> = (0..40).map(|i| format!("s{i:02}")).collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let mut app = picker_app(&names, None, 35);
+
+    let rows = render_rows_sized(&mut app, 80, 20);
+    let screen = rows.concat();
+
+    assert!(screen.contains("> s35"), "cursor out of view");
+    assert!(!screen.contains("s00"), "the top scrolled away");
+    assert!(screen.contains("enter pick"), "the keys line stays");
+}
+
+/// The cursor near the top: no scrolling yet.
+#[test]
+fn a_long_picker_starts_at_the_top() {
+    let names: Vec<String> = (0..40).map(|i| format!("s{i:02}")).collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let mut app = picker_app(&names, None, 2);
+
+    let screen = render_rows_sized(&mut app, 80, 20).concat();
+
+    assert!(screen.contains("s00"));
+    assert!(screen.contains("> s02"));
+}
+
+/// A label wider than the screen is cut with `…`; its note stays.
+#[test]
+fn a_long_label_is_cut_and_its_note_stays() {
+    let long = "week 2 / a-really-long-task-name-that-will-never-fit-into-forty";
+    let mut app = picker_app(&[long], Some(long), 0);
+
+    let screen = render_rows_sized(&mut app, 40, 20).concat();
+
+    assert!(screen.contains('…'));
+    assert!(screen.contains("(default)"));
+    assert!(screen.contains("> week 2 /"));
+}
+
+/// The box is as wide as the title needs, not only the items.
+#[test]
+fn a_long_picker_title_stays_whole() {
+    let mut app = picker_app(&["x"], None, 0);
+    let Mode::Pick(p) = &mut app.mode else {
+        unreachable!()
+    };
+    p.title = "open a-quite-long-container-name for".into();
+
+    let screen = render(&mut app);
+
+    assert!(screen.contains("open a-quite-long-container-name for"));
+}
+
+#[test]
+fn help_over_the_picker_lists_its_keys() {
+    let mut app = picker_app(&["editor"], None, 0);
+    app.mode = Mode::Help(Box::new(app.mode.clone()));
+
+    let screen = render(&mut app);
+
+    assert!(screen.contains("back to the tree"));
+    assert!(screen.contains("pick"));
+}
+
+/// The toast lies on top: an error must stay readable.
+#[test]
+fn a_toast_stays_visible_over_the_picker() {
+    let mut app = picker_app(&["editor", "shell"], None, 0);
+    app.toast = Some(Toast::error("no run config \"shell\""));
+
+    let screen = render(&mut app);
+
+    assert!(screen.contains("no run config \"shell\""));
+    assert!(screen.contains("open a with"), "the picker is still there");
 }
 
 /// Plan for node [0] "lab 3" at `dir`, 2 containers / 7 tasks below.
