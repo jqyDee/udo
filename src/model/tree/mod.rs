@@ -106,12 +106,24 @@ impl Tree {
                 .collect(),
         }
     }
+
+    /// Path of the node with `id`; the root is `Some(vec![])`. `None` if no
+    /// node has it (e.g. deleted).
+    pub fn path_of(&self, id: NodeId) -> Option<NodePath> {
+        if self.root.id() == id {
+            return Some(vec![]);
+        }
+        self.rows()
+            .into_iter()
+            .find(|r| r.node.id() == id)
+            .map(|r| r.path)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        model::tree::Tree,
+        model::{id::NodeId, tree::Tree},
         test_util::{container, deep_tree, task, tree_with},
     };
 
@@ -221,5 +233,20 @@ mod tests {
         assert_eq!(t.resolve(&["nope"]), None);
         assert_eq!(t.resolve(&["inner", "nope"]), None);
         assert_eq!(t.resolve(&["a", "x"]), None); // "a" is a task
+    }
+
+    #[test]
+    fn path_of_finds_any_node() {
+        let t = deep_tree();
+        let id = |path: &[usize]| t.get(path).unwrap().id();
+
+        assert_eq!(t.path_of(id(&[1, 1, 0])), Some(vec![1, 1, 0])); // c, two levels down
+        assert_eq!(t.path_of(id(&[1])), Some(vec![1])); // a container
+        assert_eq!(t.path_of(id(&[])), Some(vec![])); // the root
+    }
+
+    #[test]
+    fn path_of_an_unknown_id_is_none() {
+        assert_eq!(tree().path_of(NodeId::new()), None);
     }
 }

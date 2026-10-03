@@ -1,5 +1,6 @@
 //! `NODE` arguments -> tree paths. One rule for every command: nothing =
-//! the node whose folder you are in; `/` = the root; a leading `/` = the
+//! the node whose folder you are in; `id:<uuid>` = the node with that ID
+//! (for scripts: survives renames); `/` = the root; a leading `/` = the
 //! exact path from the root; else a path of names or any unique ending of
 //! one (`lab 3`, `cs/lab 3`).
 
@@ -7,16 +8,22 @@ use std::path::{Path, PathBuf};
 
 use crate::{
     Res,
-    model::{NodePath, node::Node, tree::Tree},
+    model::{NodePath, id::NodeId, node::Node, tree::Tree},
     naming::normalize_name,
 };
 
-/// The node `arg` names; `None` = the node of `cwd`'s folder.
+/// The node `arg` names; `None` = the node of `cwd`'s folder. An ID no
+/// node has (deleted) is "not found", not read as names.
 pub fn resolve(tree: &Tree, arg: Option<&str>, cwd: &Path) -> Res<NodePath> {
     let Some(arg) = arg else {
         return cwd_node(tree, cwd).ok_or_else(|| "not in a udo folder, name a node".into());
     };
     let trimmed = arg.trim();
+    if let Some(id) = node_id(trimmed) {
+        return tree
+            .path_of(id)
+            .ok_or_else(|| format!("not found: {arg:?}").into());
+    }
     if trimmed == "/" {
         return Ok(vec![]);
     }
@@ -130,6 +137,13 @@ fn names_of(tree: &Tree, path: &[usize]) -> Vec<String> {
     (1..=path.len())
         .filter_map(|i| tree.get(&path[..i]).map(|n| n.name().to_string()))
         .collect()
+}
+
+/// `id:<uuid>` -> the ID. Anything else (`id:` + not an ID, a plain name):
+/// `None`, read as names as before. A node named `id:<a valid uuid>` is
+/// then only reachable by its path.
+fn node_id(arg: &str) -> Option<NodeId> {
+    arg.strip_prefix("id:")?.trim().parse().ok()
 }
 
 #[cfg(test)]
@@ -288,6 +302,53 @@ mod tests {
             .to_string();
 
         assert_eq!(err, "not found: \"lab 9\"");
+    }
+
+    /// `physics/lab 3` by its ID: also settles the ambiguous `lab 3`.
+    #[test]
+    fn an_id_finds_its_node() {
+        let (_tmp, t) = tree();
+        let out = elsewhere();
+        let id = |path: &[usize]| format!("id:{}", t.get(path).unwrap().id());
+
+        assert_eq!(resolve(&t, Some(&id(&[0, 1, 0])), out.path()).unwrap(), vec![0, 1, 0]);
+        assert_eq!(resolve(&t, Some(&id(&[])), out.path()).unwrap(), Vec::<usize>::new());
+        let spaced = format!("  {}  ", id(&[0, 0]));
+        assert_eq!(resolve(&t, Some(&spaced), out.path()).unwrap(), vec![0, 0]);
+    }
+
+    #[test]
+    fn an_unknown_id_is_not_found() {
+        let (_tmp, t) = tree();
+        let ghost = format!("id:{}", NodeId::new());
+
+        let err = resolve(&t, Some(&ghost), elsewhere().path())
+            .unwrap_err()
+            .to_string();
+
+        assert_eq!(err, format!("not found: {ghost:?}"));
+    }
+
+    /// `id:` + something that is no ID: a name like any other.
+    #[test]
+    fn id_without_an_id_is_read_as_names() {
+        let (_tmp, mut t) = tree();
+        let odd = Node::task("id:x".into(), Task::new(None, time::now()));
+        t.root.as_container_mut().unwrap().children.push(odd);
+
+        assert_eq!(resolve(&t, Some("id:x"), elsewhere().path()).unwrap(), vec![2]);
+        assert!(resolve(&t, Some("id:"), elsewhere().path()).is_err()); // no such name either
+    }
+
+    /// The parent part goes through `resolve`, so it can be an ID too.
+    #[test]
+    fn parent_by_id() {
+        let (_tmp, t) = tree();
+        let cs = format!("id:{}", t.get(&[0, 0]).unwrap().id());
+
+        let (parent, name) = resolve_parent(&t, &format!("{cs}/lab 4"), elsewhere().path()).unwrap();
+
+        assert_eq!((parent, name), (vec![0, 0], "lab 4".to_string()));
     }
 
     #[test]
