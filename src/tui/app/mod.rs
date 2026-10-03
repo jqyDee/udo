@@ -7,8 +7,9 @@
 //! - `details`: `DetailsTab`, which tab the right pane shows (Tab / Shift+Tab)
 //! - `forms`:   create forms (`t` `T` `c` `C`), the edit form (`e`) and the
 //!   settings form (`e` on the settings tab)
-//! - `open`:    open the node at the cursor with its run config (`o`):
-//!   `Flow::Run` for the loop, `after_run` when it is back
+//! - `open`:    open the node at the cursor with its run config (`o`) or a
+//!   picked one (`O`), a container via the task picker: `Flow::Run` for
+//!   the loop, `after_run` when it is back
 //! - `pick`:    keys while a picker is open (`Mode::Pick`), and what a pick
 //!   leads to
 //! - `remove`:  "remove?" prompt (`d`) and full delete (`D`) of a node
@@ -201,9 +202,9 @@ impl<'a> App<'a> {
             Action::NextTab => self.details_tab.next(),
             Action::PrevTab => self.details_tab.prev(),
             Action::Open => return self.open(),
+            Action::OpenWith => return self.pick_script(),
             // only bound in `SESSION_LIST_KEYMAP` / `PICKER_KEYMAP`
             Action::Back | Action::Add | Action::Split | Action::Cut | Action::Pick => {}
-            Action::OpenWith => {} // placeholder for later
         }
         Flow::Continue
     }

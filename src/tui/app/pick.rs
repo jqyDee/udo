@@ -7,7 +7,7 @@ use crossterm::event::KeyEvent;
 use crate::tui::{
     app::{App, Flow, Mode},
     keys::Action,
-    pick::Picker,
+    pick::{PickAction, PickValue, Picker},
 };
 
 impl App<'_> {
@@ -39,9 +39,17 @@ impl App<'_> {
     }
 
     /// Enter in a picker; it is closed already (`Mode::Normal`). Its
-    /// `PickAction` says what comes next: the task picker or `Flow::Run`.
+    /// `PickAction` says what comes next: a script goes on as `o` (on a
+    /// container: the task picker), a task runs.
     fn picked(&mut self, picker: Picker) -> Flow {
-        let _ = picker; // placeholder for now!
-        Flow::Continue
+        // before `picker.action` moves out of it
+        let value = picker.picked().clone();
+        match (picker.action, value) {
+            (PickAction::Script { path }, PickValue::Script(name)) => self.open_as(path, name),
+            (PickAction::Task { container, script }, PickValue::Task(task)) => {
+                self.run_on(&container, &task, script)
+            }
+            (action, value) => unreachable!("{value:?} in a picker for {action:?}"),
+        }
     }
 }
