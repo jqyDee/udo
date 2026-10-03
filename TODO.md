@@ -4,12 +4,14 @@ Priorities as of 2026-10-03, in order. Background and older plans:
 `roadmap.txt` (phase numbers below refer to it).
 
 **Next up:** run configs + tracking by program (sections 2 and 4), spec
-`docs/superpowers/specs/2026-10-02-run-configs-design.md`, stage 5
-(`create` event: `on_create`, `udo add --no-run`). Done lately: stages
-1-4 (session owners, `udo track start / stop / run [--detach]`,
-`id:<uuid>` as NODE, run config library and launcher, `udo run [--with]
-[--task] [--list]`, `open_with` / `on_create` / `run_dir`; TUI `o` / `O`
-with task and script pickers, the source in the status line).
+`docs/superpowers/specs/2026-10-02-run-configs-design.md`, stage 6
+(examples `nvim-tmux`, `idea`, `typst-setup`; `docs/run-configs.md`).
+Done lately: stages 1-5 (session owners, `udo track start / stop / run
+[--detach]`, `id:<uuid>` as NODE, run config library and launcher, `udo
+run [--with] [--task] [--list]`, `open_with` / `on_create` / `run_dir`;
+TUI `o` / `O` with task and script pickers, the source in the status
+line; `on_create` after `udo add` and the create forms, `--json` kept
+clean of script output).
 
 ## Done: creation flow
 
@@ -265,9 +267,10 @@ knows no program and never starts a timer for a run (scripts call
       pseudo-terminal.
 - [ ] Help overlay: a box wider than the screen is cut silently (a long
       help text in `KEYMAP` drops off the right edge).
-- [ ] **5. `create` event:** `on_create` after creating a task / container
-      (CLI and TUI); `udo add --no-run`. The node stays if the script
-      fails.
+- [x] **5. `create` event:** `on_create` after creating a task / container
+      (CLI and TUI); `udo add --no-run`, the form's `setup ‹ run · skip ›`
+      row. The node stays if the script fails (CLI: warning, exit 0).
+      `--json`: a script's stdout goes to stderr (`tests/cli_json.rs`).
 - [ ] **6. Examples and guide:** `examples/run/` (`nvim-tmux`, `idea`,
       `typst-setup`), `docs/run-configs.md`.
 - [ ] Later: per-task `open_with` (task field, section 1), a `done` event,
