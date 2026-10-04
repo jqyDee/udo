@@ -1,4 +1,4 @@
-## [0.2.0] - 2026-10-03
+## [unreleased]
 
 ### 🚀 Features
 
@@ -140,3 +140,4 @@
 - README.md
 - Drop roadmap.txt and move into TODO.md
 - Default rust formatting
+- Automatic releases

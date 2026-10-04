@@ -1,0 +1,52 @@
+# Format, lint and test on every push to main and every pull request, on
+# the platforms the releases are built for (dist-workspace.toml: macOS and
+# Linux). tmux and shellcheck are installed so their tests run instead of
+# skipping (tests/example_nvim_tmux.rs, tests/example_lint.rs).
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# a newer push to the same branch / PR cancels the run in progress
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    name: fmt + clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false # one platform failing still shows the other
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: tools for the example tests
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            brew install tmux shellcheck
+          else
+            sudo apt-get update && sudo apt-get install -y tmux shellcheck
+          fi
+          tmux -V && shellcheck --version | head -2 && python3 --version
+      - run: cargo test
