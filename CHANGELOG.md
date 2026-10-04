@@ -1,4 +1,4 @@
-## [unreleased]
+## [0.1.0] - 2026-10-04
 
 ### 🚀 Features
 
@@ -141,3 +141,6 @@
 - Drop roadmap.txt and move into TODO.md
 - Default rust formatting
 - Automatic releases
+- Tests on macOS and Linux, release workflow (cargo-dist)
+- Pin Rust 1.96, drop async-recursion
+- Skip the changelog hook in dry runs
