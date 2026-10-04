@@ -256,6 +256,15 @@ fn estimate_tree(estimate: Option<u32>) -> Tree {
     t
 }
 
+/// Mark the task at `path` done (in memory: these trees are not on disk,
+/// so not through `Core::set_done`).
+fn mark_done(tree: &mut Tree, path: &[usize]) {
+    let Some(NodeBody::Task(t)) = tree.get_mut(path).map(|n| &mut n.body) else {
+        panic!("no task at {path:?}");
+    };
+    t.done_at = Some(at(11, 0));
+}
+
 /// App on `tree` with the cursor on `cursor`, sessions added through
 /// `Core` (path, from, to) and reloaded.
 async fn app_with_sessions(
@@ -302,6 +311,100 @@ async fn task_time_rows_show_estimate_duration_and_left() {
         Some("1h12 in 2 sessions")
     );
     assert_eq!(field_row(&rows, "left").as_deref(), Some("48m"));
+}
+
+#[tokio::test]
+async fn estimate_learned_from_done_tasks() {
+    // uni 2h; sheet [0, 1] done with 1h: lab gets (3·120 + 60) / 4
+    let mut tree = estimate_tree(Some(120));
+    mark_done(&mut tree, &[0, 1]);
+    let sessions: &[(&[usize], _, _)] = &[(&[0, 1], at(9, 0), at(10, 0))];
+    let mut app = app_with_sessions(tree, &[0, 0], sessions).await;
+
+    let rows = render_rows(&mut app);
+
+    assert_eq!(
+        field_row(&rows, "estimate").as_deref(),
+        Some("1h45 (learned from 1 task)")
+    );
+    assert_eq!(field_row(&rows, "left").as_deref(), Some("1h45"));
+}
+
+#[tokio::test]
+async fn estimate_from_the_parents_tasks() {
+    // root: [uni: [cs: [lab], math: [ex (done, 1h30)]]], nothing set:
+    // cs has no tasks of its own yet, so lab starts from uni's
+    let mut tree = tree_with(vec![container(
+        "uni",
+        vec![
+            container("cs", vec![task("lab")]),
+            container("math", vec![task("ex")]),
+        ],
+    )]);
+    mark_done(&mut tree, &[0, 1, 0]);
+    let sessions: &[(&[usize], _, _)] = &[(&[0, 1, 0], at(9, 0), at(10, 30))];
+    let mut app = app_with_sessions(tree, &[0, 0, 0], sessions).await;
+
+    let rows = render_rows(&mut app);
+
+    assert_eq!(
+        field_row(&rows, "estimate").as_deref(),
+        Some("1h30 (from uni's tasks)")
+    );
+}
+
+#[tokio::test]
+async fn estimate_learned_from_several_tasks_is_plural() {
+    // uni: [lab, a (done, 1h), b (done, 2h)], nothing set: the plain average
+    let mut tree = tree_with(vec![container(
+        "uni",
+        vec![task("lab"), task("a"), task("b")],
+    )]);
+    mark_done(&mut tree, &[0, 1]);
+    mark_done(&mut tree, &[0, 2]);
+    let sessions: &[(&[usize], _, _)] = &[
+        (&[0, 1], at(8, 0), at(9, 0)),
+        (&[0, 2], at(9, 0), at(11, 0)),
+    ];
+    let mut app = app_with_sessions(tree, &[0, 0], sessions).await;
+
+    let rows = render_rows(&mut app);
+
+    assert_eq!(
+        field_row(&rows, "estimate").as_deref(),
+        Some("1h30 (learned from 2 tasks)")
+    );
+}
+
+#[tokio::test]
+async fn estimate_set_on_the_root_names_the_root() {
+    // root 1h30 > uni > lab: passed down through uni, which adds nothing
+    let mut tree = estimate_tree(None);
+    tree.root.as_container_mut().unwrap().settings.estimate = Some(Minutes::new(90));
+    let mut app = app_with_sessions(tree, &[0, 0], &[]).await;
+
+    let rows = render_rows(&mut app);
+
+    assert_eq!(
+        field_row(&rows, "estimate").as_deref(),
+        Some("1h30 (from root)")
+    );
+}
+
+#[tokio::test]
+async fn a_tasks_own_time_does_not_change_its_estimate() {
+    // lab done with 10h: its own time is what the estimate is compared with
+    let mut tree = estimate_tree(Some(60));
+    mark_done(&mut tree, &[0, 0]);
+    let sessions: &[(&[usize], _, _)] = &[(&[0, 0], at(0, 0), at(10, 0))];
+    let mut app = app_with_sessions(tree, &[0, 0], sessions).await;
+
+    let rows = render_rows(&mut app);
+
+    assert_eq!(
+        field_row(&rows, "estimate").as_deref(),
+        Some("1h (from uni)")
+    );
 }
 
 #[tokio::test]

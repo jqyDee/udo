@@ -12,6 +12,7 @@ use ratatui::{
 
 use crate::{
     DATE_FMT,
+    estimate::{Basis, Prior},
     model::{
         node::{Node, NodeBody},
         sessions::{Session, SessionSource, TimeSummary},
@@ -183,7 +184,7 @@ fn time_lines(tree: &Tree, node: &Node, info: &ViewInfo) -> Vec<Line<'static>> {
         return vec![duration]; // container: no estimate, no left
     };
     let estimate = match &info.estimate {
-        Some(e) => format!("{} ({})", e.value, tree.source_text(&e.source)),
+        Some(e) => format!("{} ({})", e.minutes, basis_text(tree, &e.basis)),
         None => "-".into(),
     };
     let mut lines = vec![field("estimate", estimate), duration];
@@ -192,7 +193,7 @@ fn time_lines(tree: &Tree, node: &Node, info: &ViewInfo) -> Vec<Line<'static>> {
             match info
                 .estimate
                 .as_ref()
-                .map(|e| Left::of(e.value, time.duration))
+                .map(|e| Left::of(e.minutes, time.duration))
             {
                 Some(Left::Left(m)) => field("left", m.to_string()),
                 Some(Left::Over(m)) => field("left", format!("over by {m}")).red(),
@@ -285,4 +286,23 @@ fn fit(name: &str, width: usize) -> String {
     }
     let cut: String = name.chars().take(width.saturating_sub(1)).collect();
     format!("{cut}…")
+}
+
+/// Why the estimate is what it is, for the brackets after it: `learned
+/// from 6 tasks`, `from uni` (its setting), `from uni's tasks` (pooled).
+/// A container no longer in the tree: `?` (never a panic in a draw).
+fn basis_text(tree: &Tree, basis: &Basis) -> String {
+    let name = |id| {
+        tree.path_of(id)
+            .and_then(|p| tree.get(&p).map(|n| n.name().to_string()))
+            .unwrap_or_else(|| "?".into())
+    };
+    match basis {
+        Basis::Learned { tasks: 1, .. } => "learned from 1 task".into(),
+        Basis::Learned { tasks, .. } => format!("learned from {tasks} tasks"),
+        Basis::Prior(Prior::Setting { container, .. }) => format!("from {}", name(*container)),
+        Basis::Prior(Prior::Parent { container, .. }) => {
+            format!("from {}'s tasks", name(*container))
+        }
+    }
 }
