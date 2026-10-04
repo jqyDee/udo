@@ -4,10 +4,11 @@
 
 use std::{fmt, path::Path};
 
+use chrono::Local;
 use serde::Serialize;
 
 use crate::{
-    Res,
+    DATE_FMT, Res,
     cli::{
         report::Report,
         resolve::{path_text, resolve},
@@ -42,6 +43,9 @@ pub struct Estimated {
     /// half weight. `done` and `open` both 0: only the prior.
     pub open: usize,
     pub prior: Option<PriorOut>,
+    /// A done task: the moment its estimate is frozen at (its first
+    /// session, else its creation); `None`: from today's data.
+    pub as_of: Option<Time>,
 }
 
 /// Where the blend started.
@@ -83,6 +87,7 @@ pub async fn run(core: &Core, cwd: &Path, now: Time, args: &EstimateArgs) -> Res
         done,
         open,
         prior: prior.map(|p| prior_out(tree, p)),
+        as_of: estimate.and_then(|e| e.as_of),
     })
 }
 
@@ -115,7 +120,8 @@ fn count(n: usize, what: &str) -> String {
     }
 }
 
-/// Three lines: the estimate, what it learned from, the prior. Nothing to
+/// Three lines: the estimate, what it learned from, the prior; a done task
+/// gets a line after the first saying when it was estimated. Nothing to
 /// estimate from: one line that says how to set a starting value.
 impl fmt::Display for Estimated {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -132,6 +138,10 @@ impl fmt::Display for Estimated {
             format!("{} for {}", Minutes::new(minutes), self.path)
         };
         write!(f, "{head}")?;
+        if let Some(at) = self.as_of {
+            let at = at.with_timezone(&Local).format(DATE_FMT);
+            write!(f, "\n  done: as estimated on {at}")?;
+        }
         const OPEN: &str = "(over the estimate, half weight)";
         let learned = match (self.done, self.open) {
             (0, 0) => "no tasks with tracked time here yet".to_string(),
@@ -206,6 +216,7 @@ mod tests {
             done,
             open,
             prior,
+            as_of: None,
         }
     }
 
@@ -271,6 +282,55 @@ mod tests {
         assert_eq!(
             render(&shown, false).unwrap(),
             "1h25 for a task in ws\n  learned from 1 done task\n  prior: 1h30, set on ws"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_done_task_says_when_it_was_estimated() {
+        // only that it says so: these nodes carry the real `now` as their
+        // creation, so the exact moment depends on the day the test runs
+        let (tmp, mut core) = core().await;
+        set_ws_estimate(&mut core, 90).await;
+        b_done_with(&mut core, 70).await;
+
+        let shown = run(&core, tmp.path(), at(12, 0), &named("b"))
+            .await
+            .unwrap();
+
+        assert!(shown.as_of.is_some());
+        let text = render(&shown, false).unwrap();
+        let second = text.lines().nth(1).unwrap();
+        assert!(second.starts_with("  done: as estimated on "), "{text}");
+        let json = serde_json::to_value(&shown).unwrap();
+        assert!(json["as_of"].is_string());
+    }
+
+    #[tokio::test]
+    async fn an_open_task_has_no_moment() {
+        let (tmp, mut core) = core().await;
+        set_ws_estimate(&mut core, 90).await;
+
+        let shown = run(&core, tmp.path(), at(12, 0), &named("b"))
+            .await
+            .unwrap();
+
+        assert_eq!(shown.as_of, None);
+        assert!(!render(&shown, false).unwrap().contains("done:"));
+    }
+
+    #[test]
+    fn text_puts_the_moment_after_the_estimate() {
+        let mut shown = estimated(1, 0, None);
+        shown.container = false;
+        shown.path = "uni/cs/lab".into();
+        shown.as_of = Some(crate::test_util::local(14, 0));
+
+        let text = shown.to_string();
+
+        assert_eq!(
+            text,
+            "1h20 for uni/cs/lab\n  done: as estimated on 2026-10-15 14:00\n  \
+             learned from 1 done task\n  no prior: nothing set above"
         );
     }
 

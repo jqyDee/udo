@@ -22,6 +22,19 @@ pub struct TaskRecord {
     pub done_at: Option<Time>,
     /// Sum of its sessions' minutes (a running one up to now).
     pub actual: Minutes,
+    /// Start of its earliest session; `None`: never worked on.
+    pub first_session: Option<Time>,
+}
+
+impl TaskRecord {
+    /// When a done task's estimate is frozen: its first session, else its
+    /// creation; never before its creation (a session added by hand can
+    /// start earlier, and `as_of` would drop the task itself).
+    pub fn frozen_at(&self) -> Time {
+        self.first_session
+            .unwrap_or(self.created_at)
+            .max(self.created_at)
+    }
 }
 
 /// A container as the estimators see it.
@@ -34,11 +47,13 @@ struct ContainerInfo {
 }
 
 /// Everything an estimator may look at. Owned: no borrow of `Tree`, so it
-/// can be kept in the TUI's `App` and cut down with `as_of` later.
+/// can be kept in the TUI's `App` and cut down with `as_of`.
 #[derive(Debug, Clone, Default)]
 pub struct History {
     tasks: Vec<TaskRecord>,
     containers: HashMap<NodeId, ContainerInfo>,
+    /// Each task's sessions, for `as_of`.
+    spans: HashMap<NodeId, Vec<Span>>,
 }
 
 impl History {
@@ -47,17 +62,17 @@ impl History {
     pub fn build(tree: &Tree, sessions: &[Session], now: Time) -> Self {
         let mut sums: HashMap<NodeId, Sum> = HashMap::new();
         for s in sessions.iter().filter(|s| s.deleted_at.is_none()) {
-            let minutes = s.duration(now).get();
+            let span = Span {
+                start: s.start,
+                end: s.end.unwrap_or(now),
+            };
             sums.entry(s.task.id)
-                .and_modify(|sum| {
-                    sum.minutes += minutes;
-                    sum.first_start = sum.first_start.min(s.start);
-                })
-                .or_insert(Sum {
-                    minutes,
-                    first_start: s.start,
+                .or_insert_with(|| Sum {
+                    spans: Vec::new(),
                     container: s.task.container_id,
-                });
+                })
+                .spans
+                .push(span);
         }
         let mut history = Self::default();
         history.walk(&tree.root, None, &mut sums);
@@ -67,16 +82,60 @@ impl History {
             if !history.containers.contains_key(&sum.container) {
                 continue; // its container is gone too: nowhere to count it
             }
+            let Some(first) = first_start(&sum.spans) else {
+                continue; // never: a sum exists because of a session
+            };
             history.tasks.push(TaskRecord {
                 id,
                 container: sum.container,
-                created_at: sum.first_start,
+                created_at: first, // its creation is unknown: the first session
                 done_at: None,
-                actual: Minutes::new(sum.minutes),
+                actual: minutes(&sum.spans),
+                first_session: Some(first),
             });
+            history.spans.insert(id, sum.spans);
         }
         history.tasks.sort_by_key(|t| (t.created_at, t.id));
         history
+    }
+
+    /// As it was at `t`: tasks created after `t` dropped, every session cut
+    /// at `t`, done only if done by `t` (a task done later is open then,
+    /// with its time so far). Containers and their settings stay: settings
+    /// have no history.
+    pub fn as_of(&self, t: Time) -> Self {
+        let mut spans = HashMap::new();
+        let tasks = self
+            .tasks
+            .iter()
+            .filter(|r| r.created_at <= t)
+            .map(|r| {
+                let cut: Vec<Span> = self
+                    .spans
+                    .get(&r.id)
+                    .into_iter()
+                    .flatten()
+                    .filter(|s| s.start < t)
+                    .map(|s| Span {
+                        start: s.start,
+                        end: s.end.min(t),
+                    })
+                    .collect();
+                let record = TaskRecord {
+                    actual: minutes(&cut),
+                    first_session: first_start(&cut),
+                    done_at: r.done_at.filter(|d| *d <= t),
+                    ..r.clone()
+                };
+                spans.insert(r.id, cut);
+                record
+            })
+            .collect();
+        Self {
+            tasks,
+            containers: self.containers.clone(),
+            spans,
+        }
     }
 
     /// All tasks, oldest first (`created_at`, then id).
@@ -124,14 +183,16 @@ impl History {
                 let Some(container) = parent else {
                     return; // the root is always a container
                 };
-                let actual = sums.remove(&node.id()).map_or(0, |s| s.minutes);
+                let spans = sums.remove(&node.id()).map_or_else(Vec::new, |s| s.spans);
                 self.tasks.push(TaskRecord {
                     id: node.id(),
                     container,
                     created_at: node.header.created_at,
                     done_at: t.done_at,
-                    actual: Minutes::new(actual),
+                    actual: minutes(&spans),
+                    first_session: first_start(&spans),
                 });
+                self.spans.insert(node.id(), spans);
             }
             NodeBody::Container(c) => {
                 self.containers.insert(
@@ -149,9 +210,31 @@ impl History {
     }
 }
 
-/// What the sessions of one task add up to.
+/// The sessions of one task, collected by `build`.
 struct Sum {
-    minutes: u32,
-    first_start: Time,
+    spans: Vec<Span>,
     container: NodeId,
+}
+
+/// One session as a time span (a running one ends at `now`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Span {
+    start: Time,
+    end: Time,
+}
+
+/// Whole minutes of `spans`, each rounded down on its own (like
+/// `Session::duration`, so `udo show` and the estimates agree); a span
+/// ending before its start counts 0.
+fn minutes(spans: &[Span]) -> Minutes {
+    let sum: i64 = spans
+        .iter()
+        .map(|s| (s.end - s.start).num_minutes().max(0))
+        .sum();
+    Minutes::new(u32::try_from(sum).unwrap_or(u32::MAX))
+}
+
+/// Start of the earliest span; `None`: no spans.
+fn first_start(spans: &[Span]) -> Option<Time> {
+    spans.iter().map(|s| s.start).min()
 }

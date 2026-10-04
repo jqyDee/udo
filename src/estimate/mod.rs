@@ -7,7 +7,11 @@ mod history;
 #[cfg(test)]
 mod tests;
 
-use crate::model::{id::NodeId, node::Node, time::Minutes};
+use crate::model::{
+    id::NodeId,
+    node::Node,
+    time::{Minutes, Time},
+};
 
 pub use average::{Average, K};
 pub use history::{History, TaskRecord};
@@ -17,6 +21,9 @@ pub use history::{History, TaskRecord};
 pub struct Estimate {
     pub minutes: Minutes,
     pub basis: Basis,
+    /// `Some`: a done task's estimate, as udo would have given it then
+    /// (`TaskRecord::frozen_at`); `None`: from today's data.
+    pub as_of: Option<Time>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,11 +76,21 @@ pub trait Estimator {
     fn estimate(&self, task: NodeId, history: &History) -> Option<Estimate>;
 }
 
-/// The estimate shown for `node`: a task's (its container's, without
-/// itself), or a container's (pooled over its subtree, "a typical task
-/// anywhere in it").
+/// The estimate shown for `node`: an open task's (its container's, without
+/// itself, from today's data), a done task's (frozen: as udo would have
+/// given it at `TaskRecord::frozen_at`, so it never changes afterwards and
+/// sees no later task), or a container's (pooled over its subtree, "a
+/// typical task anywhere in it").
 pub fn of_node(node: &Node, history: &History) -> Option<Estimate> {
     match node.as_task() {
+        Some(t) if t.done_at.is_some() => {
+            let at = history.task(node.id())?.frozen_at();
+            let then = Average.estimate(node.id(), &history.as_of(at))?;
+            Some(Estimate {
+                as_of: Some(at),
+                ..then
+            })
+        }
         Some(_) => Average.estimate(node.id(), history),
         None => Average.of_container(node.id(), history),
     }

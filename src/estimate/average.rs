@@ -69,6 +69,7 @@ impl Average {
         Some(Estimate {
             minutes: blend.minutes,
             basis,
+            as_of: None, // from whatever `history` holds; `of_node` freezes
         })
     }
 
