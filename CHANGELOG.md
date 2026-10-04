@@ -1,3 +1,9 @@
+## [0.1.1] - 2026-10-04
+
+### ⚙️ Miscellaneous Tasks
+
+- Test the dev branch; contributing: branches and data formats
+- Release from dev, main only through pull requests
 ## [0.1.0] - 2026-10-04
 
 ### 🚀 Features
@@ -144,3 +150,4 @@
 - Tests on macOS and Linux, release workflow (cargo-dist)
 - Pin Rust 1.96, drop async-recursion
 - Skip the changelog hook in dry runs
+- Release 0.1.0
