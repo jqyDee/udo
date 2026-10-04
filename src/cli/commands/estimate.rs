@@ -36,8 +36,11 @@ pub struct Estimated {
     /// estimate, without its own time.
     pub container: bool,
     pub minutes: Option<u32>,
-    /// Tasks learned from; 0: only the prior.
-    pub tasks: usize,
+    /// Done tasks learned from, at full weight.
+    pub done: usize,
+    /// Open tasks learned from: over the estimate from the done ones, at
+    /// half weight. `done` and `open` both 0: only the prior.
+    pub open: usize,
     pub prior: Option<PriorOut>,
 }
 
@@ -62,17 +65,23 @@ pub async fn run(core: &Core, cwd: &Path, now: Time, args: &EstimateArgs) -> Res
     let node = tree.get(&path).ok_or("no such node")?;
     let estimate = core.estimate(&path, now).await?;
 
-    let (tasks, prior) = match estimate.map(|e| e.basis) {
-        Some(Basis::Learned { tasks, prior, .. }) => (tasks, prior),
-        Some(Basis::Prior(p)) => (0, Some(p)),
-        None => (0, None),
+    let (done, open, prior) = match estimate.map(|e| e.basis) {
+        Some(Basis::Learned {
+            done_tasks,
+            open_tasks,
+            prior,
+            ..
+        }) => (done_tasks, open_tasks, prior),
+        Some(Basis::Prior(p)) => (0, 0, Some(p)),
+        None => (0, 0, None),
     };
     Ok(Estimated {
         id: node.id(),
         path: path_text(tree, &path),
         container: node.as_container().is_some(),
         minutes: estimate.map(|e| e.minutes.get()),
-        tasks,
+        done,
+        open,
         prior: prior.map(|p| prior_out(tree, p)),
     })
 }
@@ -97,6 +106,15 @@ fn prior_out(tree: &Tree, p: Prior) -> PriorOut {
     }
 }
 
+/// `1 done task`, `2 open tasks`.
+fn count(n: usize, what: &str) -> String {
+    if n == 1 {
+        format!("1 {what} task")
+    } else {
+        format!("{n} {what} tasks")
+    }
+}
+
 /// Three lines: the estimate, what it learned from, the prior. Nothing to
 /// estimate from: one line that says how to set a starting value.
 impl fmt::Display for Estimated {
@@ -114,11 +132,14 @@ impl fmt::Display for Estimated {
             format!("{} for {}", Minutes::new(minutes), self.path)
         };
         write!(f, "{head}")?;
-        match self.tasks {
-            0 => write!(f, "\n  no tasks with tracked time here yet")?,
-            1 => write!(f, "\n  learned from 1 task")?,
-            n => write!(f, "\n  learned from {n} tasks")?,
-        }
+        const OPEN: &str = "(over the estimate, half weight)";
+        let learned = match (self.done, self.open) {
+            (0, 0) => "no tasks with tracked time here yet".to_string(),
+            (d, 0) => format!("learned from {}", count(d, "done")),
+            (0, o) => format!("learned from {} {OPEN}", count(o, "open")),
+            (d, o) => format!("learned from {} and {o} open {OPEN}", count(d, "done")),
+        };
+        write!(f, "\n  {learned}")?;
         match &self.prior {
             Some(PriorOut::Setting { from, minutes }) => {
                 write!(f, "\n  prior: {}, set on {from}", Minutes::new(*minutes))
@@ -174,14 +195,16 @@ mod tests {
         core.set_settings(&[1], settings, None).await.unwrap();
     }
 
-    /// An `Estimated` for the text tests: `minutes` from `tasks`, `prior`.
-    fn estimated(tasks: usize, prior: Option<PriorOut>) -> Estimated {
+    /// An `Estimated` for the text tests: 1h20 from `done` and `open`
+    /// tasks, `prior`.
+    fn estimated(done: usize, open: usize, prior: Option<PriorOut>) -> Estimated {
         Estimated {
             id: NodeId::new(),
             path: "uni/cs".into(),
             container: true,
             minutes: Some(80),
-            tasks,
+            done,
+            open,
             prior,
         }
     }
@@ -198,7 +221,7 @@ mod tests {
 
         assert_eq!(shown.path, "ws/c");
         assert!(!shown.container);
-        assert_eq!((shown.minutes, shown.tasks), (Some(60), 1));
+        assert_eq!((shown.minutes, shown.done, shown.open), (Some(60), 1, 0));
         assert!(shown.prior.is_none());
     }
 
@@ -212,7 +235,7 @@ mod tests {
             .unwrap();
 
         assert!(shown.container);
-        assert_eq!((shown.minutes, shown.tasks), (Some(90), 0));
+        assert_eq!((shown.minutes, shown.done, shown.open), (Some(90), 0, 0));
         assert!(matches!(
             &shown.prior,
             Some(PriorOut::Setting { from, minutes: 90 }) if from == "ws"
@@ -247,7 +270,7 @@ mod tests {
         // (3·90 + 70) / 4
         assert_eq!(
             render(&shown, false).unwrap(),
-            "1h25 for a task in ws\n  learned from 1 task\n  prior: 1h30, set on ws"
+            "1h25 for a task in ws\n  learned from 1 done task\n  prior: 1h30, set on ws"
         );
     }
 
@@ -280,7 +303,8 @@ mod tests {
         assert_eq!(json["path"], "ws");
         assert_eq!(json["container"], true);
         assert_eq!(json["minutes"], 90);
-        assert_eq!(json["tasks"], 0);
+        assert_eq!(json["done"], 0);
+        assert_eq!(json["open"], 0);
         assert_eq!(json["prior"]["source"], "setting");
         assert_eq!(json["prior"]["from"], "ws");
         assert_eq!(json["prior"]["minutes"], 90);
@@ -325,12 +349,51 @@ mod tests {
     // ---------- text forms (no Core) ----------
 
     #[test]
-    fn text_counts_several_tasks() {
-        let text = estimated(6, None).to_string();
+    fn text_counts_several_done_tasks() {
+        let text = estimated(6, 0, None).to_string();
 
         assert_eq!(
             text,
-            "1h20 for a task in uni/cs\n  learned from 6 tasks\n  no prior: nothing set above"
+            "1h20 for a task in uni/cs\n  learned from 6 done tasks\n  no prior: nothing set above"
+        );
+    }
+
+    #[test]
+    fn text_explains_an_open_task() {
+        let text = estimated(0, 1, None).to_string();
+
+        assert!(text.contains("\n  learned from 1 open task (over the estimate, half weight)\n"));
+    }
+
+    #[test]
+    fn text_explains_done_and_open_tasks() {
+        let text = estimated(5, 1, None).to_string();
+
+        assert!(text.contains(
+            "\n  learned from 5 done tasks and 1 open (over the estimate, half weight)\n"
+        ));
+    }
+
+    #[tokio::test]
+    async fn an_open_task_over_the_estimate_is_shown_as_open() {
+        // ws 1h; c open with 3h so far, b has nothing: b learns from c
+        let (tmp, mut core) = core().await;
+        set_ws_estimate(&mut core, 60).await;
+        let c = core.create(&[1], task("c")).await.unwrap();
+        core.add_session(&c, at(8, 0), at(11, 0), at(12, 0))
+            .await
+            .unwrap();
+
+        let shown = run(&core, tmp.path(), at(12, 0), &named("b"))
+            .await
+            .unwrap();
+
+        // (3·60 + ½·180) / 3.5 = 77.1
+        assert_eq!((shown.minutes, shown.done, shown.open), (Some(77), 0, 1));
+        let json = serde_json::to_value(&shown).unwrap();
+        assert_eq!(
+            (json["done"].clone(), json["open"].clone()),
+            (0.into(), 1.into())
         );
     }
 
@@ -342,7 +405,7 @@ mod tests {
             tasks: 12,
         };
 
-        let text = estimated(0, Some(prior)).to_string();
+        let text = estimated(0, 0, Some(prior)).to_string();
 
         assert_eq!(
             text,
@@ -358,7 +421,7 @@ mod tests {
             tasks: 12,
         };
 
-        let json = serde_json::to_value(estimated(0, Some(prior))).unwrap();
+        let json = serde_json::to_value(estimated(0, 0, Some(prior))).unwrap();
 
         assert_eq!(json["prior"]["source"], "parent");
         assert_eq!(json["prior"]["tasks"], 12);

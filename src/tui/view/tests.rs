@@ -325,7 +325,7 @@ async fn estimate_learned_from_done_tasks() {
 
     assert_eq!(
         field_row(&rows, "estimate").as_deref(),
-        Some("1h45 (learned from 1 task)")
+        Some("1h45 (learned from 1 done task)")
     );
     assert_eq!(field_row(&rows, "left").as_deref(), Some("1h45"));
 }
@@ -372,7 +372,45 @@ async fn estimate_learned_from_several_tasks_is_plural() {
 
     assert_eq!(
         field_row(&rows, "estimate").as_deref(),
-        Some("1h30 (learned from 2 tasks)")
+        Some("1h30 (learned from 2 done tasks)")
+    );
+}
+
+#[tokio::test]
+async fn estimate_learned_from_an_open_task() {
+    // uni 3h, nothing done; sheet [0, 1] open with 3h35 so far, over the
+    // 3h: lab gets (3·180 + ½·215) / 3.5 (the uni/algorithms seed case)
+    let sessions: &[(&[usize], _, _)] = &[(&[0, 1], at(8, 0), at(11, 35))];
+    let mut app = app_with_sessions(estimate_tree(Some(180)), &[0, 0], sessions).await;
+
+    let rows = render_rows(&mut app);
+
+    assert_eq!(
+        field_row(&rows, "estimate").as_deref(),
+        Some("3h05 (learned from 1 open task)")
+    );
+}
+
+#[tokio::test]
+async fn estimate_learned_from_done_and_open_tasks() {
+    // uni: [lab, a (done, 1h), b (open, 3h20)], nothing set: base 1h,
+    // b over it: (60 + ½·200) / 1.5
+    let mut tree = tree_with(vec![container(
+        "uni",
+        vec![task("lab"), task("a"), task("b")],
+    )]);
+    mark_done(&mut tree, &[0, 1]);
+    let sessions: &[(&[usize], _, _)] = &[
+        (&[0, 1], at(8, 0), at(9, 0)),
+        (&[0, 2], at(9, 0), at(12, 20)),
+    ];
+    let mut app = app_with_sessions(tree, &[0, 0], sessions).await;
+
+    let rows = render_rows(&mut app);
+
+    assert_eq!(
+        field_row(&rows, "estimate").as_deref(),
+        Some("1h47 (learned from 1 done, 1 open)")
     );
 }
 

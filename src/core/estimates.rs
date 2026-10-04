@@ -81,7 +81,14 @@ mod tests {
         let estimate = core.estimate(&c, at(12, 0)).await.unwrap().unwrap();
 
         assert_eq!(estimate.minutes, Minutes::new(60));
-        assert!(matches!(estimate.basis, Basis::Learned { tasks: 1, .. }));
+        assert!(matches!(
+            estimate.basis,
+            Basis::Learned {
+                done_tasks: 1,
+                open_tasks: 0,
+                ..
+            }
+        ));
     }
 
     #[tokio::test]

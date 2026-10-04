@@ -26,7 +26,12 @@ pub enum Basis {
     /// Blended from counted tasks and (if any) a prior.
     Learned {
         container: NodeId,
-        tasks: usize,
+        /// Done tasks with tracked time, at full weight.
+        done_tasks: usize,
+        /// Open (or deleted) tasks whose time so far is over the estimate
+        /// from the done ones, at half weight: an "at least". Open tasks
+        /// under it are not counted.
+        open_tasks: usize,
         prior: Option<Prior>,
     },
 }

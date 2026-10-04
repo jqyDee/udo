@@ -55,17 +55,21 @@ impl Average {
             Scope::Task(id) => t.container == container && t.id != id,
             Scope::Subtree => history.is_below(t.container, container),
         });
-        let (minutes, tasks) = blend(prior.map(|p| p.minutes()), tasks)?;
-        let basis = if tasks == 0 {
+        let blend = blend(prior.map(|p| p.minutes()), tasks)?;
+        let basis = if blend.done + blend.open == 0 {
             Basis::Prior(prior?) // nothing counted: blend only answered because of the prior
         } else {
             Basis::Learned {
                 container,
-                tasks,
+                done_tasks: blend.done,
+                open_tasks: blend.open,
                 prior,
             }
         };
-        Some(Estimate { minutes, basis })
+        Some(Estimate {
+            minutes: blend.minutes,
+            basis,
+        })
     }
 
     /// Where `container`'s blend starts: its own `estimate` setting, else
@@ -86,25 +90,32 @@ impl Average {
             history.is_below(t.container, parent) && !history.is_below(t.container, container)
         });
         match blend(above.map(|p| p.minutes()), pool) {
-            Some((minutes, tasks)) if tasks > 0 => Some(Prior::Parent {
+            Some(b) if b.done + b.open > 0 => Some(Prior::Parent {
                 container: parent,
-                tasks,
-                minutes,
+                tasks: b.done + b.open,
+                minutes: b.minutes,
             }),
             _ => above, // the parent's subtree adds nothing: pass its prior on
         }
     }
 }
 
-/// `(K·prior + Σ w·actual) / (K + Σ w)`, rounded, and how many tasks
-/// counted. Tasks without tracked time are skipped; done tasks have
+/// What a blend gives: the estimate, and what it counted.
+struct Blend {
+    minutes: Minutes,
+    /// Done tasks with tracked time (weight 1).
+    done: usize,
+    /// Open tasks over the base (weight ½); open ones under it are not
+    /// counted.
+    open: usize,
+}
+
+/// `(K·prior + Σ w·actual) / (K + Σ w)`, rounded, and how many done and
+/// open tasks counted. Tasks without tracked time are skipped; done tasks have
 /// `w = 1`; open ones `w = ½`, only if above the estimate from the done
 /// ones. No prior: `K = 0`. `None`: no prior and nothing done (then open
 /// tasks have nothing to be compared with either).
-fn blend<'a>(
-    prior: Option<Minutes>,
-    tasks: impl Iterator<Item = &'a TaskRecord>,
-) -> Option<(Minutes, usize)> {
+fn blend<'a>(prior: Option<Minutes>, tasks: impl Iterator<Item = &'a TaskRecord>) -> Option<Blend> {
     let (done, open): (Vec<&TaskRecord>, Vec<&TaskRecord>) = tasks
         .filter(|t| t.actual.get() > 0)
         .partition(|t| t.done_at.is_some()); // open and deleted: `done_at` None
@@ -127,16 +138,20 @@ fn blend<'a>(
     let base = sum / weight; // the estimate from done tasks only
 
     // every open task against the same base, so their order doesn't matter
-    let mut counted = done.len();
+    let mut open_counted = 0;
     for t in &open {
         let actual = f64::from(t.actual.get());
         if actual > base {
             weight += 0.5;
             sum += 0.5 * actual;
-            counted += 1;
+            open_counted += 1;
         }
     }
 
     let minutes = (sum / weight).round() as u32; // weight > 0 (checked above), never negative
-    Some((Minutes::new(minutes), counted))
+    Some(Blend {
+        minutes: Minutes::new(minutes),
+        done: done.len(),
+        open: open_counted,
+    })
 }

@@ -288,8 +288,19 @@ fn fit(name: &str, width: usize) -> String {
     format!("{cut}…")
 }
 
+/// `1 done task`, `2 open tasks` (for `basis_text`).
+fn count(n: usize, what: &str) -> String {
+    if n == 1 {
+        format!("1 {what} task")
+    } else {
+        format!("{n} {what} tasks")
+    }
+}
+
 /// Why the estimate is what it is, for the brackets after it: `learned
-/// from 6 tasks`, `from uni` (its setting), `from uni's tasks` (pooled).
+/// from 6 done tasks`, `learned from 1 open task`, `learned from 5 done,
+/// 1 open` (both: short, it has to fit the details row), `from uni` (its
+/// setting), `from uni's tasks` (pooled).
 /// A container no longer in the tree: `?` (never a panic in a draw).
 fn basis_text(tree: &Tree, basis: &Basis) -> String {
     let name = |id| {
@@ -298,8 +309,21 @@ fn basis_text(tree: &Tree, basis: &Basis) -> String {
             .unwrap_or_else(|| "?".into())
     };
     match basis {
-        Basis::Learned { tasks: 1, .. } => "learned from 1 task".into(),
-        Basis::Learned { tasks, .. } => format!("learned from {tasks} tasks"),
+        Basis::Learned {
+            done_tasks: d,
+            open_tasks: 0,
+            ..
+        } => format!("learned from {}", count(*d, "done")),
+        Basis::Learned {
+            done_tasks: 0,
+            open_tasks: o,
+            ..
+        } => format!("learned from {}", count(*o, "open")),
+        Basis::Learned {
+            done_tasks: d,
+            open_tasks: o,
+            ..
+        } => format!("learned from {d} done, {o} open"), // short: the row is narrow
         Basis::Prior(Prior::Setting { container, .. }) => format!("from {}", name(*container)),
         Basis::Prior(Prior::Parent { container, .. }) => {
             format!("from {}'s tasks", name(*container))

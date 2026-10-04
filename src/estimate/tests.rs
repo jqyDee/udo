@@ -281,7 +281,8 @@ fn one_done_task_moves_the_prior() {
             minutes: Minutes::new(85),
             basis: Basis::Learned {
                 container: cs,
-                tasks: 1,
+                done_tasks: 1,
+                open_tasks: 0,
                 prior: Some(setting(cs, 90)),
             },
         })
@@ -298,7 +299,14 @@ fn many_done_tasks_outweigh_the_prior() {
 
     // (3·90 + 10·60) / 13 = 66.9
     assert_eq!(estimate.minutes, Minutes::new(67));
-    assert!(matches!(estimate.basis, Basis::Learned { tasks: 10, .. }));
+    assert!(matches!(
+        estimate.basis,
+        Basis::Learned {
+            done_tasks: 10,
+            open_tasks: 0,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -313,7 +321,8 @@ fn no_prior_is_the_plain_average() {
             minutes: Minutes::new(90),
             basis: Basis::Learned {
                 container: cs,
-                tasks: 2,
+                done_tasks: 2,
+                open_tasks: 0,
                 prior: None,
             },
         })
@@ -332,7 +341,14 @@ fn open_task_under_the_estimate_is_ignored() {
     let estimate = average_of(&tree, &sessions, &[0]).unwrap();
 
     assert_eq!(estimate.minutes, Minutes::new(85));
-    assert!(matches!(estimate.basis, Basis::Learned { tasks: 1, .. }));
+    assert!(matches!(
+        estimate.basis,
+        Basis::Learned {
+            done_tasks: 1,
+            open_tasks: 0, // b has time, but under the base: not counted
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -347,7 +363,72 @@ fn open_task_over_the_estimate_counts_half() {
 
     // base (3·90 + 70) / 4 = 85; 200 > 85: (340 + ½·200) / 4.5 = 97.8
     assert_eq!(estimate.minutes, Minutes::new(98));
-    assert!(matches!(estimate.basis, Basis::Learned { tasks: 2, .. }));
+    assert!(matches!(
+        estimate.basis,
+        Basis::Learned {
+            done_tasks: 1,
+            open_tasks: 1,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn only_open_tasks_over_the_base_are_counted() {
+    // base 85m: b (30m) is under it, c (200m) over it; only c counts
+    let tree = tree_with(vec![with_estimate(
+        container("cs", vec![done("a"), task("b"), task("c")]),
+        90,
+    )]);
+    let sessions = [
+        worked(&tree, &[0, 0], 70),
+        worked(&tree, &[0, 1], 30),
+        worked(&tree, &[0, 2], 200),
+    ];
+
+    let estimate = average_of(&tree, &sessions, &[0]).unwrap();
+
+    assert_eq!(estimate.minutes, Minutes::new(98)); // as with c alone
+    assert!(matches!(
+        estimate.basis,
+        Basis::Learned {
+            done_tasks: 1,
+            open_tasks: 1,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn sibling_open_tasks_teach_each_other() {
+    // seen in the seed data (uni/algorithms): 3h set, nothing done yet,
+    // sheet-3 at 3h55 and sheet-4 at 3h35 so far, exam-prep untouched;
+    // each sheet learns from the other one only (never from itself)
+    let tree = tree_with(vec![with_estimate(
+        container(
+            "algorithms",
+            vec![task("sheet-3"), task("sheet-4"), task("exam-prep")],
+        ),
+        180,
+    )]);
+    let sessions = [worked(&tree, &[0, 0], 235), worked(&tree, &[0, 1], 215)];
+    let history = History::build(&tree, &sessions, at(23, 0));
+    let algorithms = id(&tree, &[0]);
+    let learned_from_one_open = Basis::Learned {
+        container: algorithms,
+        done_tasks: 0,
+        open_tasks: 1,
+        prior: Some(setting(algorithms, 180)),
+    };
+
+    let sheet_3 = Average.estimate(id(&tree, &[0, 0]), &history).unwrap();
+    let sheet_4 = Average.estimate(id(&tree, &[0, 1]), &history).unwrap();
+
+    // (3·180 + ½·215) / 3.5 = 185; (3·180 + ½·235) / 3.5 = 187.9
+    assert_eq!(sheet_3.minutes, Minutes::new(185));
+    assert_eq!(sheet_3.basis, learned_from_one_open);
+    assert_eq!(sheet_4.minutes, Minutes::new(188));
+    assert_eq!(sheet_4.basis, learned_from_one_open);
 }
 
 #[test]
@@ -641,7 +722,8 @@ fn container_pools_its_subtree() {
             minutes: Minutes::new(96),
             basis: Basis::Learned {
                 container: uni,
-                tasks: 5,
+                done_tasks: 5,
+                open_tasks: 0,
                 prior: None,
             },
         })
@@ -679,7 +761,47 @@ fn container_mixes_direct_and_inner_tasks() {
     let estimate = average_of(&tree, &sessions, &[0]).unwrap();
 
     assert_eq!(estimate.minutes, Minutes::new(60));
-    assert!(matches!(estimate.basis, Basis::Learned { tasks: 2, .. }));
+    assert!(matches!(
+        estimate.basis,
+        Basis::Learned {
+            done_tasks: 2,
+            open_tasks: 0,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn a_pooled_prior_counts_done_and_open_tasks() {
+    // root > uni [0] (2h) > cs [0, 0]: a (done, 2h), b (open, 5h);
+    // physics [0, 1]: empty. cs's tasks reach physics as one pooled prior.
+    let tree = tree_with(vec![with_estimate(
+        container(
+            "uni",
+            vec![
+                container("cs", vec![done("a"), task("b")]),
+                container("physics", vec![]),
+            ],
+        ),
+        120,
+    )]);
+    let uni = id(&tree, &[0]);
+    let sessions = [
+        worked(&tree, &[0, 0, 0], 120),
+        worked(&tree, &[0, 0, 1], 300),
+    ];
+
+    let estimate = average_of(&tree, &sessions, &[0, 1]).unwrap();
+
+    // base (3·120 + 120) / 4 = 120; b over it: (480 + 150) / 4.5 = 140
+    assert_eq!(
+        estimate.basis,
+        Basis::Prior(Prior::Parent {
+            container: uni,
+            tasks: 2,
+            minutes: Minutes::new(140),
+        })
+    );
 }
 
 #[test]
