@@ -65,7 +65,8 @@ pub trait Estimator {
 }
 
 /// The estimate shown for `node`: a task's (its container's, without
-/// itself), or a container's ("a typical task here").
+/// itself), or a container's (pooled over its subtree, "a typical task
+/// anywhere in it").
 pub fn of_node(node: &Node, history: &History) -> Option<Estimate> {
     match node.as_task() {
         Some(_) => Average.estimate(node.id(), history),

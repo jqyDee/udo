@@ -608,3 +608,98 @@ fn nothing_set_anywhere_has_no_prior() {
 
     assert_eq!(average_of(&tree, &[], &[0, 0]), None);
 }
+
+// ---------- a container's own estimate: its whole subtree ----------
+
+/// root > uni [0] (no tasks of its own, nothing set)
+///   cs [0, 0]: a, b, c (done, 2h each), x [0, 0, 3] (open, no time)
+///   math [0, 1]: d, e (done, 1h each)
+///   physics [0, 2]: empty
+fn uni_with_projects() -> (Tree, Vec<Session>) {
+    let tree = tree_with(vec![container(
+        "uni",
+        vec![
+            container("cs", vec![done("a"), done("b"), done("c"), task("x")]),
+            container("math", vec![done("d"), done("e")]),
+            container("physics", vec![]),
+        ],
+    )]);
+    let mut sessions: Vec<Session> = (0..3).map(|i| worked(&tree, &[0, 0, i], 120)).collect();
+    sessions.extend((0..2).map(|i| worked(&tree, &[0, 1, i], 60)));
+    (tree, sessions)
+}
+
+#[test]
+fn container_pools_its_subtree() {
+    let (tree, sessions) = uni_with_projects();
+    let uni = id(&tree, &[0]);
+
+    // all 5 done tasks below uni: (3·120 + 2·60) / 5
+    assert_eq!(
+        average_of(&tree, &sessions, &[0]),
+        Some(Estimate {
+            minutes: Minutes::new(96),
+            basis: Basis::Learned {
+                container: uni,
+                tasks: 5,
+                prior: None,
+            },
+        })
+    );
+}
+
+#[test]
+fn container_estimate_is_what_a_new_child_starts_from() {
+    let (tree, sessions) = uni_with_projects();
+    let uni = id(&tree, &[0]);
+
+    let of_uni = average_of(&tree, &sessions, &[0]).unwrap();
+    let of_physics = average_of(&tree, &sessions, &[0, 2]).unwrap();
+
+    assert_eq!(
+        of_physics.basis,
+        Basis::Prior(Prior::Parent {
+            container: uni,
+            tasks: 5,
+            minutes: Minutes::new(96),
+        })
+    );
+    assert_eq!(of_physics.minutes, of_uni.minutes);
+}
+
+#[test]
+fn container_mixes_direct_and_inner_tasks() {
+    // root > uni [0]: f (done, 30m), cs [0, 1]: a (done, 1h30)
+    let tree = tree_with(vec![container(
+        "uni",
+        vec![done("f"), container("cs", vec![done("a")])],
+    )]);
+    let sessions = [worked(&tree, &[0, 0], 30), worked(&tree, &[0, 1, 0], 90)];
+
+    let estimate = average_of(&tree, &sessions, &[0]).unwrap();
+
+    assert_eq!(estimate.minutes, Minutes::new(60));
+    assert!(matches!(estimate.basis, Basis::Learned { tasks: 2, .. }));
+}
+
+#[test]
+fn tasks_still_learn_from_their_direct_container() {
+    // pooling is for a container's own estimate only: x in cs learns from
+    // cs's tasks, with math's as the prior, not from all of uni at once
+    let (tree, sessions) = uni_with_projects();
+    let uni = id(&tree, &[0]);
+    let history = History::build(&tree, &sessions, at(23, 0));
+
+    let x = Average.estimate(id(&tree, &[0, 0, 3]), &history).unwrap();
+
+    // prior: math's 2 tasks, 1h; then (3·60 + 3·120) / 6
+    assert_eq!(
+        prior_of(x),
+        Some(Prior::Parent {
+            container: uni,
+            tasks: 2,
+            minutes: Minutes::new(60),
+        })
+    );
+    assert_eq!(x.minutes, Minutes::new(90));
+}

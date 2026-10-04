@@ -13,6 +13,14 @@ pub const K: f64 = 3.0;
 /// ones, at half weight (their time so far is an "at least").
 pub struct Average;
 
+/// Which tasks a blend learns from.
+enum Scope {
+    /// A task's estimate: its container's direct tasks, without its one.
+    Task(NodeId),
+    /// A container's own estimate: every task in its subtree.
+    Subtree,
+}
+
 impl Estimator for Average {
     fn method(&self) -> &'static str {
         "average"
@@ -25,29 +33,28 @@ impl Estimator for Average {
     /// A task's estimate is its container's, without the task itself.
     fn estimate(&self, task: NodeId, history: &History) -> Option<Estimate> {
         let rec = history.task(task)?;
-        self.learn(rec.container, Some(task), history)
+        self.learn(rec.container, Scope::Task(task), history)
     }
 }
 
 impl Average {
-    /// "A typical task here": all of the container's tasks count
-    /// (`udo estimate` on a container, #9).
+    /// "A typical task anywhere in it": every task in the container's
+    /// subtree counts, not only its direct ones; the prior as for a task.
+    /// So a workspace without tasks of its own still has an estimate, the
+    /// same one a new, empty child gets as its prior (`udo estimate` on a
+    /// container, #9).
     pub fn of_container(&self, container: NodeId, history: &History) -> Option<Estimate> {
-        self.learn(container, None, history)
+        self.learn(container, Scope::Subtree, history)
     }
 
     /// The estimate of `container` from its direct tasks (but `without`)
     /// and its prior (`prior`).
-    fn learn(
-        &self,
-        container: NodeId,
-        without: Option<NodeId>,
-        history: &History,
-    ) -> Option<Estimate> {
+    fn learn(&self, container: NodeId, scope: Scope, history: &History) -> Option<Estimate> {
         let prior = self.prior(container, history);
-        let tasks = history
-            .tasks_in(container)
-            .filter(|t| Some(t.id) != without);
+        let tasks = history.tasks().iter().filter(|t| match scope {
+            Scope::Task(id) => t.container == container && t.id != id,
+            Scope::Subtree => history.is_below(t.container, container),
+        });
         let (minutes, tasks) = blend(prior.map(|p| p.minutes()), tasks)?;
         let basis = if tasks == 0 {
             Basis::Prior(prior?) // nothing counted: blend only answered because of the prior
