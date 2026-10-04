@@ -19,3 +19,9 @@ install-path = "CARGO_HOME"
 publish-jobs = ["homebrew"]
 # Whether to install an updater program
 install-updater = false
+# Jobs before the build: the release only builds once the tests pass
+# (.github/workflows/test.yml, called through `workflow_call`)
+plan-jobs = ["./test"]
+# Release workflow on tags only: pull requests are tested by test.yml (with
+# the plan check on PRs too, they would run the tests twice)
+pr-run-mode = "skip"
