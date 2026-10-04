@@ -1,4 +1,4 @@
-# Format, lint and test on every push to main and every pull request, on
+# Format, lint and test on every push to dev / main and every pull request, on
 # the platforms the releases are built for (dist-workspace.toml: macOS and
 # Linux), with the Rust version of rust-toolchain.toml. tmux and shellcheck
 # are installed so their tests run instead of skipping
@@ -7,7 +7,7 @@ name: test
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
 
 # a newer push to the same branch / PR cancels the run in progress

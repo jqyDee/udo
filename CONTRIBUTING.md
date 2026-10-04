@@ -20,6 +20,27 @@ UDO_ROOT=/tmp/udo-test cargo run    # the TUI on it
 Never point a test or a try-out at your real data: set `UDO_ROOT` (the seed
 script refuses anything outside `/tmp`).
 
+## Branches
+
+- `dev`: where work happens; pull requests go here
+- `main`: releases only, protected (pull requests with green checks). A
+  release is cut on `dev` (`cargo release`, tag `vX.Y.Z`, which builds and
+  publishes it), then `dev` is merged into `main` with a merge commit
+
+## Data formats
+
+Since 0.1.0 people keep real data in udo, so the `.udo.toml` files and the
+`udo.db` schema only change in ways older data survives:
+
+- `.udo.toml`: new fields only, optional (`#[serde(default)]`); never
+  rename, remove or change the meaning of an existing field or value
+- `udo.db`: a new migration file appended in
+  `src/storage/sqlite_migrations/`, additive only; released migrations are
+  never edited
+- recorded sessions are never deleted
+
+A change that cannot be additive needs an issue first.
+
 ## Before you send a change
 
 - `cargo fmt` (default rustfmt settings)
