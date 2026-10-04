@@ -7,8 +7,22 @@ IntelliJ, Zed) and time it while you work.
 
 ## Install
 
+Homebrew (macOS on Apple silicon, Linux x86_64):
+
 ```sh
-cargo install --path .
+brew install jqydee/tap/udo
+```
+
+Or the install script, which puts the binary in `~/.cargo/bin`:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/jqyDee/udo/releases/latest/download/udo-installer.sh | sh
+```
+
+Other platforms build from source:
+
+```sh
+cargo install --git https://github.com/jqyDee/udo
 ```
 
 Data lives in `~/.config/udo` (or `$UDO_ROOT`): the tree, its settings,
