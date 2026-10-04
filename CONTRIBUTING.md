@@ -23,8 +23,9 @@ script refuses anything outside `/tmp`).
 ## Branches
 
 - `dev`: where work happens; pull requests go here
-- `main`: releases only. `dev` is merged into it for a release
-  (`cargo release` runs on `main`), and every release is a tag `vX.Y.Z`
+- `main`: releases only, protected (pull requests with green checks). A
+  release is cut on `dev` (`cargo release`, tag `vX.Y.Z`, which builds and
+  publishes it), then `dev` is merged into `main` with a merge commit
 
 ## Data formats
 

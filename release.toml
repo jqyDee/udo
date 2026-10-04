@@ -1,5 +1,5 @@
 publish = false
 tag-name = "v{{version}}"
-allow-branch = ["main"]
+allow-branch = ["dev"]
 pre-release-commit-message = "chore: release {{version}}"
 pre-release-hook = ["sh", "-c", "[ \"$DRY_RUN\" = true ] || git cliff -o CHANGELOG.md --tag v{{version}}"]
