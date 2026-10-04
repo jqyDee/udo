@@ -1,7 +1,8 @@
 # Format, lint and test on every push to main and every pull request, on
 # the platforms the releases are built for (dist-workspace.toml: macOS and
-# Linux). tmux and shellcheck are installed so their tests run instead of
-# skipping (tests/example_nvim_tmux.rs, tests/example_lint.rs).
+# Linux), with the Rust version of rust-toolchain.toml. tmux and shellcheck
+# are installed so their tests run instead of skipping
+# (tests/example_nvim_tmux.rs, tests/example_lint.rs).
 name: test
 
 on:
@@ -23,10 +24,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # the version and components from rust-toolchain.toml; caches too
+      # (rust-cache). rustflags "": not its default `-D warnings` for every
+      # build, clippy below decides that
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+          rustflags: ""
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
 
@@ -39,8 +42,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
       - name: tools for the example tests
         run: |
           if [ "$RUNNER_OS" = macOS ]; then

@@ -3,7 +3,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use async_recursion::async_recursion;
 use tokio::fs;
 
 use crate::{
@@ -56,8 +55,8 @@ impl Tree {
     /// `loaded` holds every dir built so far, so a dir listed by two parents
     /// is only loaded once.
     ///
-    /// `#[async_recursion]` boxes the future (async fn can't recurse, E0733).
-    #[async_recursion]
+    /// Recursion: the inner call is boxed (`Box::pin`), else the future
+    /// would contain itself (E0733).
     async fn build_container(dir: PathBuf, loaded: &mut HashSet<PathBuf>) -> Res<Node> {
         let data = ContainerData::load(&dir).await?;
 
@@ -89,7 +88,7 @@ impl Tree {
                 continue;
             }
 
-            children.push(Self::build_container(child_path, loaded).await?);
+            children.push(Box::pin(Self::build_container(child_path, loaded)).await?);
         }
 
         Ok(Node {

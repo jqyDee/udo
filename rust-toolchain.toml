@@ -1,0 +1,6 @@
+# The Rust version for everyone: local builds, CI and releases (rustup
+# reads this file). Raised on purpose, so new clippy lints arrive with a
+# version bump instead of breaking CI on their own.
+[toolchain]
+channel = "1.96"
+components = ["rustfmt", "clippy"]
