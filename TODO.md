@@ -1,9 +1,16 @@
 # udo TODO
 
-Priorities as of 2026-10-04, in order. Designs: `docs/superpowers/specs/`.
+Priorities as of 2026-10-05, in order. Designs: `docs/superpowers/specs/`.
+Open work is tracked as GitHub issues (the `#n` after each item).
 
-**Next up:** to be picked (the run configs are done). Done lately: run
-configs + tracking by program (sections 2 and 4, spec
+**Next up:** the estimates (epic #45, spec
+`docs/superpowers/specs/2026-10-04-learned-estimates-design.md`), in
+this order: #8 (learned estimates, built: pull request into `dev`) ->
+#47 (record estimate history: the data only collects once released) ->
+#9 (estimate vs. actual) -> release. No release before these three; #12
+(backtest) can follow it.
+
+Done before: run configs + tracking by program (sections 2 and 4, spec
 `docs/superpowers/specs/2026-10-02-run-configs-design.md`, all six
 stages): session owners, `udo track start / stop / run [--detach]`,
 `id:<uuid>` as NODE, run config library and launcher, `udo run [--with]
@@ -163,11 +170,23 @@ Estimates and reports: epic #45.
       on disk with every backend: work and scripts happen there. Async
       store methods: an enum over the known backends, or boxed futures
       (`dyn` needs them).
-- [ ] **Learn** (#8): per container, the average time of tasks replaces the
+- [x] **Learn** (#8): per container, the average time of tasks replaces the
       default. Unfinished tasks count too, weighted lower (their time so far
       is an "at least"). Averages are calculated from the sessions, not
-      stored as settings.
-- [ ] Show estimate vs. actual per task and container. (#9)
+      stored as settings. Built as a pure module `src/estimate/`:
+      `Average` blends a container's tasks with a prior that counts like
+      3 tasks (the container's own `estimate` setting, else the parent's
+      tasks pooled without this container); done tasks at full weight,
+      open ones only above the estimate, at half weight; a container's own
+      estimate pools its whole subtree; a done task's estimate is frozen
+      at its first session (`History::as_of`). TUI details show it with
+      its basis (`learned from 2 done, 1 open`, `from uni`), `udo estimate
+      [NODE]` explains it (text and `--json`).
+- [ ] **Record estimate history** (#47): every estimate shown, in
+      `udo.db` (append-only, at created / started / done), so later
+      methods can be measured against it.
+- [ ] Show estimate vs. actual per task and container. (#9) A done
+      task's frozen estimate (#8) is the one to compare with.
 - [ ] **Pace and reports (`udo stats`, #10):** the daily pace still needed per
       task (time left of the estimate / days until due), and a report of
       the time per workspace / project over a period.
@@ -187,8 +206,10 @@ Estimates and reports: epic #45.
       source, edited / not edited.
 - [ ] **Better local estimates, step by step** (#12; each measured against the
       recorded actual times; build the next only if needed):
-      robust stats (median, recency weighting, a range instead of one
-      number) -> similar past tasks by words (TF-IDF + nearest neighbours)
+      a backtest first (`udo estimate --backtest`, replays every done task
+      at its first session with `History::as_of`) -> robust stats (median,
+      recency weighting, a range instead of one number) -> similar past
+      tasks by words (TF-IDF + nearest neighbours)
       -> small local sentence-embedding model for similarity (optional
       Cargo feature) -> regression over several features once there is
       enough data. No neural net trained on own data alone: too few tasks.

@@ -43,6 +43,7 @@ pub use crate::run::RunRequest;
 
 use crate::{
     core::Core,
+    estimate::History,
     model::{
         id::NodeId,
         node::Node,
@@ -98,6 +99,9 @@ pub struct App<'a> {
     pub sessions: Vec<Session>,
     /// Page of the sessions tab; `page_len` is set by every draw.
     pub session_list: SessionList,
+    /// What the estimates are computed from; reloaded with the rest
+    /// (`reload`), so moving the cursor costs nothing.
+    pub history: History,
 }
 
 impl<'a> App<'a> {
@@ -117,6 +121,7 @@ impl<'a> App<'a> {
             running: None,
             sessions: Vec::new(),
             session_list: SessionList::default(),
+            history: History::default(),
         }
     }
 
@@ -135,6 +140,10 @@ impl<'a> App<'a> {
         };
         match self.core.running_session().await {
             Ok(running) => self.running = running,
+            Err(e) => self.error(e.to_string()),
+        }
+        match self.core.history((self.clock)()).await {
+            Ok(history) => self.history = history,
             Err(e) => self.error(e.to_string()),
         }
     }

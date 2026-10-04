@@ -10,6 +10,7 @@ use crate::{
     storage::{Storage, sessions::Sessions},
 };
 
+mod estimates;
 mod nodes;
 mod sessions;
 mod settings;

@@ -50,6 +50,7 @@ udo ls                      # the tree, due dates, status
 udo start "lab 3"           # NODE: a path, any unique end of one, or
 udo stop                    # nothing for the node of the current folder
 udo session list            # recorded time, last 7 days
+udo estimate "lab 3"        # how long it should take, and why
 udo settings set uni open_with=nvim-tmux
 udo run "lab 3"             # open it with its run config
 ```

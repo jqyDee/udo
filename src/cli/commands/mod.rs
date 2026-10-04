@@ -9,6 +9,7 @@
 mod add;
 mod done;
 mod edit;
+mod estimate;
 mod ls;
 mod rm;
 mod run;
@@ -37,6 +38,14 @@ pub enum Command {
     Ls(ls::LsArgs),
     /// Show one node: its fields and the time tracked on it
     Show(show::ShowArgs),
+    /// How long a task should take, and why
+    ///
+    /// Learned from the done tasks in its container, blended with a
+    /// starting value: the container's estimate setting, else what the
+    /// containers around it learned. Open tasks count only once they are
+    /// over the estimate, at half weight. On a container: a typical task
+    /// anywhere in it.
+    Estimate(estimate::EstimateArgs),
     /// Add a task, project or workspace
     #[command(subcommand)]
     Add(add::AddCommand),
@@ -70,6 +79,7 @@ pub async fn run(command: &Command, core: &mut Core, cwd: &Path, json: bool) -> 
     match command {
         Command::Ls(a) => emit(&ls::run(core, cwd, time::now(), a).await?, json),
         Command::Show(a) => emit(&show::run(core, cwd, time::now(), a).await?, json),
+        Command::Estimate(a) => emit(&estimate::run(core, cwd, time::now(), a).await?, json),
         Command::Add(c) => add::run(c, core, cwd, json).await,
         Command::Edit(a) => {
             let now = Local::now().naive_local();
