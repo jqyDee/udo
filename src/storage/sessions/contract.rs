@@ -47,11 +47,11 @@ fn tmux() -> SessionSource {
 /// gives a fresh, empty store using it. Use inside a backend's test module:
 ///
 /// ```ignore
-/// super::contract::store_contract!(MemorySessions::new);
+/// super::contract::session_store_contract!(MemorySessions::new);
 /// ```
-macro_rules! store_contract {
+macro_rules! session_store_contract {
     ($make:expr) => {
-        $crate::storage::sessions::contract::store_contract!(@each $make;
+        $crate::storage::sessions::contract::session_store_contract!(@each $make;
             check_start_then_running,
             check_start_stops_previous,
             check_start_same_task_is_noop,
@@ -106,7 +106,7 @@ macro_rules! store_contract {
         )*
     };
 }
-pub(crate) use store_contract;
+pub(crate) use session_store_contract;
 
 // --------------- start / stop ---------------
 

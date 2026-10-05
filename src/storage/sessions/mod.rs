@@ -92,13 +92,15 @@ mod tests {
     mod memory {
         use super::*;
 
-        contract::store_contract!(|clock: Clock| Sessions::Memory(MemorySessions::new(clock)));
+        contract::session_store_contract!(|clock: Clock| Sessions::Memory(MemorySessions::new(
+            clock
+        )));
     }
 
     mod sqlite_in_memory {
         use super::*;
 
-        contract::store_contract!(|clock: Clock| {
+        contract::session_store_contract!(|clock: Clock| {
             Sessions::Sqlite(SqliteSessions::new(
                 sqlite::open_in_memory().unwrap(),
                 clock,
