@@ -13,6 +13,7 @@ needs before it goes in, and how the code is laid out.
 cargo test                          # everything
 cargo test --lib                    # unit tests only (fast)
 cargo test --test example_nvim_tmux # one integration test file
+scripts/test-linux.sh               # clippy + tests on Linux (Docker)
 scripts/seed-testdata.sh            # throwaway data in /tmp/udo-test
 UDO_ROOT=/tmp/udo-test cargo run    # the TUI on it
 ```
@@ -46,6 +47,9 @@ A change that cannot be additive needs an issue first.
 - `cargo fmt` (default rustfmt settings)
 - `cargo clippy --all-targets` without warnings
 - `cargo test` green
+- on macOS: `scripts/test-linux.sh` green too. CI tests on Linux as well,
+  and some failures only show there (e.g. "Text file busy" when running a
+  just-written script). Needs Docker; arguments go to `cargo test`
 - new behaviour has a test; a fixed bug has a test that failed before
 - scripts in `examples/run/` pass `shellcheck` (checked by
   `tests/example_lint.rs`), and each has its Python twin in
