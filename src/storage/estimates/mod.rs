@@ -23,7 +23,7 @@ pub enum Estimates {
 }
 
 impl EstimateStore for Estimates {
-    async fn record(&self, row: NewEstimate) -> Result<Recorded, EstimateError> {
+    async fn record(&self, row: NewEstimate) -> Result<Option<Recorded>, EstimateError> {
         dispatch!(self, e => e.record(row))
     }
 

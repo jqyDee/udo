@@ -66,6 +66,13 @@ impl NewEstimate {
             reason,
         }
     }
+
+    /// Would this row repeat `last`: same minutes, same method? Then it says
+    /// nothing new (the reason alone does not count: a task started with
+    /// the estimate it was created with gets no second row).
+    pub fn repeats(&self, last: &NewEstimate) -> bool {
+        self.minutes == last.minutes && self.method == last.method
+    }
 }
 
 /// A stored row.
@@ -92,9 +99,12 @@ impl fmt::Display for EstimateError {
 
 #[allow(async_fn_in_trait)]
 pub trait EstimateStore {
-    /// Append `row`, timed by the store's clock.
-    async fn record(&self, row: NewEstimate) -> Result<Recorded, EstimateError>;
-    /// The task's latest row (`Core` skips a row that would repeat it).
+    /// Append `row`, timed by the store's clock, unless it repeats the
+    /// task's latest row (`repeats`): `None`, nothing written. Check and
+    /// write are one step, also across processes, so two at once write it
+    /// once.
+    async fn record(&self, row: NewEstimate) -> Result<Option<Recorded>, EstimateError>;
+    /// The task's latest row (#9: what udo estimated last).
     async fn last_of(&self, task: NodeId) -> Result<Option<Recorded>, EstimateError>;
     /// The rows of `tasks`, oldest first (#9, #12).
     async fn of_tasks(&self, tasks: &[NodeId]) -> Result<Vec<Recorded>, EstimateError>;

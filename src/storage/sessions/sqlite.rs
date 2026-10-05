@@ -4,7 +4,7 @@ use std::{
 };
 
 use rusqlite::{
-    Connection, ErrorCode, OptionalExtension, Row, ToSql, Transaction, TransactionBehavior, params,
+    Connection, ErrorCode, OptionalExtension, Row, ToSql, Transaction, params,
     params_from_iter,
 };
 use uuid::Uuid;
@@ -20,6 +20,7 @@ use crate::{
     storage::{
         edit_kind::EditKind,
         sessions::rules::{Cut, Split, check_span, may_stop, plan_cut, plan_edit, plan_split},
+        sqlite::write_tx,
         time::{opt_time_from_row, time_from_row, time_to_sql, to_ms},
     },
 };
@@ -160,12 +161,6 @@ fn running(tx: &Transaction) -> rusqlite::Result<Option<Session>> {
         session_from_row,
     )
     .optional()
-}
-
-/// A transaction that takes the write lock right away (`BEGIN IMMEDIATE`):
-/// checks and changes happen as one step, no other process in between.
-fn write_tx(conn: &mut Connection) -> rusqlite::Result<Transaction<'_>> {
-    conn.transaction_with_behavior(TransactionBehavior::Immediate)
 }
 
 /// Store a new session row. (`edited_at` is not a column: it comes from

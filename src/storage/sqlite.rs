@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rusqlite::{Connection, ErrorCode, TransactionBehavior};
+use rusqlite::{Connection, ErrorCode, Transaction, TransactionBehavior};
 
 use crate::Res;
 
@@ -79,6 +79,12 @@ fn setup(conn: &mut Connection) -> Res<()> {
     tx.pragma_update(None, "user_version", MIGRATIONS.len() as u32)?;
     tx.commit()?;
     Ok(())
+}
+
+/// A transaction that takes the write lock right away (`BEGIN IMMEDIATE`):
+/// checks and changes happen as one step, no other process in between.
+pub(super) fn write_tx(conn: &mut Connection) -> rusqlite::Result<Transaction<'_>> {
+    conn.transaction_with_behavior(TransactionBehavior::Immediate)
 }
 
 #[cfg(test)]

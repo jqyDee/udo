@@ -95,7 +95,12 @@ mod tests {
                 .add(task.clone(), at(9, 0), at(10, 0))
                 .await
                 .unwrap();
-            storage.estimates.record(estimate.clone()).await.unwrap();
+            storage
+                .estimates
+                .record(estimate.clone())
+                .await
+                .unwrap()
+                .unwrap();
         } // both connections closed
 
         let reopened = Storage::open_db(dir.path()).unwrap();

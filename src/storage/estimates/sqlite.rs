@@ -11,11 +11,15 @@ use crate::{
         id::NodeId,
         time::{Clock, Minutes, Time},
     },
-    storage::time::{time_from_row, time_to_sql, to_ms},
+    storage::{
+        sqlite::write_tx,
+        time::{time_from_row, time_to_sql, to_ms},
+    },
 };
 
-/// The estimate history in `udo.db`. Append-only: rows are inserted, never
-/// updated or deleted. Its own connection, beside the sessions' one (WAL).
+/// The estimate history in `udo.db`. Append-only: rows are inserted (a
+/// repeat skipped), never updated or deleted. Its own connection, beside
+/// the sessions' one (WAL).
 pub struct SqliteEstimates {
     conn: Arc<Mutex<Connection>>,
     /// Times every row (`at`); a fixed one in tests.
@@ -33,49 +37,45 @@ impl SqliteEstimates {
     }
 
     /// Run `f` on the connection in a thread where blocking is fine, with
-    /// "now" from the clock (rounded like everything stored). One statement
-    /// per method: no transaction needed, each is atomic on its own.
+    /// "now" from the clock (rounded like everything stored). `&mut`: a
+    /// transaction needs it (`record`); the reads are one statement each,
+    /// atomic without.
     async fn run<T, F>(&self, f: F) -> Result<T, EstimateError>
     where
         T: Send + 'static,
-        F: FnOnce(&Connection, Time) -> Result<T, EstimateError> + Send + 'static,
+        F: FnOnce(&mut Connection, Time) -> Result<T, EstimateError> + Send + 'static,
     {
         let conn = Arc::clone(&self.conn);
         let now = to_ms((self.clock)());
-        tokio::task::spawn_blocking(move || f(&conn.lock().unwrap(), now))
+        tokio::task::spawn_blocking(move || f(&mut conn.lock().unwrap(), now))
             .await
             .map_err(|e| EstimateError::Backend(e.to_string()))?
     }
 }
 
 impl EstimateStore for SqliteEstimates {
-    async fn record(&self, row: NewEstimate) -> Result<Recorded, EstimateError> {
+    async fn record(&self, row: NewEstimate) -> Result<Option<Recorded>, EstimateError> {
         self.run(move |conn, now| {
+            // write lock first (`BEGIN IMMEDIATE`): another process cannot
+            // write between our check and our insert
+            let tx = write_tx(conn)?;
+            if latest(&tx, row.task)?.is_some_and(|last| row.repeats(&last.estimate)) {
+                return Ok(None); // `tx` dropped: rolled back, nothing was written
+            }
             let recorded = Recorded {
                 id: Uuid::now_v7(),
                 estimate: row,
                 at: now,
             };
-            insert(conn, &recorded)?;
-            Ok(recorded)
+            insert(&tx, &recorded)?;
+            tx.commit()?;
+            Ok(Some(recorded))
         })
         .await
     }
 
     async fn last_of(&self, task: NodeId) -> Result<Option<Recorded>, EstimateError> {
-        self.run(move |conn, _| {
-            // `id` second: rows of one millisecond still have one "latest"
-            let found = conn
-                .query_row(
-                    "SELECT * FROM estimates WHERE task_id = ?1
-                     ORDER BY at DESC, id DESC LIMIT 1",
-                    [task],
-                    recorded_from_row,
-                )
-                .optional()?;
-            Ok(found)
-        })
-        .await
+        self.run(move |conn, _| Ok(latest(conn, task)?)).await
     }
 
     async fn of_tasks(&self, tasks: &[NodeId]) -> Result<Vec<Recorded>, EstimateError> {
@@ -96,6 +96,17 @@ impl EstimateStore for SqliteEstimates {
         })
         .await
     }
+}
+
+/// The latest row of `task` (`id` second: rows of one millisecond still
+/// have one "latest").
+fn latest(conn: &Connection, task: NodeId) -> rusqlite::Result<Option<Recorded>> {
+    conn.query_row(
+        "SELECT * FROM estimates WHERE task_id = ?1 ORDER BY at DESC, id DESC LIMIT 1",
+        [task],
+        recorded_from_row,
+    )
+    .optional()
 }
 
 /// Store a new row.
@@ -185,6 +196,30 @@ mod tests {
         }
     }
 
+    /// Two processes (a tmux hook and the TUI) start the same task at once:
+    /// both see "first session", both want the same `started` row. One
+    /// writes it, the other sees it and skips. Were check and write two
+    /// steps, both could write.
+    #[tokio::test]
+    async fn the_same_row_at_once_is_written_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("udo.db");
+        let hook = SqliteEstimates::new(sqlite::open(&path).unwrap(), || at(20, 0));
+        let tui = SqliteEstimates::new(sqlite::open(&path).unwrap(), || at(20, 0));
+
+        // many rounds: the race is short, each round is one more chance
+        for round in 0..100 {
+            let task = NodeId::new();
+
+            let (a, b) = tokio::join!(hook.record(row(task)), tui.record(row(task)),);
+
+            let written = [a.unwrap(), b.unwrap()].iter().flatten().count();
+            assert_eq!(written, 1, "round {round}");
+            let stored = hook.of_tasks(&[task]).await.unwrap();
+            assert_eq!(stored.len(), 1, "round {round}");
+        }
+    }
+
     /// The written row survives closing and reopening the file, time
     /// offset included; the reopened store's own clock does not touch it.
     #[tokio::test]
@@ -196,7 +231,7 @@ mod tests {
             let s = SqliteEstimates::new(sqlite::open(&path).unwrap(), || {
                 parse_time("2026-10-15T08:30:00-04:00") // another offset than `at`
             });
-            s.record(row(task)).await.unwrap()
+            s.record(row(task)).await.unwrap().unwrap()
         }; // dropped: connection closed
 
         let reopened = SqliteEstimates::new(sqlite::open(&path).unwrap(), || at(21, 0));
@@ -213,7 +248,7 @@ mod tests {
     async fn rows_are_stored_as_readable_text_and_numbers() {
         let s = store();
         let task = NodeId::new();
-        let written = s.record(row(task)).await.unwrap();
+        let written = s.record(row(task)).await.unwrap().unwrap();
 
         let conn = s.conn.lock().unwrap();
         let stored: (String, String, u32, String, String, Option<u32>, i64) = conn
@@ -260,7 +295,7 @@ mod tests {
             ("prior_minutes", "-5"), // does not fit `u32`
         ] {
             let s = store();
-            s.record(row(NodeId::new())).await.unwrap();
+            s.record(row(NodeId::new())).await.unwrap().unwrap();
             let conn = s.conn.lock().unwrap();
             conn.execute(&format!("UPDATE estimates SET {column} = {value}"), [])
                 .unwrap();

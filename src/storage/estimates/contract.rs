@@ -1,7 +1,7 @@
 //! The rules every `EstimateStore` must keep, checked against each backend
-//! (`estimate_store_contract!`): append-only, timed by the store's clock,
-//! `last_of` the latest row of a task, `of_tasks` filtered and oldest first,
-//! every field back as written.
+//! (`estimate_store_contract!`): append-only, a repeat of the task's latest
+//! row skipped, timed by the store's clock, `last_of` the latest row of a
+//! task, `of_tasks` filtered and oldest first, every field back as written.
 
 use std::{
     cell::Cell,
@@ -66,20 +66,31 @@ fn row(task: NodeId, minutes: u32) -> NewEstimate {
     }
 }
 
+/// `record` a row that must be written (not a repeat): the stored row.
+async fn write(s: &impl EstimateStore, row: NewEstimate) -> Recorded {
+    s.record(row)
+        .await
+        .unwrap()
+        .expect("written, not skipped as a repeat")
+}
+
 /// The rules every EstimateStore must keep, one `#[tokio::test]` per check,
 /// so a failing check does not hide the others. `$make` takes a `Clock` and
 /// gives a fresh, empty store using it (most checks with `ticking`, the
 /// one about equal times with `standing`, the one about the DST switch with
-/// `switching`). Use inside a backend's test module:
+/// `switching`). Use inside a test module, on the `Estimates` enum:
 ///
 /// ```ignore
-/// super::contract::estimate_store_contract!(MemoryEstimates::new);
+/// contract::estimate_store_contract!(|clock: Clock| Estimates::Memory(MemoryEstimates::new(clock)));
 /// ```
 macro_rules! estimate_store_contract {
     ($make:expr) => {
         $crate::storage::estimates::contract::estimate_store_contract!(@each $make, ticking;
             check_record_gives_an_id_and_the_clocks_time,
-            check_record_appends_never_replaces,
+            check_record_skips_a_repeat,
+            check_record_ignores_the_reason,
+            check_record_writes_a_change,
+            check_record_compares_with_the_latest_only,
             check_last_of_is_the_latest_row,
             check_last_of_ignores_other_tasks,
             check_last_of_without_rows_is_none,
@@ -115,10 +126,11 @@ pub(super) use estimate_store_contract;
 /// time (not one passed in: rows are bookkeeping, like `created_at`).
 pub(super) async fn check_record_gives_an_id_and_the_clocks_time(s: impl EstimateStore) {
     let before = ticking();
-    let a = row(NodeId::new(), 185);
+    let task = NodeId::new();
+    let a = row(task, 180);
 
-    let first = s.record(a.clone()).await.unwrap();
-    let second = s.record(a.clone()).await.unwrap();
+    let first = write(&s, a.clone()).await;
+    let second = write(&s, row(task, 185)).await;
 
     assert_eq!(first.estimate, a);
     assert_ne!(first.id, second.id);
@@ -126,23 +138,70 @@ pub(super) async fn check_record_gives_an_id_and_the_clocks_time(s: impl Estimat
     assert!(second.at > first.at);
 }
 
-/// The same row twice is two rows: append-only, nothing is merged or
-/// replaced (deduplicating is `Core`'s rule, not the store's).
-pub(super) async fn check_record_appends_never_replaces(s: impl EstimateStore) {
+/// The same minutes and method again: skipped, nothing written.
+pub(super) async fn check_record_skips_a_repeat(s: impl EstimateStore) {
     let task = NodeId::new();
+    let first = write(&s, row(task, 185)).await;
 
-    s.record(row(task, 185)).await.unwrap();
-    s.record(row(task, 185)).await.unwrap();
+    let again = s.record(row(task, 185)).await.unwrap();
 
-    assert_eq!(s.of_tasks(&[task]).await.unwrap().len(), 2);
+    assert_eq!(again, None);
+    assert_eq!(s.of_tasks(&[task]).await.unwrap(), vec![first]);
+}
+
+/// A task started with the estimate it was created with: the `started`
+/// row would only repeat the `created` one, so it is skipped.
+pub(super) async fn check_record_ignores_the_reason(s: impl EstimateStore) {
+    let task = NodeId::new();
+    let created = NewEstimate {
+        reason: Reason::Created,
+        ..row(task, 185)
+    };
+    write(&s, created).await;
+
+    let started = s.record(row(task, 185)).await.unwrap();
+
+    assert_eq!(started, None);
+}
+
+/// Other minutes or another method is something new: written, appended
+/// beside the earlier rows (nothing is merged or replaced).
+pub(super) async fn check_record_writes_a_change(s: impl EstimateStore) {
+    let task = NodeId::new();
+    write(&s, row(task, 180)).await;
+
+    let minutes = s.record(row(task, 185)).await.unwrap();
+    let method = NewEstimate {
+        method: "prior".into(),
+        ..row(task, 185)
+    };
+    let method = s.record(method).await.unwrap();
+
+    assert!(minutes.is_some());
+    assert!(method.is_some());
+    assert_eq!(s.of_tasks(&[task]).await.unwrap().len(), 3);
+}
+
+/// Only the task's latest row counts: back to an older value is a change,
+/// and another task's row does not stop a task's first one.
+pub(super) async fn check_record_compares_with_the_latest_only(s: impl EstimateStore) {
+    let (a, b) = (NodeId::new(), NodeId::new());
+    write(&s, row(a, 180)).await;
+    write(&s, row(a, 185)).await;
+
+    let back = s.record(row(a, 180)).await.unwrap();
+    let other = s.record(row(b, 180)).await.unwrap();
+
+    assert!(back.is_some(), "180 repeats an older row, not the latest");
+    assert!(other.is_some(), "a's rows do not count for b");
 }
 
 // --------------- last_of ---------------
 
 pub(super) async fn check_last_of_is_the_latest_row(s: impl EstimateStore) {
     let task = NodeId::new();
-    s.record(row(task, 180)).await.unwrap();
-    let latest = s.record(row(task, 185)).await.unwrap();
+    write(&s, row(task, 180)).await;
+    let latest = write(&s, row(task, 185)).await;
 
     assert_eq!(s.last_of(task).await.unwrap(), Some(latest));
 }
@@ -150,14 +209,14 @@ pub(super) async fn check_last_of_is_the_latest_row(s: impl EstimateStore) {
 /// A later row of another task does not count.
 pub(super) async fn check_last_of_ignores_other_tasks(s: impl EstimateStore) {
     let (a, b) = (NodeId::new(), NodeId::new());
-    let of_a = s.record(row(a, 180)).await.unwrap();
-    s.record(row(b, 60)).await.unwrap();
+    let of_a = write(&s, row(a, 180)).await;
+    write(&s, row(b, 60)).await;
 
     assert_eq!(s.last_of(a).await.unwrap(), Some(of_a));
 }
 
 pub(super) async fn check_last_of_without_rows_is_none(s: impl EstimateStore) {
-    s.record(row(NodeId::new(), 180)).await.unwrap(); // another task's
+    write(&s, row(NodeId::new(), 180)).await; // another task's
 
     assert_eq!(s.last_of(NodeId::new()).await.unwrap(), None);
 }
@@ -167,10 +226,10 @@ pub(super) async fn check_last_of_without_rows_is_none(s: impl EstimateStore) {
 /// Only the asked tasks, oldest first, whatever order they are asked in.
 pub(super) async fn check_of_tasks_filters_and_sorts_oldest_first(s: impl EstimateStore) {
     let (a, b, c) = (NodeId::new(), NodeId::new(), NodeId::new());
-    let a1 = s.record(row(a, 180)).await.unwrap();
-    s.record(row(b, 60)).await.unwrap();
-    let c1 = s.record(row(c, 90)).await.unwrap();
-    let a2 = s.record(row(a, 185)).await.unwrap();
+    let a1 = write(&s, row(a, 180)).await;
+    write(&s, row(b, 60)).await;
+    let c1 = write(&s, row(c, 90)).await;
+    let a2 = write(&s, row(a, 185)).await;
 
     let rows = s.of_tasks(&[c, a]).await.unwrap();
 
@@ -181,9 +240,9 @@ pub(super) async fn check_of_tasks_filters_and_sorts_oldest_first(s: impl Estima
 /// queries per task and merges would repeat them).
 pub(super) async fn check_of_tasks_asked_twice_gives_each_row_once(s: impl EstimateStore) {
     let (a, b) = (NodeId::new(), NodeId::new());
-    let a1 = s.record(row(a, 180)).await.unwrap();
-    let b1 = s.record(row(b, 60)).await.unwrap();
-    let a2 = s.record(row(a, 185)).await.unwrap();
+    let a1 = write(&s, row(a, 180)).await;
+    let b1 = write(&s, row(b, 60)).await;
+    let a2 = write(&s, row(a, 185)).await;
 
     let rows = s.of_tasks(&[a, b, a]).await.unwrap();
 
@@ -198,8 +257,8 @@ pub(super) async fn check_of_tasks_asked_twice_gives_each_row_once(s: impl Estim
 /// up to the ids; the rule is that both methods agree with it.
 pub(super) async fn check_equal_times_order_by_id(s: impl EstimateStore) {
     let task = NodeId::new();
-    let one = s.record(row(task, 180)).await.unwrap();
-    let two = s.record(row(task, 185)).await.unwrap();
+    let one = write(&s, row(task, 180)).await;
+    let two = write(&s, row(task, 185)).await;
     assert_eq!(one.at, two.at, "the standing clock gives one time");
     let (first, latest) = if one.id < two.id {
         (one, two)
@@ -217,8 +276,8 @@ pub(super) async fn check_equal_times_order_by_id(s: impl EstimateStore) {
 /// (or by a formatted string) would pick the wrong "latest".
 pub(super) async fn check_order_follows_the_instant_not_the_wall_clock(s: impl EstimateStore) {
     let task = NodeId::new();
-    let summer = s.record(row(task, 180)).await.unwrap();
-    let winter = s.record(row(task, 185)).await.unwrap();
+    let summer = write(&s, row(task, 180)).await;
+    let winter = write(&s, row(task, 185)).await;
     assert!(
         winter.at > summer.at && winter.at.naive_local() < summer.at.naive_local(),
         "the switching clock gives a later instant at an earlier wall time"
@@ -229,7 +288,7 @@ pub(super) async fn check_order_follows_the_instant_not_the_wall_clock(s: impl E
 }
 
 pub(super) async fn check_of_no_tasks_is_empty(s: impl EstimateStore) {
-    s.record(row(NodeId::new(), 180)).await.unwrap();
+    write(&s, row(NodeId::new(), 180)).await;
 
     assert_eq!(s.of_tasks(&[]).await.unwrap(), Vec::<Recorded>::new());
 }
@@ -262,8 +321,8 @@ pub(super) async fn check_rows_keep_every_field(s: impl EstimateStore) {
         reason: Reason::Started,
     };
 
-    let first = s.record(from_prior).await.unwrap();
-    let second = s.record(learned_without_prior).await.unwrap();
+    let first = write(&s, from_prior).await;
+    let second = write(&s, learned_without_prior).await;
 
     assert_eq!(
         s.of_tasks(&[task]).await.unwrap(),
