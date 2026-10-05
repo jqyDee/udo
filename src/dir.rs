@@ -54,6 +54,34 @@ pub fn root_dir_from(env: Option<OsString>) -> Res<PathBuf> {
     Ok(base_dirs.home_dir().join(".config").join("udo"))
 }
 
+/// Is `root` the dir `real`, however spelled: the same path, or the same
+/// directory on disk (a symlink, `..`, another case on a case-insensitive
+/// disk). For the debug build's guard against the real data (`main.rs`).
+/// A `real` that does not exist yet is only caught by its plain path.
+pub fn is_same_root(root: &Path, real: &Path) -> bool {
+    root == real || same_dir(root, real)
+}
+
+/// Do both paths lead to one directory (device and inode)? A path that
+/// does not exist, or cannot be read, is no directory: false.
+#[cfg(unix)]
+fn same_dir(a: &Path, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (std::fs::metadata(a), std::fs::metadata(b)) {
+        (Ok(a), Ok(b)) => (a.dev(), a.ino()) == (b.dev(), b.ino()),
+        _ => false,
+    }
+}
+
+/// Elsewhere no inodes: both paths resolved, if they exist.
+#[cfg(not(unix))]
+fn same_dir(a: &Path, b: &Path) -> bool {
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
 /// Where a new node's folder goes by default: `<parent_dir>/<folder name>`.
 /// None if nothing usable is left of the name.
 pub fn default_dir(parent_dir: &Path, name: &str) -> Option<PathBuf> {
@@ -120,5 +148,45 @@ mod tests {
     #[test]
     fn default_dir_of_a_blank_name_is_none() {
         assert_eq!(default_dir(Path::new("/uni"), "   "), None);
+    }
+
+    // ---------- is_same_root ----------
+
+    #[test]
+    fn the_real_root_is_caught_however_spelled() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real = tmp.path().join("udo");
+        std::fs::create_dir_all(real.join("sub")).unwrap();
+        let link = tmp.path().join("link");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        assert!(is_same_root(&real, &real));
+        assert!(is_same_root(&real.join("sub").join(".."), &real));
+        #[cfg(unix)]
+        assert!(is_same_root(&link, &real));
+    }
+
+    #[test]
+    fn another_root_passes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (real, dev) = (tmp.path().join("udo"), tmp.path().join("dev"));
+        std::fs::create_dir_all(real.join("sub")).unwrap();
+        std::fs::create_dir_all(&dev).unwrap();
+
+        assert!(!is_same_root(&dev, &real));
+        assert!(!is_same_root(&real.join("sub"), &real)); // inside it: not the root
+        assert!(!is_same_root(&tmp.path().join("missing"), &real));
+    }
+
+    /// No real root yet: only its plain path is caught (nothing to protect
+    /// there, but a dev build must not create it).
+    #[test]
+    fn a_missing_real_root_is_caught_by_its_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real = tmp.path().join("udo");
+
+        assert!(is_same_root(&real, &real));
+        assert!(!is_same_root(&tmp.path().join("other"), &real));
     }
 }

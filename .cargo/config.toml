@@ -1,0 +1,6 @@
+# `cargo run` never touches the real data (~/.config/udo): the dev root is
+# the throwaway dataset of `scripts/seed-testdata.sh`. Not forced, so
+# `UDO_ROOT=/tmp/other cargo run` still works; the real root is refused by
+# debug builds anyway (`main.rs`).
+[env]
+UDO_ROOT = "/tmp/udo-test"
