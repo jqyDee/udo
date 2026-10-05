@@ -4,8 +4,7 @@ use std::{
 };
 
 use rusqlite::{
-    Connection, ErrorCode, OptionalExtension, Row, ToSql, Transaction, params,
-    params_from_iter,
+    Connection, ErrorCode, OptionalExtension, Row, ToSql, Transaction, params, params_from_iter,
 };
 use uuid::Uuid;
 

@@ -27,6 +27,26 @@ async fn new_reads_back_the_tree_it_was_given() {
     assert_eq!(core.sessions().running().await.unwrap(), None);
 }
 
+// ---------- warnings ----------
+
+#[tokio::test]
+async fn warnings_are_taken_once_oldest_first() {
+    let (_tmp, core) = core().await;
+    assert!(core.take_warnings().is_empty()); // a fresh Core has none
+
+    core.warn("estimate not recorded: disk full");
+    core.warn(format!("estimate not recorded: {}", "locked"));
+
+    assert_eq!(
+        core.take_warnings(),
+        vec![
+            "estimate not recorded: disk full",
+            "estimate not recorded: locked"
+        ]
+    );
+    assert!(core.take_warnings().is_empty()); // taken: gone
+}
+
 // ---------- sessions_of (core: root: [a, ws: [b]]) ----------
 
 /// Task names of `sessions_of(path)`, in its order.
