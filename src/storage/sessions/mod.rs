@@ -9,12 +9,15 @@ pub mod sqlite;
 use memory::MemorySessions;
 use sqlite::SqliteSessions;
 
-use crate::model::{
-    sessions::{
-        Owner, Session, SessionError, SessionId, SessionPatch, SessionQuery, SessionSource,
-        SessionStore, TaskRef,
+use crate::{
+    model::{
+        sessions::{
+            Owner, Session, SessionError, SessionId, SessionPatch, SessionQuery, SessionSource,
+            SessionStore, TaskRef,
+        },
+        time::Time,
     },
-    time::Time,
+    storage::dispatch::dispatch,
 };
 
 /// The configured session backend. `SessionStore` has `async fn`s, so it is
@@ -23,16 +26,6 @@ use crate::model::{
 pub enum Sessions {
     Memory(MemorySessions),
     Sqlite(SqliteSessions),
-}
-
-/// Run the same call on whichever backend `self` is.
-macro_rules! dispatch {
-    ($self:ident, $s:ident => $call:expr) => {
-        match $self {
-            Self::Memory($s) => $call.await,
-            Self::Sqlite($s) => $call.await,
-        }
-    };
 }
 
 impl SessionStore for Sessions {

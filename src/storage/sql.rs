@@ -99,6 +99,16 @@ mod tests {
     }
 
     #[test]
+    fn reason_round_trips_as_its_name() {
+        assert_eq!(round_trip(Reason::Created), Reason::Created);
+        assert_eq!(round_trip(Reason::Started), Reason::Started);
+        assert_eq!(sql_type(Reason::Created), "text");
+        // the names in `002_estimates.sql`: stored rows depend on them
+        assert_eq!(read::<Reason>("'created'").unwrap(), Reason::Created);
+        assert_eq!(read::<Reason>("'started'").unwrap(), Reason::Started);
+    }
+
+    #[test]
     fn unreadable_values_are_errors() {
         assert!(read::<SessionId>("'not a uuid'").is_err());
         assert!(read::<NodeId>("''").is_err());
@@ -106,5 +116,6 @@ mod tests {
         assert!(read::<SessionSource>("'Emacs'").is_err());
         assert!(read::<EditKind>("'spilt'").is_err());
         assert!(read::<Owner>("'a b'").is_err());
+        assert!(read::<Reason>("'Created'").is_err()); // names are lowercase
     }
 }

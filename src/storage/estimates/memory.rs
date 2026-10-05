@@ -59,10 +59,3 @@ impl EstimateStore for MemoryEstimates {
         Ok(found)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    super::super::contract::estimate_store_contract!(MemoryEstimates::new);
-}

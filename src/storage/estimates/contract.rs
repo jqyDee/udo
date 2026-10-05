@@ -3,9 +3,12 @@
 //! `last_of` the latest row of a task, `of_tasks` filtered and oldest first,
 //! every field back as written.
 
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::{
+    cell::Cell,
+    sync::atomic::{AtomicI64, Ordering},
+};
 
-use chrono::TimeDelta;
+use chrono::{FixedOffset, TimeDelta};
 
 use crate::{
     model::{
@@ -13,7 +16,7 @@ use crate::{
         id::NodeId,
         time::{Minutes, Time},
     },
-    test_util::at,
+    test_util::{at, parse_time},
 };
 
 /// The stores' clock in the contract: 20:00, one second later on every
@@ -29,6 +32,23 @@ pub(super) fn ticking() -> Time {
 /// written within one millisecond do (a task created and started at once).
 pub(super) fn standing() -> Time {
     at(20, 0)
+}
+
+/// A clock over the autumn DST switch (2026-10-25, Vienna): 40 minutes
+/// later on every call, alternately in summer (+02:00) and winter time
+/// (+01:00), so every second call is earlier on the wall clock than the one
+/// before (02:30+02:00, then 02:10+01:00). Counts per thread, not shared
+/// like `ticking`: the alternation must not interleave with another test
+/// (each `#[tokio::test]` runs on its own thread, and the stores read the
+/// clock there, before any `spawn_blocking`).
+pub(super) fn switching() -> Time {
+    thread_local! {
+        static CALLS: Cell<i32> = const { Cell::new(0) };
+    }
+    let n = CALLS.with(|c| c.replace(c.get() + 1));
+    let utc = parse_time("2026-10-25T00:30:00+00:00") + TimeDelta::minutes(40 * i64::from(n));
+    let hours = if n % 2 == 0 { 2 } else { 1 };
+    utc.with_timezone(&FixedOffset::east_opt(hours * 3600).unwrap())
 }
 
 /// A learned estimate of `task`: `minutes`, 1 done task, prior 1h30,
@@ -49,8 +69,8 @@ fn row(task: NodeId, minutes: u32) -> NewEstimate {
 /// The rules every EstimateStore must keep, one `#[tokio::test]` per check,
 /// so a failing check does not hide the others. `$make` takes a `Clock` and
 /// gives a fresh, empty store using it (most checks with `ticking`, the
-/// one about equal times with `standing`). Use inside a backend's test
-/// module:
+/// one about equal times with `standing`, the one about the DST switch with
+/// `switching`). Use inside a backend's test module:
 ///
 /// ```ignore
 /// super::contract::estimate_store_contract!(MemoryEstimates::new);
@@ -71,6 +91,9 @@ macro_rules! estimate_store_contract {
         $crate::storage::estimates::contract::estimate_store_contract!(@each $make, standing;
             check_equal_times_order_by_id,
         );
+        $crate::storage::estimates::contract::estimate_store_contract!(@each $make, switching;
+            check_order_follows_the_instant_not_the_wall_clock,
+        );
     };
     (@each $make:expr, $clock:ident; $($check:ident),* $(,)?) => {
         $(
@@ -84,7 +107,7 @@ macro_rules! estimate_store_contract {
         )*
     };
 }
-pub(crate) use estimate_store_contract;
+pub(super) use estimate_store_contract;
 
 // --------------- record ---------------
 
@@ -186,6 +209,23 @@ pub(super) async fn check_equal_times_order_by_id(s: impl EstimateStore) {
 
     assert_eq!(s.last_of(task).await.unwrap(), Some(latest.clone()));
     assert_eq!(s.of_tasks(&[task]).await.unwrap(), vec![first, latest]);
+}
+
+/// Across the DST switch the wall clock goes back (02:30, then 02:10 an
+/// hour-offset later), real time goes on: the later row is the later one
+/// by instant, in `last_of` and `of_tasks` alike. Sorting by local time
+/// (or by a formatted string) would pick the wrong "latest".
+pub(super) async fn check_order_follows_the_instant_not_the_wall_clock(s: impl EstimateStore) {
+    let task = NodeId::new();
+    let summer = s.record(row(task, 180)).await.unwrap();
+    let winter = s.record(row(task, 185)).await.unwrap();
+    assert!(
+        winter.at > summer.at && winter.at.naive_local() < summer.at.naive_local(),
+        "the switching clock gives a later instant at an earlier wall time"
+    );
+
+    assert_eq!(s.last_of(task).await.unwrap(), Some(winter.clone()));
+    assert_eq!(s.of_tasks(&[task]).await.unwrap(), vec![summer, winter]);
 }
 
 pub(super) async fn check_of_no_tasks_is_empty(s: impl EstimateStore) {

@@ -106,7 +106,7 @@ macro_rules! session_store_contract {
         )*
     };
 }
-pub(crate) use session_store_contract;
+pub(super) use session_store_contract;
 
 // --------------- start / stop ---------------
 
