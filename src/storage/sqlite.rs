@@ -16,7 +16,10 @@ pub const DB_FILE_NAME: &str = "udo.db";
 
 /// Schema changes, in order. Never edit one that has shipped; append.
 /// `PRAGMA user_version` counts how many have run.
-const MIGRATIONS: &[&str] = &[include_str!("sqlite_migrations/001_sessions.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("sqlite_migrations/001_sessions.sql"),
+    include_str!("sqlite_migrations/002_estimates.sql"),
+];
 const BUSY_TIMEOUT_SECS: u64 = 5;
 
 /// Open (or create) the database file, set it up, migrate.
@@ -203,5 +206,55 @@ mod tests {
         running("s1").unwrap();
 
         assert!(running("s2").is_err()); // the `one_running` index
+    }
+
+    /// A `udo.db` from 0.1.x (only migration 001) opens with the newer udo:
+    /// the estimates table is added, the recorded sessions stay.
+    #[test]
+    fn an_old_database_is_upgraded_and_keeps_its_sessions() {
+        let (_dir, path) = db_path();
+        {
+            // what 0.1.x left behind: migration 001 only, user_version 1
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(MIGRATIONS[0]).unwrap();
+            conn.pragma_update(None, "user_version", 1).unwrap();
+            conn.execute(
+                "INSERT INTO sessions VALUES
+                 ('s1', 't1', 'lab 3', '', 'c1', '/uni', 0, 120, NULL, NULL, 'manual', 'manual', 0, 120, NULL, NULL)",
+                (),
+            )
+            .unwrap();
+        }
+
+        let conn = open(&path).unwrap();
+
+        assert_eq!(user_version(&conn), MIGRATIONS.len());
+        let sessions: u32 = conn
+            .query_row("SELECT count(*) FROM sessions", (), |r| r.get(0))
+            .unwrap();
+        assert_eq!(sessions, 1);
+        let estimates: u32 = conn
+            .query_row("SELECT count(*) FROM estimates", (), |r| r.get(0))
+            .unwrap();
+        assert_eq!(estimates, 0); // the table exists, empty
+    }
+
+    #[test]
+    fn estimates_take_a_full_row() {
+        let conn = open_in_memory().unwrap();
+
+        conn.execute(
+            "INSERT INTO estimates VALUES
+             ('e1', 't1', 185, 'average', 1, 0, 1, 180, 'started', 0, 120)",
+            (),
+        )
+        .unwrap();
+        // NOT NULL holds: a row without counts is refused
+        let missing = conn.execute(
+            "INSERT INTO estimates (id, task_id, minutes, method, version, reason, at, at_offset)
+             VALUES ('e2', 't1', 185, 'average', 1, 'started', 0, 120)",
+            (),
+        );
+        assert!(missing.is_err());
     }
 }
