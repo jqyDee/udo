@@ -14,12 +14,17 @@ use crate::{
     storage::time::{time_from_row, time_to_sql, to_ms},
 };
 
+/// The estimate history in `udo.db`. Append-only: rows are inserted, never
+/// updated or deleted. Its own connection, beside the sessions' one (WAL).
 pub struct SqliteEstimates {
     conn: Arc<Mutex<Connection>>,
+    /// Times every row (`at`); a fixed one in tests.
     clock: Clock,
 }
 
 impl SqliteEstimates {
+    /// A store on `conn`, already migrated (`sqlite::open` or
+    /// `sqlite::open_in_memory`), timing rows by `clock`.
     pub fn new(conn: Connection, clock: Clock) -> Self {
         Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -132,7 +137,9 @@ fn recorded_from_row(row: &Row) -> rusqlite::Result<Recorded> {
             version: row.get("version")?,
             done_tasks: count(row, "done_tasks")?,
             open_tasks: count(row, "open_tasks")?,
-            prior: row.get::<_, Option<u32>>("prior_minutes")?.map(Minutes::new),
+            prior: row
+                .get::<_, Option<u32>>("prior_minutes")?
+                .map(Minutes::new),
             reason: row.get("reason")?,
         },
         at: time_from_row(row, "at", "at_offset")?,
