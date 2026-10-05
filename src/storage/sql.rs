@@ -5,6 +5,7 @@ use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, 
 
 use crate::{
     model::{
+        estimate_store::{EstimateError, Reason},
         id::NodeId,
         sessions::{Owner, SessionError, SessionId, SessionSource},
     },
@@ -31,9 +32,15 @@ macro_rules! sql_as_text {
     )*};
 }
 
-sql_as_text!(SessionId, NodeId, SessionSource, EditKind, Owner);
+sql_as_text!(SessionId, NodeId, SessionSource, EditKind, Owner, Reason);
 
 impl From<rusqlite::Error> for SessionError {
+    fn from(e: rusqlite::Error) -> Self {
+        Self::Backend(e.to_string())
+    }
+}
+
+impl From<rusqlite::Error> for EstimateError {
     fn from(e: rusqlite::Error) -> Self {
         Self::Backend(e.to_string())
     }

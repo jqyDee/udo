@@ -1,7 +1,7 @@
 //! The estimate history: what udo estimated for a task, at the moments it
 //! matters. Append-only; backends in `storage::estimates`.
 
-use std::fmt;
+use std::{fmt, str::FromStr};
 
 use uuid::Uuid;
 
@@ -90,8 +90,6 @@ impl fmt::Display for EstimateError {
     }
 }
 
-impl std::error::Error for EstimateError {}
-
 #[allow(async_fn_in_trait)]
 pub trait EstimateStore {
     /// Append `row`, timed by the store's clock.
@@ -101,6 +99,29 @@ pub trait EstimateStore {
     /// The rows of `tasks`, oldest first (#9, #12).
     async fn of_tasks(&self, tasks: &[NodeId]) -> Result<Vec<Recorded>, EstimateError>;
 }
+
+impl fmt::Display for Reason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Created => "created",
+            Self::Started => "started",
+        })
+    }
+}
+
+impl FromStr for Reason {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "created" => Ok(Self::Created),
+            "started" => Ok(Self::Started),
+            other => Err(format!("unknown estimate reason: {other}")),
+        }
+    }
+}
+
+impl std::error::Error for EstimateError {}
 
 #[cfg(test)]
 mod tests {
