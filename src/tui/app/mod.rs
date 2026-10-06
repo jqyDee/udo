@@ -148,12 +148,14 @@ impl<'a> App<'a> {
         }
     }
 
-    /// Handle one key according to the current mode, then `reload`.
+    /// Handle one key according to the current mode, show `Core`'s
+    /// warnings, then `reload`.
     pub async fn handle_key(&mut self, key: KeyEvent) -> Flow {
         if key.kind != KeyEventKind::Press {
             return Flow::Continue;
         }
         let flow = self.dispatch(key).await;
+        self.show_warnings();
         self.reload().await;
         flow
     }
@@ -259,6 +261,16 @@ impl<'a> App<'a> {
 
     fn error(&mut self, msg: impl Into<String>) {
         self.toast = Some(Toast::error(msg));
+    }
+
+    /// What `Core` noted during the action (`estimate not recorded: …`).
+    /// The action succeeded, but this needs reading: an error toast, over
+    /// the action's own (the tree shows the action anyway).
+    fn show_warnings(&mut self) {
+        let warnings = self.core.take_warnings();
+        if !warnings.is_empty() {
+            self.error(warnings.join(" · "));
+        }
     }
 
     /// When the loop has to wake up to hide the toast (None: no toast).

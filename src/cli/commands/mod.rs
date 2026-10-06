@@ -102,6 +102,7 @@ pub async fn run(command: &Command, core: &mut Core, cwd: &Path, json: bool) -> 
             let opened = run::run(core, cwd, a, Stdout::for_json(json)).await?;
             emit(&opened, json)?;
             if opened.code != 0 {
+                crate::cli::print_warnings(core); // `exit` skips `execute`'s
                 std::process::exit(opened.code); // the script's code, like a wrapper
             }
             Ok(())
