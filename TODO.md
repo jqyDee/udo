@@ -1,14 +1,15 @@
 # udo TODO
 
-Priorities as of 2026-10-05, in order. Designs: `docs/superpowers/specs/`.
+Priorities as of 2026-10-06, in order. Designs: `docs/superpowers/specs/`.
 Open work is tracked as GitHub issues (the `#n` after each item).
 
-**Next up:** the estimates (epic #45, spec
-`docs/superpowers/specs/2026-10-04-learned-estimates-design.md`), in
-this order: #8 (learned estimates, built: pull request into `dev`) ->
-#47 (record estimate history: the data only collects once released) ->
-#9 (estimate vs. actual) -> release. No release before these three; #12
-(backtest) can follow it.
+**Next up:** the rest of the estimates (epic #45, spec
+`docs/superpowers/specs/2026-10-04-learned-estimates-design.md`): #9
+(estimate vs. actual) -> #12 (backtest, step 0: replay works already,
+"recorded" uses #47's rows as they collect).
+
+Done in 0.2.0: learned estimates (#8) and the estimate history (#47),
+released so the history starts collecting.
 
 Done before: run configs + tracking by program (sections 2 and 4, spec
 `docs/superpowers/specs/2026-10-02-run-configs-design.md`, all six
@@ -182,9 +183,19 @@ Estimates and reports: epic #45.
       at its first session (`History::as_of`). TUI details show it with
       its basis (`learned from 2 done, 1 open`, `from uni`), `udo estimate
       [NODE]` explains it (text and `--json`).
-- [ ] **Record estimate history** (#47): every estimate shown, in
-      `udo.db` (append-only, at created / started / done), so later
-      methods can be measured against it.
+- [x] **Record estimate history** (#47): table `estimates` in `udo.db`
+      (migration 002, append-only, kept when the task is deleted), so
+      later methods can be measured against it. A row when a task is
+      created and at its first session (#8's: the earliest not removed),
+      holding the estimate as of that moment, with method, version, the
+      learned-from counts and the prior. No row on done (frozen at the
+      first session anyway). `EstimateStore` (`record`, `last_of`,
+      `of_tasks`; memory + SQLite, shared contract): `record` skips a
+      repeat of the task's latest row (same minutes and method) in one
+      `BEGIN IMMEDIATE` step, so two processes write it once. A failed
+      row never undoes the action: `Core` collects warnings, the CLI
+      prints them to stderr (exit 0, `--json` clean), the TUI as an error
+      toast.
 - [ ] Show estimate vs. actual per task and container. (#9) A done
       task's frozen estimate (#8) is the one to compare with.
 - [ ] **Pace and reports (`udo stats`, #10):** the daily pace still needed per
