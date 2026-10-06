@@ -11,10 +11,12 @@ use std::{
 use chrono::{FixedOffset, TimeDelta};
 
 use crate::{
-    estimate::store::{EstimateStore, NewEstimate, Reason, Recorded}, model::{
+    estimate::store::{EstimateStore, NewEstimate, Reason, Recorded},
+    model::{
         id::NodeId,
         time::{Minutes, Time},
-    }, test_util::{at, parse_time},
+    },
+    test_util::{at, parse_time},
 };
 
 /// The stores' clock in the contract: 20:00, one second later on every
