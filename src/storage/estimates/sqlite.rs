@@ -6,8 +6,8 @@ use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter, typ
 use uuid::Uuid;
 
 use crate::{
+    estimate::store::{EstimateError, EstimateStore, NewEstimate, Recorded},
     model::{
-        estimate_store::{EstimateError, EstimateStore, NewEstimate, Recorded},
         id::NodeId,
         time::{Clock, Minutes, Time},
     },
@@ -170,7 +170,7 @@ fn count(row: &Row, column: &str) -> rusqlite::Result<usize> {
 mod tests {
     use super::*;
     use crate::{
-        model::estimate_store::Reason,
+        estimate::store::Reason,
         storage::sqlite,
         test_util::{at, parse_time},
     };

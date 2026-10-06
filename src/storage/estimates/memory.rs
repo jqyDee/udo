@@ -3,11 +3,8 @@ use std::sync::Mutex;
 use uuid::Uuid;
 
 use crate::{
-    model::{
-        estimate_store::{EstimateError, EstimateStore, NewEstimate, Recorded},
-        id::NodeId,
-        time::Clock,
-    },
+    estimate::store::{EstimateError, EstimateStore, NewEstimate, Recorded},
+    model::{id::NodeId, time::Clock},
     storage::time::to_ms,
 };
 

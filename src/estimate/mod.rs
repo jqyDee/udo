@@ -4,6 +4,7 @@
 
 mod average;
 mod history;
+pub mod store;
 #[cfg(test)]
 mod tests;
 

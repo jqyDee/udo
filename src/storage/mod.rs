@@ -46,8 +46,8 @@ impl Storage {
 #[cfg(test)]
 mod tests {
     use crate::{
+        estimate::store::{EstimateStore, NewEstimate, Reason},
         model::{
-            estimate_store::{EstimateStore, NewEstimate, Reason},
             id::NodeId,
             sessions::{SessionQuery, SessionStore, TaskRef},
             time::Minutes,

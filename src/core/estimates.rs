@@ -6,9 +6,11 @@
 use crate::{
     Res,
     core::Core,
-    estimate::{self, Average, Estimate, Estimator, History},
+    estimate::{
+        self, Average, Estimate, Estimator, History,
+        store::{EstimateStore, NewEstimate, Reason},
+    },
     model::{
-        estimate_store::{EstimateStore, NewEstimate, Reason},
         sessions::{SessionQuery, SessionStore},
         time::Time,
     },
@@ -96,14 +98,9 @@ mod tests {
     use crate::{
         core::Core,
         estimate::Basis,
+        estimate::store::{EstimateStore, NewEstimate, Reason},
         model::container::ContainerKind,
-        model::{
-            estimate_store::{EstimateStore, NewEstimate, Reason},
-            id::NodeId,
-            sessions::SessionStore,
-            settings::ContainerSettings,
-            time::Minutes,
-        },
+        model::{id::NodeId, sessions::SessionStore, settings::ContainerSettings, time::Minutes},
         // core: disk_tree, root: [a, ws: [b]]
         test_util::{at, core, core_with_broken_estimates, new_container, task},
     };

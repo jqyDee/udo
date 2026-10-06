@@ -4,8 +4,8 @@
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 
 use crate::{
+    estimate::store::{EstimateError, Reason},
     model::{
-        estimate_store::{EstimateError, Reason},
         id::NodeId,
         sessions::{Owner, SessionError, SessionId, SessionSource},
     },

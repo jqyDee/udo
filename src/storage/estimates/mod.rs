@@ -2,10 +2,8 @@
 //! SQLite) and the contract they share.
 
 use crate::{
-    model::{
-        estimate_store::{EstimateError, EstimateStore, NewEstimate, Recorded},
-        id::NodeId,
-    },
+    estimate::store::{EstimateError, EstimateStore, NewEstimate, Recorded},
+    model::id::NodeId,
     storage::{
         dispatch::dispatch,
         estimates::{memory::MemoryEstimates, sqlite::SqliteEstimates},
