@@ -13,15 +13,15 @@ use crate::{
         container::ContainerKind,
         node::{Node, NodeBody},
         sessions::{Session, SessionError, SessionId},
-        settings::{TaskFolderSetting, view::SETTINGS},
+        settings::{ContainerSettings, TaskFolderSetting, view::SETTINGS},
         task::TaskStatus,
-        time::{DeadlineRule, Time},
+        time::{DeadlineRule, Minutes, Time},
         tree::Tree,
     },
     run::{Event, RunError},
     test_util::{
-        at, container, container_at, fake_trash, press, run_script, state_at, task, test_app,
-        tree_with,
+        at, container, container_at, core_with_broken_estimates, fake_trash, press, run_script,
+        state_at, task, test_app, tree_with,
     },
     tui::{
         form::{FieldId, FieldInput, FolderMode, Form, FormAction, TextInput},
@@ -2608,4 +2608,47 @@ async fn the_edit_form_has_no_setup_row() {
             .all(|f| f.id != FieldId::Setup)
     );
     assert_eq!(app.handle_key(press(KeyCode::Enter)).await, Flow::Continue);
+}
+
+// ---------- warnings ----------
+
+/// An app on `core_with_broken_estimates` (every estimate write fails), ws
+/// with the `estimate` setting (so there is a row to write), cursor on
+/// `cursor`. Keep the `TempDir` alive.
+async fn broken_estimates_app(cursor: &[usize]) -> (tempfile::TempDir, App<'static>) {
+    let (tmp, mut core) = core_with_broken_estimates().await;
+    let settings = ContainerSettings {
+        estimate: Some(Minutes::new(90)),
+        ..Default::default()
+    };
+    core.set_settings(&[1], settings, None).await.unwrap();
+    let core = Box::leak(Box::new(core));
+    (tmp, App::new(core, state_at(cursor)))
+}
+
+/// The action stands; the warning is an error toast over its own.
+#[tokio::test]
+async fn a_warning_shows_as_an_error_toast() {
+    let (_tmp, mut app) = broken_estimates_app(&[1, 0]).await; // b
+
+    app.handle_key(key('s')).await;
+
+    assert_eq!(timed(&app).as_deref(), Some("b"));
+    let (kind, msg) = toast_of(&app);
+    assert_eq!(kind, ToastKind::Error);
+    assert!(msg.starts_with("estimate not recorded: "), "{msg}");
+}
+
+#[tokio::test]
+async fn creating_through_the_form_warns_too() {
+    let (_tmp, mut app) = broken_estimates_app(&[1]).await; // ws
+
+    app.handle_key(key('t')).await;
+    type_into(&mut app, "c").await;
+    app.handle_key(press(KeyCode::Enter)).await;
+
+    assert_eq!(app.core.tree().get(&[1, 1]).unwrap().name(), "c");
+    let (kind, msg) = toast_of(&app);
+    assert_eq!(kind, ToastKind::Error);
+    assert!(msg.starts_with("estimate not recorded: "), "{msg}");
 }

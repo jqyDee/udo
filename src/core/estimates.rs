@@ -100,10 +100,12 @@ mod tests {
         model::{
             estimate_store::{EstimateStore, NewEstimate, Reason},
             id::NodeId,
+            sessions::SessionStore,
             settings::ContainerSettings,
             time::Minutes,
         },
-        test_util::{at, core, new_container, task}, // core: disk_tree, root: [a, ws: [b]]
+        // core: disk_tree, root: [a, ws: [b]]
+        test_util::{at, core, core_with_broken_estimates, new_container, task},
     };
 
     #[tokio::test]
@@ -386,5 +388,34 @@ mod tests {
         core.delete(&c, at(13, 0)).await.unwrap();
 
         assert_eq!(rows(&core, c_id).await.len(), 1);
+    }
+
+    /// A failing store never undoes the action: each one stands, and each
+    /// failed row becomes one warning.
+    #[tokio::test]
+    async fn a_failing_store_warns_and_the_action_stands() {
+        let (_tmp, mut core) = core_with_broken_estimates().await;
+        set_estimate(&mut core, 90).await; // so there is a row to write
+
+        let c = create_at_8(&mut core, "c").await;
+        let created = core.take_warnings();
+        let started = core.start(&c, at(12, 0)).await.unwrap();
+        let on_start = core.take_warnings();
+        let added = core
+            .add_session(&[1, 0], at(9, 0), at(10, 0), at(23, 0))
+            .await
+            .unwrap();
+        let on_add = core.take_warnings();
+
+        assert_eq!(core.tree().get(&c).unwrap().name(), "c");
+        let running = core.sessions().running().await.unwrap();
+        assert_eq!(running, Some(started));
+        assert_eq!(core.sessions_of(&[1, 0]).await.unwrap(), vec![added]);
+        for warnings in [created, on_start, on_add] {
+            let [warning] = &warnings[..] else {
+                panic!("one warning per action: {warnings:?}");
+            };
+            assert!(warning.starts_with("estimate not recorded: "), "{warning}");
+        }
     }
 }
