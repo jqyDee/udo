@@ -39,7 +39,9 @@ pub async fn run(command: &TrackCommand, core: &mut Core, cwd: &Path, json: bool
             emit(&ran, json)?;
             if ran.code != 0 {
                 // a wrapper passes its child's code on; nothing left to
-                // flush (the stop is committed)
+                // flush (the stop is committed) but the warnings, which
+                // `exit` would skip
+                crate::cli::print_warnings(core);
                 std::process::exit(ran.code);
             }
             Ok(())
