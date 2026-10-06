@@ -19,7 +19,12 @@ use crate::{
         time::{self, Time},
         tree::Tree,
     },
-    storage::Storage,
+    storage::{
+        Storage,
+        estimates::{Estimates, sqlite::SqliteEstimates},
+        sessions::{Sessions, memory::MemorySessions},
+        sqlite,
+    },
     tui::{
         app::App,
         form::{FolderMode, Form, TaskDefaults},
@@ -180,6 +185,20 @@ pub async fn disk_tree_in(root_dir: &Path) -> Tree {
 pub async fn core() -> (TempDir, Core) {
     let (tmp, tree) = disk_tree().await;
     (tmp, Core::new(tree, Storage::in_memory()))
+}
+
+/// `core()`, but every estimate write fails: a real SQLite store whose
+/// table is gone (`user_version` says migrated, so opening still works).
+/// The action must stand, a warning must come.
+pub async fn core_with_broken_estimates() -> (TempDir, Core) {
+    let (tmp, tree) = disk_tree().await;
+    let conn = sqlite::open_in_memory().unwrap();
+    conn.execute_batch("DROP TABLE estimates").unwrap();
+    let storage = Storage {
+        sessions: Sessions::Memory(MemorySessions::new(time::now)),
+        estimates: Estimates::Sqlite(SqliteEstimates::new(conn, time::now)),
+    };
+    (tmp, Core::new(tree, storage))
 }
 
 // ---------- run configs ----------

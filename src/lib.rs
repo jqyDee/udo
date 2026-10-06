@@ -13,6 +13,7 @@ pub type Res<T> = Result<T, Box<dyn std::error::Error>>;
 pub mod cli;
 pub mod core;
 pub mod dir;
+pub mod estimate;
 pub mod model;
 pub mod naming;
 pub mod persist;

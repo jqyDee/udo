@@ -43,6 +43,7 @@ pub use crate::run::RunRequest;
 
 use crate::{
     core::Core,
+    estimate::History,
     model::{
         id::NodeId,
         node::Node,
@@ -98,6 +99,9 @@ pub struct App<'a> {
     pub sessions: Vec<Session>,
     /// Page of the sessions tab; `page_len` is set by every draw.
     pub session_list: SessionList,
+    /// What the estimates are computed from; reloaded with the rest
+    /// (`reload`), so moving the cursor costs nothing.
+    pub history: History,
 }
 
 impl<'a> App<'a> {
@@ -117,6 +121,7 @@ impl<'a> App<'a> {
             running: None,
             sessions: Vec::new(),
             session_list: SessionList::default(),
+            history: History::default(),
         }
     }
 
@@ -137,14 +142,20 @@ impl<'a> App<'a> {
             Ok(running) => self.running = running,
             Err(e) => self.error(e.to_string()),
         }
+        match self.core.history((self.clock)()).await {
+            Ok(history) => self.history = history,
+            Err(e) => self.error(e.to_string()),
+        }
     }
 
-    /// Handle one key according to the current mode, then `reload`.
+    /// Handle one key according to the current mode, show `Core`'s
+    /// warnings, then `reload`.
     pub async fn handle_key(&mut self, key: KeyEvent) -> Flow {
         if key.kind != KeyEventKind::Press {
             return Flow::Continue;
         }
         let flow = self.dispatch(key).await;
+        self.show_warnings();
         self.reload().await;
         flow
     }
@@ -250,6 +261,16 @@ impl<'a> App<'a> {
 
     fn error(&mut self, msg: impl Into<String>) {
         self.toast = Some(Toast::error(msg));
+    }
+
+    /// What `Core` noted during the action (`estimate not recorded: …`).
+    /// The action succeeded, but this needs reading: an error toast, over
+    /// the action's own (the tree shows the action anyway).
+    fn show_warnings(&mut self) {
+        let warnings = self.core.take_warnings();
+        if !warnings.is_empty() {
+            self.error(warnings.join(" · "));
+        }
     }
 
     /// When the loop has to wake up to hide the toast (None: no toast).

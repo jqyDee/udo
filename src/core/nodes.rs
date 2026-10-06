@@ -6,7 +6,7 @@ use chrono::NaiveDateTime;
 
 use crate::{
     Res,
-    core::Core,
+    core::{Core, estimates::Moment},
     dir::default_dir,
     model::{
         NodePath,
@@ -32,9 +32,14 @@ pub struct TaskDefaults {
 
 impl Core {
     /// Create `node` (a task or a container) in `parent`; returns its path.
-    /// The tree checks the name and creates the node's folder.
+    /// The tree checks the name and creates the node's folder. A task's
+    /// estimate goes into the history (#47; a failure only warns).
     pub async fn create(&mut self, parent: &[usize], node: Node) -> Res<NodePath> {
-        self.tree.create(parent, node).await
+        // the node's own creation time is "now" (`create` has no `now`)
+        let created = node.header.created_at;
+        let path = self.tree.create(parent, node).await?;
+        self.record_estimate(&path, Moment::Created, created).await;
+        Ok(path)
     }
 
     /// Apply `patch` to the node at `path` (name checks as for `create`).

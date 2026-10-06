@@ -14,11 +14,28 @@ use std::{
 /// so it gets to what comes after (stopping a session, redrawing the TUI)
 /// instead of dying under a running nvim. `Err`: the child could not start.
 pub async fn wait(mut cmd: tokio::process::Command) -> io::Result<ExitStatus> {
-    let mut child = cmd.spawn()?;
+    let mut child = spawn(&mut cmd).await?;
     loop {
         tokio::select! {
             status = child.wait() => return status,
             _ = tokio::signal::ctrl_c() => {} // handled now: no longer kills udo
+        }
+    }
+}
+
+/// `cmd.spawn()`, retried a few times while the executable is busy:
+/// Linux refuses to exec a file still open for writing somewhere, e.g. in
+/// a just-forked process that has not exec'd yet (a script written right
+/// before, rust-lang/rust#114554). That passes within milliseconds.
+async fn spawn(cmd: &mut tokio::process::Command) -> io::Result<tokio::process::Child> {
+    let mut tries = 0;
+    loop {
+        match cmd.spawn() {
+            Err(e) if e.kind() == io::ErrorKind::ExecutableFileBusy && tries < 10 => {
+                tries += 1;
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            result => return result,
         }
     }
 }

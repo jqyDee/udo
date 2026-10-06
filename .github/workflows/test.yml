@@ -2,13 +2,16 @@
 # the platforms the releases are built for (dist-workspace.toml: macOS and
 # Linux), with the Rust version of rust-toolchain.toml. tmux and shellcheck
 # are installed so their tests run instead of skipping
-# (tests/example_nvim_tmux.rs, tests/example_lint.rs).
+# (tests/example_nvim_tmux.rs, tests/example_lint.rs). The release workflow
+# calls it before building (dist-workspace.toml `plan-jobs`): a tag whose
+# tests fail is never built or published.
 name: test
 
 on:
   push:
     branches: [main, dev]
   pull_request:
+  workflow_call: # from release.yml, on the tagged commit
 
 # a newer push to the same branch / PR cancels the run in progress
 concurrency:

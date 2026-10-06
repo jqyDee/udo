@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 /// Stable ID of a node (task or container). Survives renames and moves.
 /// v7: time-ordered, so it also sorts well as a DB key later.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct NodeId(Uuid);
 

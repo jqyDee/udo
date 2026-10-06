@@ -1,9 +1,44 @@
+## [0.2.0] - 2026-10-06
+
+### 🚀 Features
+
+- *(estimate)* Learned average per container (#8)
+- *(estimate)* A container's own estimate pools its subtree (#8)
+- *(cli)* Estimate cli command (#8)
+- *(estimate)* Freeze a done task's estimate at its first session (#8)
+- *(storage)* Estimated table in udo.db (#47)
+- *(estimate/storage)* Estimate_store; memory estimate store
+- *(estimate/storage)* Sqlite estimate storage
+- *(storage)* Estimates wiring into storage struct
+- Row deduplication on estimate record
+- *(core)* Warnings in core
+- *(core)* Record estimates on create and first session (#47)
+- *(cli/tui)* Warnings in tui/cli.
+- *(warnings)* Introduced a way to fail a store, tests for warnings
+
+### 🐛 Bug Fixes
+
+- *(estimate)* Naming changed from where an estimate is coming from
+- Prevent debug/dev build from modifying real user data
+- *(run)* Retry spawn on ETXTBSY (Linux)
+- Formatting
+
+### ⚙️ Miscellaneous Tasks
+
+- Release only after green tests, release workflow on tags only
+- TODO.md update
+- README.md install include homebrew or shell installer
+- Update TODO.md with github issue ids
+- Add scripts/test-linux.sh, document in CONTRIBUTING
+- Fmt and docs
+- *(refactor)* Moved EstimateStore into estimate module
 ## [0.1.1] - 2026-10-04
 
 ### ⚙️ Miscellaneous Tasks
 
 - Test the dev branch; contributing: branches and data formats
 - Release from dev, main only through pull requests
+- Release 0.1.1
 ## [0.1.0] - 2026-10-04
 
 ### 🚀 Features

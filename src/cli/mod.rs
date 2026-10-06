@@ -37,10 +37,24 @@ pub struct Cli {
 impl Cli {
     /// Run the command (no command: the TUI). `cwd` is where NODE
     /// arguments without a path start.
+    /// Afterwards, also after an error, `Core`'s warnings go to stderr.
     pub async fn execute(&self, core: &mut Core, cwd: &Path) -> Res<()> {
         match &self.command {
-            Some(command) => commands::run(command, core, cwd, self.json).await,
+            Some(command) => {
+                let result = commands::run(command, core, cwd, self.json).await;
+                print_warnings(core);
+                result
+            }
             None => tui::run(core).await,
         }
+    }
+}
+
+/// What `Core` noted besides the action (`estimate not recorded: …`): on
+/// stderr, so `--json` output stays clean; the exit code stays as it is.
+/// Also before a command's own `process::exit`, which skips `execute`.
+pub(crate) fn print_warnings(core: &Core) {
+    for warning in core.take_warnings() {
+        eprintln!("warning: {warning}");
     }
 }
