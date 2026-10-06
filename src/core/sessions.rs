@@ -5,7 +5,7 @@
 
 use crate::{
     Res,
-    core::Core,
+    core::{Core, estimates::Moment},
     model::{
         sessions::{Session, SessionId, SessionPatch, SessionQuery, SessionStore},
         time::Time,
@@ -29,8 +29,10 @@ impl Core {
     }
 
     /// Record a session on the task at `path` by hand (source `manual`). A
-    /// time after `now` is refused, before the store is touched. Callers
-    /// pass `time::now()`.
+    /// time after `now` is refused, before the store is touched. The task's
+    /// first session (also one added before the old first) puts its
+    /// estimate into the history (#47; a failure only warns). Callers pass
+    /// `time::now()`.
     pub async fn add_session(
         &self,
         path: &[usize],
@@ -40,7 +42,12 @@ impl Core {
     ) -> Res<Session> {
         not_after(now, &[Some(start), Some(end)])?;
         let task = self.task_ref(path)?;
-        Ok(self.storage.sessions.add(task, start, end).await?)
+        let session = self.storage.sessions.add(task, start, end).await?;
+        let start = Moment::Started {
+            start: session.start, // as stored (ms)
+        };
+        self.record_estimate(path, start, now).await;
+        Ok(session)
     }
 
     /// Move a session's start and / or end. A time after `now` is refused,

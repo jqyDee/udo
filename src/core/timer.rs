@@ -6,7 +6,7 @@ use std::fmt;
 
 use crate::{
     Res,
-    core::Core,
+    core::{Core, estimates::Moment},
     model::{
         id::NodeId,
         node::Node,
@@ -54,9 +54,10 @@ impl Core {
     }
 
     /// What `start` and `track_start` share: the checks, then the store's
-    /// `start`. The session itself makes the task "started". A done task is
-    /// refused (`IsDone`: reopen it first); a container, the root or a
-    /// missing path is not a task. Private: the only way past
+    /// `start`. The session itself makes the task "started"; its first one
+    /// puts its estimate into the history (#47; a failure only warns). A
+    /// done task is refused (`IsDone`: reopen it first); a container, the
+    /// root or a missing path is not a task. Private: the only way past
     /// `refuse_manual` is `start`.
     async fn start_as(
         &mut self,
@@ -74,7 +75,14 @@ impl Core {
         {
             return Err(IsDone(task.name).into());
         }
-        Ok(self.storage.sessions.start(task, source, owner, at).await?)
+        let session = self.storage.sessions.start(task, source, owner, at).await?;
+        // `session.start`: as stored (ms); the same task already running
+        // gives its old session, which is no new first one
+        let start = Moment::Started {
+            start: session.start,
+        };
+        self.record_estimate(path, start, at).await;
+        Ok(session)
     }
 
     /// What a session on the task at `path` remembers of it. Not a task
