@@ -159,7 +159,6 @@ fn two_projects_do_not_stop_each_other() {
 /// A container opened without a task: `open -a` with its folder, untimed,
 /// IntelliJ running or not (no `idea --wait`, no settle).
 #[test]
-#[ignore = "needs `udo run CONTAINER` without a task (#52, CLI part)"]
 fn a_container_without_a_task_opens_untimed() {
     let s = Setup::new(false);
     let cs = s.root.path().join("cs");

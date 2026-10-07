@@ -65,13 +65,15 @@ idea, nvim-tmux)`).
 
 A container can be opened for one of its open tasks (below it too), so a
 script can time it, or on its own, without a task (lecture notes, a
-folder without anything to do). The TUI never picks a task on its own:
-without open tasks it opens the container; with some it asks with a
-picker, the container itself first (`uni (no task)`, preselected), then
-the tasks in tree order. The CLI takes the only one or wants `--task`:
+folder without anything to do). udo never picks a task on its own, not
+even the only one. The TUI opens a container without open tasks at once;
+with some it asks with a picker, the container itself first (`uni (no
+task)`, preselected), then the tasks in tree order. The CLI opens the
+container on its own unless `--task` names a task below it:
 
 ```sh
-udo run uni/cs --task "lab 3"
+udo run uni/cs                  # the container, no task
+udo run uni/cs --task "lab 3"   # the container, the time on lab 3
 ```
 
 **Creating** (`on_create`), after the node is saved:
