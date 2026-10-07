@@ -273,7 +273,6 @@ fn the_users_own_hooks_stay() {
 /// A container opened without a task: a session of its own, untimed; going
 /// there from a task's session stops that one's timer.
 #[test]
-#[ignore = "needs `udo run CONTAINER` without a task (#52, CLI part)"]
 fn a_container_without_a_task_gets_an_untimed_session() {
     let Some(s) = Setup::new("nvim-tmux") else {
         return;
@@ -341,7 +340,6 @@ fn tmux_opening_again_reuses_the_session() {
 }
 
 #[test]
-#[ignore = "needs `udo run CONTAINER` without a task (#52, CLI part)"]
 fn tmux_a_container_without_a_task_gets_an_untimed_session() {
     let Some(s) = Setup::new("tmux") else { return };
     let _client = s.attach("a");

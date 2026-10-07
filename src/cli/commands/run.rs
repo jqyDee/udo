@@ -24,8 +24,8 @@ pub struct RunArgs {
     /// The run config to use instead of the node's open_with
     #[arg(long, value_name = "NAME")]
     pub with: Option<RunName>,
-    /// Opening a container: the task below it the time goes to (one open
-    /// task: taken without asking)
+    /// Opening a container: the task below it the time goes to (without:
+    /// the container on its own, no task)
     #[arg(long, value_name = "NODE")]
     pub task: Option<String>,
     /// List the run configs (and the one NODE opens with)
@@ -64,7 +64,7 @@ pub async fn run(core: &Core, cwd: &Path, args: &RunArgs, stdout: Stdout) -> Res
             .ok_or_else(|| format!("no run config for {} (set open_with)", node.name()))?,
     };
     let task = task_for(tree, &path, args.task.as_deref(), cwd)?;
-    let request = RunRequest::new(tree, Event::Open, &path, Some(&task), name)?;
+    let request = RunRequest::new(tree, Event::Open, &path, task.as_deref(), name)?;
 
     let status = launch(&request.script, &request.ctx, stdout).await?;
     Ok(Opened {
@@ -91,39 +91,27 @@ pub fn list(core: &Core, cwd: &Path, args: &RunArgs) -> Res<Listed> {
     })
 }
 
-/// The task the time goes to: a task is its own; a container needs
-/// `--task` (a task below it), unless exactly one open task is below it.
-/// The CLI asks no questions: several open tasks are an error naming them.
-fn task_for(tree: &Tree, path: &[usize], task: Option<&str>, cwd: &Path) -> Res<NodePath> {
+/// The task the time goes to: a task is its own; a container gets the one
+/// `--task` names (a task below it), else none: it is never picked on its
+/// own, however many open tasks are below it.
+fn task_for(tree: &Tree, path: &[usize], task: Option<&str>, cwd: &Path) -> Res<Option<NodePath>> {
     let node = tree.get(path).ok_or("no such node")?;
     if node.as_task().is_some() {
         if task.is_some() {
             return Err(format!("{} is a task: --task is for containers", node.name()).into());
         }
-        return Ok(path.to_vec());
+        return Ok(Some(path.to_vec()));
     }
-    if let Some(task) = task {
-        let found = resolve(tree, Some(task), cwd)?;
-        let below = found.starts_with(path) && tree.get(&found).and_then(Node::as_task).is_some();
-        if !below {
-            let (task, container) = (path_text(tree, &found), path_text(tree, path));
-            return Err(format!("{task} is not a task in {container}").into());
-        }
-        return Ok(found);
+    let Some(task) = task else {
+        return Ok(None);
+    };
+    let found = resolve(tree, Some(task), cwd)?;
+    let below = found.starts_with(path) && tree.get(&found).and_then(Node::as_task).is_some();
+    if !below {
+        let (task, container) = (path_text(tree, &found), path_text(tree, path));
+        return Err(format!("{task} is not a task in {container}").into());
     }
-    let open = tree.open_tasks(path);
-    match open.as_slice() {
-        [one] => Ok(one.clone()),
-        [] => Err(format!("no open task in {}", node.name()).into()),
-        many => {
-            let names: Vec<String> = many
-                .iter()
-                .filter_map(|p| tree.get(p))
-                .map(|n| format!("{:?}", n.name()))
-                .collect();
-            Err(format!("pick a task: --task {}", names.join(" | ")).into())
-        }
-    }
+    Ok(Some(found))
 }
 
 impl fmt::Display for Opened {
@@ -250,33 +238,35 @@ mod tests {
         assert!(err.to_string().ends_with("(have: editor)"), "{err}");
     }
 
-    /// `ws` has one open task (`b`): taken without `--task`.
+    /// `ws` has one open task (`b`): still not taken without `--task`, the
+    /// container is opened on its own (`UDO_TASK_NAME` unset).
     #[tokio::test]
-    async fn a_container_with_one_open_task_takes_it() {
+    async fn a_container_with_one_open_task_opens_without_it() {
         let (tmp, mut core) = core().await;
         let out = recorder(tmp.path(), "editor");
         set_open_with(&mut core, &[], "editor").await;
 
-        run(&core, tmp.path(), &open("ws")).await.unwrap();
+        let opened = run(&core, tmp.path(), &open("ws")).await.unwrap();
 
-        assert_eq!(fs::read_to_string(out).unwrap(), "open ws b\n");
+        assert_eq!(fs::read_to_string(out).unwrap(), "open ws \n");
+        assert_eq!((opened.node.as_str(), opened.code), ("ws", 0));
     }
 
     /// The root has two open tasks (`a`, `b`): `--task` picks one, without
-    /// it the error names them.
+    /// it the root is opened on its own.
     #[tokio::test]
-    async fn a_container_with_several_open_tasks_needs_task() {
+    async fn task_picks_the_task_of_a_container() {
         let (tmp, mut core) = core().await;
         let out = recorder(tmp.path(), "editor");
         set_open_with(&mut core, &[], "editor").await;
 
-        let err = run(&core, tmp.path(), &open("/")).await.err().unwrap();
-        assert_eq!(err.to_string(), "pick a task: --task \"a\" | \"b\"");
+        run(&core, tmp.path(), &open("/")).await.unwrap();
+        assert_eq!(fs::read_to_string(&out).unwrap(), "open root \n");
 
         let mut args = open("/");
         args.task = Some("b".into());
         run(&core, tmp.path(), &args).await.unwrap();
-        assert_eq!(fs::read_to_string(out).unwrap(), "open root b\n");
+        assert_eq!(fs::read_to_string(&out).unwrap(), "open root b\n");
     }
 
     #[tokio::test]
@@ -300,15 +290,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_container_without_open_tasks_says_so() {
+    async fn a_container_without_open_tasks_opens_without_a_task() {
         let (tmp, mut core) = core().await;
-        recorder(tmp.path(), "editor");
+        let out = recorder(tmp.path(), "editor");
         set_open_with(&mut core, &[], "editor").await;
         core.set_done(&[1, 0], true, at(13, 0)).await.unwrap();
 
-        let err = run(&core, tmp.path(), &open("ws")).await.err().unwrap();
+        run(&core, tmp.path(), &open("ws")).await.unwrap();
 
-        assert_eq!(err.to_string(), "no open task in ws");
+        assert_eq!(fs::read_to_string(out).unwrap(), "open ws \n");
     }
 
     #[tokio::test]

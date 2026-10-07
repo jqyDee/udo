@@ -134,7 +134,7 @@ fn a_container_opens_its_folder_for_the_picked_task() {
     let out = Command::new(UDO)
         .env("UDO_ROOT", s.root.path())
         .env("PATH", path_with(&s.bin))
-        .args(["run", "cs"]) // one open task: taken
+        .args(["run", "cs", "--task", "cs/lab 1"])
         .output()
         .unwrap();
 
@@ -148,7 +148,6 @@ fn a_container_opens_its_folder_for_the_picked_task() {
 /// A container opened without a task: its folder in a window, untimed (no
 /// `track run`, so no `--wait`).
 #[test]
-#[ignore = "needs `udo run CONTAINER` without a task (#52, CLI part)"]
 fn a_container_without_a_task_opens_untimed() {
     let s = Setup::new();
     let cs = s.root.path().join("cs");
