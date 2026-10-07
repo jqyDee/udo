@@ -1,3 +1,18 @@
+## [0.3.0] - 2026-10-07
+
+### 🚀 Features
+
+- *(open)* Open on container not blocked
+- *(cli)* Update cli to have same behaviour
+
+### 🐛 Bug Fixes
+
+- *(examples)* Updated the old configs to still work with the new container opening
+
+### ⚙️ Miscellaneous Tasks
+
+- Update TODO.md
+- Update CONTRIBUTING.md
 ## [0.2.0] - 2026-10-06
 
 ### 🚀 Features
@@ -32,6 +47,7 @@
 - Add scripts/test-linux.sh, document in CONTRIBUTING
 - Fmt and docs
 - *(refactor)* Moved EstimateStore into estimate module
+- Release 0.2.0
 ## [0.1.1] - 2026-10-04
 
 ### ⚙️ Miscellaneous Tasks
