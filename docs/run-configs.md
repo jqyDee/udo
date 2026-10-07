@@ -6,9 +6,10 @@ new task. udo knows no programs. It finds the script by name, runs it with
 the node in environment variables, and hands it the terminal. What the
 script starts, and whether it tracks time, is up to the script.
 
-Four working examples are in [`examples/run/`](../examples/run/):
-`nvim-tmux`, `idea`, `zed` and `typst-setup` (see [Examples](#examples)).
-[`examples/python/`](../examples/python/) has the same four in Python,
+Five working examples are in [`examples/run/`](../examples/run/):
+`nvim-tmux`, `tmux`, `idea`, `zed` and `typst-setup` (see
+[Examples](#examples)). [`examples/python/`](../examples/python/) has the
+same five in Python,
 line for line, to compare: any language works. Install one or the other,
 not both: `idea.sh` and `idea.py` are both `idea`, and udo refuses a name
 that two scripts share.
@@ -62,10 +63,12 @@ idea, nvim-tmux)`).
   `open_with` one preselected and marked `(default)`).
 - CLI: `udo run [NODE]`, `udo run NODE --with NAME` for another script.
 
-A container is opened for one of its open tasks (below it too), because
-the time has to go to a task. The TUI asks with a picker (the task due
-first preselected); with exactly one open task it takes that one. The CLI
-takes the only one or wants `--task`:
+A container can be opened for one of its open tasks (below it too), so a
+script can time it, or on its own, without a task (lecture notes, a
+folder without anything to do). The TUI never picks a task on its own:
+without open tasks it opens the container; with some it asks with a
+picker, the container itself first (`uni (no task)`, preselected), then
+the tasks in tree order. The CLI takes the only one or wants `--task`:
 
 ```sh
 udo run uni/cs --task "lab 3"
@@ -92,7 +95,7 @@ these variables on top of udo's own environment:
 | `UDO_NODE_ID`, `UDO_NODE_NAME` | the opened / created node |
 | `UDO_NODE_KIND` | `task` or `container` |
 | `UDO_NODE_DIR` | its folder; empty without one |
-| `UDO_TASK_ID`, `UDO_TASK_NAME`, `UDO_TASK_DIR` | the task the time goes to: the node itself, or the task picked for a container. Unset without one (creating a container) |
+| `UDO_TASK_ID`, `UDO_TASK_NAME`, `UDO_TASK_DIR` | the task the time goes to: the node itself, or the task picked for a container. Unset without one (creating a container, opening one without a task) |
 | `UDO_CONTAINER_DIR` | the nearest container folder |
 | `UDO_ROOT` | the root |
 | `UDO_BIN` | the running `udo`: call this, not `udo` from `PATH` |
@@ -191,16 +194,29 @@ Found by trying (tmux 3.6a) and kept by `tests/example_nvim_tmux.rs`:
 
 ## Examples
 
-Copy them into your run folder and set them where they apply.
+Copy them into your run folder and set them where they apply. The
+`open_with` ones also open a container without a task (lecture notes):
+the same program on the container's folder, untimed.
 
 **`nvim-tmux`** (`open_with`): one tmux session per task (`udo-<task
 id>`) with nvim in the task's folder. Attaching or switching in starts the
 timer; detaching, switching away or quitting nvim stops it. Outside tmux
-it attaches, inside it switches.
+it attaches, inside it switches. A container without a task gets a
+session of its own (`udo-<container id>`), untimed.
 
 ```sh
 cp examples/run/nvim-tmux.sh ~/.config/udo/run/
 udo settings set uni open_with=nvim-tmux
+```
+
+**`tmux`** (`open_with`): as `nvim-tmux`, with a shell in the session
+instead of nvim. The session stays when an editor in it quits, until you
+end the shell (`exit`) or the session. Both set the same global hooks, so
+they can be used side by side.
+
+```sh
+cp examples/run/tmux.sh ~/.config/udo/run/
+udo settings set uni open_with=tmux
 ```
 
 **`idea`** (`open_with`, macOS): opens the node's folder in IntelliJ IDEA
@@ -208,7 +224,8 @@ and times the task until that project window closes. Returns at once. If
 IntelliJ is not running it starts it first and waits a few seconds
 (`settle`): otherwise `idea --wait` would itself become the IDE and only
 return when all of IntelliJ quits. Check by hand that `settle` is long
-enough on your machine.
+enough on your machine. A container without a task is opened with
+`open -a`, untimed.
 
 ```sh
 cp examples/run/idea.sh ~/.config/udo/run/
@@ -220,7 +237,8 @@ until that window closes. Returns at once. It opens the folder with
 `zed --new --wait`: in a window of its own, `--wait` ends when that window
 closes. Without `--new`, `--wait` only returns when all of Zed quits,
 whether Zed was running before or not. No start-first step as for
-IntelliJ is needed. Needs the CLI on `PATH` (in Zed: "Install CLI").
+IntelliJ is needed. Needs the CLI on `PATH` (in Zed: "Install CLI"). A
+container without a task is opened with `zed --new`, untimed.
 
 ```sh
 cp examples/run/zed.sh ~/.config/udo/run/
@@ -241,9 +259,12 @@ udo settings set uni on_create=typst-setup
 ## Writing your own
 
 - Start with `#!/usr/bin/env bash` and `set -euo pipefail`; check what you
-  need first (`: "${UDO_TASK_ID:?opens a task}"`).
+  need first (`: "${UDO_ROOT:?}"`).
 - Exit 0 where the script does not apply: it is inherited by everything
   below where it is set.
+- An `open_with` set on a container also opens the container itself,
+  without a task: without `UDO_TASK_ID`, open the node untimed (or exit
+  0) instead of failing.
 - Call `"$UDO_BIN"`, not `udo`.
 - Pick a source for the program and an owner per instance.
 - Run `shellcheck` on it.

@@ -155,3 +155,31 @@ fn two_projects_do_not_stop_each_other() {
     assert_eq!(s.running().map(|r| r.0), Some("lab 2".into()));
     s.wait_stopped();
 }
+
+/// A container opened without a task: `open -a` with its folder, untimed,
+/// IntelliJ running or not (no `idea --wait`, no settle).
+#[test]
+#[ignore = "needs `udo run CONTAINER` without a task (#52, CLI part)"]
+fn a_container_without_a_task_opens_untimed() {
+    let s = Setup::new(false);
+    let cs = s.root.path().join("cs");
+    ok(
+        s.root.path(),
+        &["add", "project", "cs", "--dir", cs.to_str().unwrap()],
+    );
+
+    let begin = Instant::now();
+    s.open("cs");
+
+    assert!(
+        begin.elapsed() < Duration::from_secs(1),
+        "waited {:?}",
+        begin.elapsed()
+    );
+    assert_eq!(
+        s.logged("open"),
+        format!("-a IntelliJ IDEA {}\n", cs.display())
+    );
+    assert_eq!(s.logged("idea"), "");
+    assert_eq!(s.running(), None);
+}
