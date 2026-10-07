@@ -2001,11 +2001,27 @@ async fn o_on_a_script_without_x_says_chmod() {
     assert!(error_toast(&app).contains("chmod +x"));
 }
 
-/// `ws` has only `b`: no picker, the time goes to `b`.
+/// `ws` has only `b`: still the picker, on `ws` itself. A container never
+/// gets a task on its own.
 #[tokio::test]
-async fn o_on_a_container_with_one_open_task_takes_it() {
+async fn o_on_a_container_with_one_open_task_opens_the_task_picker_on_no_task() {
     let (_run, t) = tree_with_editor();
-    let (ws, b) = (t.get(&[1]).unwrap().id(), t.get(&[1, 0]).unwrap().id());
+    let mut app = test_app(t, state_at(&[1]));
+
+    assert_eq!(app.handle_key(key('o')).await, Flow::Continue);
+
+    let p = picker(&app);
+    assert_eq!(labels(p), ["ws", "b"]);
+    assert_eq!(p.items[0].note, Some("(no task)"));
+    assert_eq!(p.items[0].value, PickValue::Task(None));
+    assert_eq!(p.cursor, 0, "no task preselected");
+}
+
+#[tokio::test]
+async fn o_on_a_container_without_open_tasks_runs_without_a_task() {
+    let (_run, mut t) = tree_with_editor();
+    set_done(&mut t, &[1, 0]);
+    let ws = t.get(&[1]).unwrap().id();
     let mut app = test_app(t, state_at(&[1]));
 
     let Flow::Run(request) = app.handle_key(key('o')).await else {
@@ -2013,17 +2029,8 @@ async fn o_on_a_container_with_one_open_task_takes_it() {
     };
 
     assert_eq!(request.ctx.node.id, ws, "the container is opened");
-    assert_eq!(request.ctx.task.as_ref().map(|t| t.id), Some(b));
-}
-
-#[tokio::test]
-async fn o_on_a_container_without_open_tasks_says_so() {
-    let (_run, mut t) = tree_with_editor();
-    set_done(&mut t, &[1, 0]);
-    let mut app = test_app(t, state_at(&[1]));
-
-    assert_eq!(app.handle_key(key('o')).await, Flow::Continue);
-    assert_eq!(error_toast(&app), "no open task in ws");
+    assert!(request.ctx.task.is_none());
+    assert!(app.toast.is_none());
     assert_eq!(app.mode, Mode::Normal);
 }
 
@@ -2228,7 +2235,8 @@ fn add_script(run: &Path, name: &str) {
 
 /// root: [a, ws: [b, wk: [c], d]], scripts `editor` and `shell`,
 /// `open_with = shell` (the second name: a preselection must move the
-/// cursor). Due: b 12:00, c 9:00, d 9:00 (c and d tie, c comes first).
+/// cursor). Due: b 12:00, c 9:00, d 9:00 (the task picker ignores due:
+/// tree order).
 fn picker_tree() -> (tempfile::TempDir, Tree) {
     let run = tempfile::tempdir().unwrap();
     add_script(run.path(), "editor");
@@ -2270,8 +2278,12 @@ async fn o_on_a_container_with_more_open_tasks_opens_the_task_picker() {
 
     let p = picker(&app);
     assert_eq!(p.title, "open ws for");
-    assert_eq!(labels(p), ["b", "wk / c", "d"], "paths below ws");
-    assert_eq!(p.cursor, 1, "c: due first, before d in the tree");
+    assert_eq!(
+        labels(p),
+        ["ws", "b", "wk / c", "d"],
+        "ws itself, then paths below it in tree order"
+    );
+    assert_eq!(p.cursor, 0, "no task preselected, not the one due first");
     let script = "shell".parse().unwrap();
     assert_eq!(
         p.action,
@@ -2290,9 +2302,7 @@ async fn the_task_picker_skips_done_tasks() {
 
     app.handle_key(key('o')).await;
 
-    let p = picker(&app);
-    assert_eq!(labels(p), ["b", "d"]);
-    assert_eq!(p.cursor, 1, "d is due first now");
+    assert_eq!(labels(picker(&app)), ["ws", "b", "d"]);
 }
 
 /// Enter: the container is opened, the time goes to the picked task.
@@ -2302,7 +2312,9 @@ async fn enter_in_the_task_picker_runs_for_the_picked_task() {
     let (ws, d) = (t.get(&[1]).unwrap().id(), t.get(&[1, 2]).unwrap().id());
     let mut app = test_app(t, state_at(&[1]));
     app.handle_key(key('o')).await;
-    app.handle_key(key('j')).await; // c -> d
+    for _ in 0..3 {
+        app.handle_key(key('j')).await; // ws -> b -> c -> d
+    }
 
     let Flow::Run(request) = app.handle_key(press(KeyCode::Enter)).await else {
         panic!("no run: {:?} {:?}", app.mode, app.toast);
@@ -2312,6 +2324,23 @@ async fn enter_in_the_task_picker_runs_for_the_picked_task() {
     assert_eq!(request.script, run.path().join("shell"));
     assert_eq!(request.ctx.node.id, ws);
     assert_eq!(request.ctx.task.as_ref().map(|t| t.id), Some(d));
+    assert_eq!(app.mode, Mode::Normal, "the picker is closed");
+}
+
+/// Enter on the preselected first row: the container, no task.
+#[tokio::test]
+async fn enter_on_no_task_runs_without_a_task() {
+    let (_run, t) = picker_tree();
+    let ws = t.get(&[1]).unwrap().id();
+    let mut app = test_app(t, state_at(&[1]));
+    app.handle_key(key('o')).await;
+
+    let Flow::Run(request) = app.handle_key(press(KeyCode::Enter)).await else {
+        panic!("no run: {:?} {:?}", app.mode, app.toast);
+    };
+
+    assert_eq!(request.ctx.node.id, ws);
+    assert!(request.ctx.task.is_none());
     assert_eq!(app.mode, Mode::Normal, "the picker is closed");
 }
 
@@ -2383,17 +2412,23 @@ async fn shift_o_then_enter_on_a_container_opens_the_task_picker() {
     );
 }
 
-/// Checked before the script picker: the pick would lead nowhere.
+/// No open task: the script picker, then the run without a task.
 #[tokio::test]
-async fn shift_o_on_a_container_without_open_tasks_says_so_first() {
+async fn shift_o_on_a_container_without_open_tasks_runs_without_one() {
     let (_run, mut t) = tree_with_editor();
     set_done(&mut t, &[1, 0]);
+    let ws = t.get(&[1]).unwrap().id();
     let mut app = test_app(t, state_at(&[1]));
 
-    app.handle_key(key('O')).await;
+    assert_eq!(app.handle_key(key('O')).await, Flow::Continue);
+    assert_eq!(labels(picker(&app)), ["editor"]);
 
-    assert_eq!(error_toast(&app), "no open task in ws");
-    assert_eq!(app.mode, Mode::Normal);
+    let Flow::Run(request) = app.handle_key(press(KeyCode::Enter)).await else {
+        panic!("no run: {:?} {:?}", app.mode, app.toast);
+    };
+
+    assert_eq!(request.ctx.node.id, ws);
+    assert!(request.ctx.task.is_none());
 }
 
 #[tokio::test]

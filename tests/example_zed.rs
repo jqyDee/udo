@@ -134,7 +134,7 @@ fn a_container_opens_its_folder_for_the_picked_task() {
     let out = Command::new(UDO)
         .env("UDO_ROOT", s.root.path())
         .env("PATH", path_with(&s.bin))
-        .args(["run", "cs"]) // one open task: taken
+        .args(["run", "cs", "--task", "cs/lab 1"])
         .output()
         .unwrap();
 
@@ -143,4 +143,21 @@ fn a_container_opens_its_folder_for_the_picked_task() {
     wait_until("zed called", || !s.logged().is_empty(), || s.logged());
     assert_eq!(s.logged(), format!("--new --wait {}\n", cs.display()));
     s.wait_stopped();
+}
+
+/// A container opened without a task: its folder in a window, untimed (no
+/// `track run`, so no `--wait`).
+#[test]
+fn a_container_without_a_task_opens_untimed() {
+    let s = Setup::new();
+    let cs = s.root.path().join("cs");
+    ok(
+        s.root.path(),
+        &["add", "project", "cs", "--dir", cs.to_str().unwrap()],
+    );
+
+    s.open("cs");
+
+    assert_eq!(s.logged(), format!("--new {}\n", cs.display()));
+    assert_eq!(s.running(), None);
 }

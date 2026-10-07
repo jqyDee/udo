@@ -3,7 +3,7 @@
 //!
 //! ```text
 //! o  on a task       -> Flow::Run
-//! o  on a container  -> no open task: toast | one: Flow::Run | more: task picker
+//! o  on a container  -> no open task: Flow::Run without one | else: task picker
 //! O                  -> script picker -> as o, with the picked script
 //! ```
 
@@ -38,8 +38,7 @@ impl App<'_> {
     }
 
     /// `O`: the script picker over the library (`open_with` preselected and
-    /// marked), then as `o` (`picked` -> `open_as`). A container without an
-    /// open task is a toast before picking: the pick would lead nowhere.
+    /// marked), then as `o` (`picked` -> `open_as`).
     pub(super) fn pick_script(&mut self) -> Flow {
         let path = self.tree_state.cursor.clone();
         match script_picker(self.core.tree(), path) {
@@ -50,8 +49,8 @@ impl App<'_> {
     }
 
     /// `name` opens the node at `path`. A task: run, its time on itself. A
-    /// container: the time needs a task below it, so none is a toast, one
-    /// is taken, more open the task picker.
+    /// container never gets a task on its own: without open tasks it runs
+    /// without one, else the task picker (no task preselected).
     pub(super) fn open_as(&mut self, path: NodePath, name: RunName) -> Flow {
         let tree = self.core.tree();
         let Some(node) = tree.get(&path) else {
@@ -59,30 +58,21 @@ impl App<'_> {
             return Flow::Continue;
         };
         if node.as_task().is_some() {
-            return self.run_on(&path, &path, name);
+            return self.run_on(&path, Some(&path), name);
         }
         let tasks = tree.open_tasks(&path);
-        match tasks.as_slice() {
-            [] => {
-                let msg = no_open_task(node);
-                self.error(msg);
-                Flow::Continue
-            }
-            [one] => {
-                let one = one.clone();
-                self.run_on(&path, &one, name)
-            }
-            _ => {
-                self.mode = Mode::Pick(Box::new(task_picker(tree, path, &tasks, name)));
-                Flow::Continue
-            }
+        if tasks.is_empty() {
+            return self.run_on(&path, None, name);
         }
+        self.mode = Mode::Pick(Box::new(task_picker(tree, path, &tasks, name)));
+        Flow::Continue
     }
 
     /// `Flow::Run` for `name` on the node at `node`, its time on the task at
-    /// `task`; a problem (script missing, not executable, ...) is a toast.
-    pub(super) fn run_on(&mut self, node: &[usize], task: &[usize], name: RunName) -> Flow {
-        match RunRequest::new(self.core.tree(), Event::Open, node, Some(task), name) {
+    /// `task` (None: no task, `UDO_TASK_*` unset); a problem (script
+    /// missing, not executable, ...) is a toast.
+    pub(super) fn run_on(&mut self, node: &[usize], task: Option<&[usize]>, name: RunName) -> Flow {
+        match RunRequest::new(self.core.tree(), Event::Open, node, task, name) {
             Ok(request) => Flow::Run(Box::new(request)),
             Err(e) => {
                 self.error(e.to_string());
@@ -124,12 +114,9 @@ impl App<'_> {
 
 /// `O`'s picker: the library's names, sorted, `open_with` preselected and
 /// marked `(default)` (without one: the first). Err: the toast (library
-/// unreadable or empty, a container without an open task).
+/// unreadable or empty).
 fn script_picker(tree: &Tree, path: NodePath) -> Result<Picker, String> {
     let node = tree.get(&path).ok_or("no such node")?;
-    if node.as_container().is_some() && tree.open_tasks(&path).is_empty() {
-        return Err(no_open_task(node));
-    }
     let run_dir = tree.run_dir();
     let library = Library::load(&run_dir).map_err(|e| e.to_string())?;
     let default = tree.open_with(&path);
@@ -153,40 +140,32 @@ fn script_picker(tree: &Tree, path: NodePath) -> Result<Picker, String> {
     })
 }
 
-/// The task picker over `tasks`, the open tasks below `container` (at
-/// least two), the earliest due preselected (a tie: the first in the
-/// tree). Labels are paths below the container (`week 2 / lab 3`), so
-/// tasks with the same name stay apart.
+/// The task picker: first the container itself (`ws (no task)`,
+/// preselected: opening a container never picks a task on its own), then
+/// `tasks`, the open tasks below it (at least one), in tree order. Labels
+/// are paths below the container (`week 2 / lab 3`), so tasks with the
+/// same name stay apart.
 fn task_picker(tree: &Tree, container: NodePath, tasks: &[NodePath], script: RunName) -> Picker {
-    let items = tasks
-        .iter()
-        .map(|task| PickItem {
-            label: (container.len() + 1..=task.len())
-                .filter_map(|end| tree.get(&task[..end]))
-                .map(Node::name)
-                .collect::<Vec<_>>()
-                .join(" / "),
-            note: None,
-            value: PickValue::Task(task.clone()),
-        })
-        .collect();
-    // `min_by_key` keeps the first of equal keys: tree order breaks ties
-    let cursor = tasks
-        .iter()
-        .enumerate()
-        .min_by_key(|(_, t)| tree.get(t).and_then(Node::as_task).map(|t| t.due_date))
-        .map_or(0, |(i, _)| i);
+    let itself = PickItem {
+        label: node_name(tree, &container).into(),
+        note: Some("(no task)"),
+        value: PickValue::Task(None),
+    };
+    let tasks = tasks.iter().map(|task| PickItem {
+        label: (container.len() + 1..=task.len())
+            .filter_map(|end| tree.get(&task[..end]))
+            .map(Node::name)
+            .collect::<Vec<_>>()
+            .join(" / "),
+        note: None,
+        value: PickValue::Task(Some(task.clone())),
+    });
     Picker {
         title: format!("open {} for", node_name(tree, &container)),
-        items,
-        cursor,
+        items: std::iter::once(itself).chain(tasks).collect(),
+        cursor: 0,
         action: PickAction::Task { container, script },
     }
-}
-
-/// `no open task in cs101`
-fn no_open_task(node: &Node) -> String {
-    format!("no open task in {}", node.name())
 }
 
 /// The name of the node at `path`, "" if there is none (for messages).

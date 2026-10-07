@@ -61,7 +61,8 @@ A change that cannot be additive needs an issue first.
 |-------|------|
 | `src/model/` | the data: tree, nodes, settings, sessions. No I/O |
 | `src/persist.rs` | the `.udo.toml` files of the tree (atomic writes) |
-| `src/storage/` | recorded sessions in SQLite (`udo.db`) behind a `SessionStore` trait |
+| `src/storage/` | recorded data in SQLite (`udo.db`). Each component (`Session`, `Estimate`, ...) behind a `...Store` trait. |
+| `src/estimate/` | the estimate engine: estimates are calculated and picked here. |
 | `src/core/` | `Core`: every change goes through it (CLI and TUI alike) |
 | `src/cli/` | the commands, one file each in `src/cli/commands/` |
 | `src/tui/` | the terminal UI: `app/` state and keys (no terminal I/O, tested directly), `view/` drawing |

@@ -876,7 +876,7 @@ fn picker_app(names: &[&str], default: Option<&str>, cursor: usize) -> App<'stat
         .map(|&n| PickItem {
             label: n.into(),
             note: (Some(n) == default).then_some("(default)"),
-            value: PickValue::Task(vec![0]),
+            value: PickValue::Task(Some(vec![0])),
         })
         .collect();
     app.mode = Mode::Pick(Box::new(Picker {
