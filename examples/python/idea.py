@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""idea: open the node's folder in IntelliJ IDEA; the task is timed until
-that project window closes.
+"""idea: open the node's folder in IntelliJ IDEA; a task is timed until
+that project window closes, a container opened without a task is not
+timed.
 
 The Python twin of examples/run/idea.sh, line for line, for comparison.
 Returns at once (`track run --detach`), so the TUI is back right away.
@@ -18,18 +19,20 @@ refuses a name that two scripts share.
 
 import os
 import subprocess
-import sys
 import time
 
 env = os.environ
 
-task_id = env.get("UDO_TASK_ID", "")
-if not task_id:
-    sys.exit("UDO_TASK_ID: idea times a task (on a container: pick one)")
-
 app = "IntelliJ IDEA"
 settle = 5  # seconds: the process is up before it takes projects
 folder = env.get("UDO_NODE_DIR") or env["UDO_CONTAINER_DIR"]
+
+# no task (a container on its own): just open the folder, untimed. `open
+# -a` returns at once, running or not: no start-first, no settle (those
+# are only for `idea --wait`)
+task_id = env.get("UDO_TASK_ID", "")
+if not task_id:
+    os.execvp("open", ["open", "-a", app, folder])
 
 
 def running() -> bool:

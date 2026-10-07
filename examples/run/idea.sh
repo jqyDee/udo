@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# idea: open the node's folder in IntelliJ IDEA; the task is timed until
-# that project window closes. Returns at once (`track run --detach`), so
-# the TUI is back right away. macOS (`open -a`), the `idea` launcher on
-# PATH (Toolbox / Homebrew).
+# idea: open the node's folder in IntelliJ IDEA; a task is timed until
+# that project window closes, a container opened without a task is not
+# timed. Returns at once (`track run --detach`), so the TUI is back right
+# away. macOS (`open -a`), the `idea` launcher on PATH (Toolbox /
+# Homebrew).
 #
 #   cp examples/run/idea.sh ~/.config/udo/run/
 #   udo settings set code open_with=idea
@@ -10,11 +11,15 @@
 # One owner per task (idea:<task id>): two projects open at once do not
 # stop each other's session.
 set -euo pipefail
-: "${UDO_TASK_ID:?idea times a task (on a container: pick one)}"
 
 app="IntelliJ IDEA"
 settle=5 # seconds: the process is up before it takes projects
 dir=${UDO_NODE_DIR:-$UDO_CONTAINER_DIR}
+
+# no task (a container on its own): just open the folder, untimed. `open
+# -a` returns at once, running or not: no start-first, no settle (those
+# are only for `idea --wait`)
+[[ -n ${UDO_TASK_ID:-} ]] || exec open -a "$app" "$dir"
 
 # not running: `idea --wait` would become the IDE itself and only return
 # when all of IntelliJ quits. Start it first and give it time.

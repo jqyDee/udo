@@ -144,3 +144,21 @@ fn a_container_opens_its_folder_for_the_picked_task() {
     assert_eq!(s.logged(), format!("--new --wait {}\n", cs.display()));
     s.wait_stopped();
 }
+
+/// A container opened without a task: its folder in a window, untimed (no
+/// `track run`, so no `--wait`).
+#[test]
+#[ignore = "needs `udo run CONTAINER` without a task (#52, CLI part)"]
+fn a_container_without_a_task_opens_untimed() {
+    let s = Setup::new();
+    let cs = s.root.path().join("cs");
+    ok(
+        s.root.path(),
+        &["add", "project", "cs", "--dir", cs.to_str().unwrap()],
+    );
+
+    s.open("cs");
+
+    assert_eq!(s.logged(), format!("--new {}\n", cs.display()));
+    assert_eq!(s.running(), None);
+}

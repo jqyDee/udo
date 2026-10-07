@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""zed: open the node's folder in Zed; the task is timed until that window
-closes.
+"""zed: open the node's folder in Zed; a task is timed until that window
+closes, a container opened without a task is not timed.
 
 The Python twin of examples/run/zed.sh, line for line, for comparison.
 Returns at once (`track run --detach`), so the TUI is back right away.
@@ -19,15 +19,15 @@ name that two scripts share.
 """
 
 import os
-import sys
 
 env = os.environ
 
+folder = env.get("UDO_NODE_DIR") or env["UDO_CONTAINER_DIR"]
+
+# no task (a container on its own): just the window, untimed
 task_id = env.get("UDO_TASK_ID", "")
 if not task_id:
-    sys.exit("UDO_TASK_ID: zed times a task (on a container: pick one)")
-
-folder = env.get("UDO_NODE_DIR") or env["UDO_CONTAINER_DIR"]
+    os.execvp("zed", ["zed", "--new", folder])
 
 # the script becomes `udo track run` (`exec`)
 udo = env["UDO_BIN"]
