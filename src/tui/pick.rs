@@ -30,17 +30,19 @@ pub struct PickItem {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PickValue {
     Script(RunName),
-    Task(NodePath),
+    /// A task below the container; None: the container itself, no task.
+    Task(Option<NodePath>),
 }
 
 /// What Enter does with the picked value. Stored when the picker opens, so
 /// the pick applies to what was selected at that moment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PickAction {
-    /// `O`: which script opens `path`; then the task picker (container)
-    /// or `Flow::Run`.
+    /// `O`: which script opens `path`; then the task picker (container
+    /// with open tasks) or `Flow::Run`.
     Script { path: NodePath },
-    /// `o` / `O` on a container: which task below it the time goes to.
+    /// `o` / `O` on a container: which task below it the time goes to,
+    /// or none.
     Task {
         container: NodePath,
         script: RunName,

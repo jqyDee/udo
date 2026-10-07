@@ -40,14 +40,14 @@ impl App<'_> {
 
     /// Enter in a picker; it is closed already (`Mode::Normal`). Its
     /// `PickAction` says what comes next: a script goes on as `o` (on a
-    /// container: the task picker), a task runs.
+    /// container with open tasks: the task picker), a task (or none) runs.
     fn picked(&mut self, picker: Picker) -> Flow {
         // before `picker.action` moves out of it
         let value = picker.picked().clone();
         match (picker.action, value) {
             (PickAction::Script { path }, PickValue::Script(name)) => self.open_as(path, name),
             (PickAction::Task { container, script }, PickValue::Task(task)) => {
-                self.run_on(&container, &task, script)
+                self.run_on(&container, task.as_deref(), script)
             }
             (action, value) => unreachable!("{value:?} in a picker for {action:?}"),
         }
