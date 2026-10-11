@@ -147,6 +147,7 @@ mod tests {
     use crate::{
         model::{
             container::{Container, ContainerKind},
+            time::Minutes,
             tree::Tree,
         },
         test_util::{container, container_at, task},
@@ -246,6 +247,31 @@ mod tests {
         assert!(!text.contains("[header]") && !text.contains("[tasks.header]"));
         assert!(!text.contains("[tasks.task]"));
         assert!(!text.contains("description")); // None -> no line
+        assert!(!text.contains("estimate")); // None -> no line
+    }
+
+    #[test]
+    fn a_tasks_own_estimate_roundtrips() {
+        let mut node = container("w", vec![task("t")]);
+        let NodeBody::Task(t) = &mut node.children_mut().unwrap()[0].body else {
+            unreachable!("task() builds a task");
+        };
+        t.estimate = Some(Minutes::new(90));
+
+        let text = toml::to_string(&ContainerData::try_from(&node).unwrap()).unwrap();
+        assert!(text.contains("estimate = \"1h30\""), "got:\n{text}");
+        let back: ContainerData = toml::from_str(&text).unwrap();
+        assert_eq!(back.tasks[0].task.estimate, Some(Minutes::new(90)));
+    }
+
+    #[test]
+    fn a_task_row_without_estimate_loads() {
+        // written before #6: no `estimate` key
+        let node = container("w", vec![task("t")]);
+        let text = toml::to_string(&ContainerData::try_from(&node).unwrap()).unwrap();
+
+        let back: ContainerData = toml::from_str(&text).unwrap();
+        assert_eq!(back.tasks[0].task.estimate, None);
     }
 
     // ---------- [root] table ----------

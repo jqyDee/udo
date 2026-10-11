@@ -14,7 +14,7 @@ use crate::{
         node::{Node, NodePatch},
         sessions::Session,
         settings::TaskFolderSetting,
-        time::Time,
+        time::{self, Minutes, Time},
         tree::{PurgePlan, PurgeReport, TrashFn},
     },
 };
@@ -42,9 +42,26 @@ impl Core {
         Ok(path)
     }
 
-    /// Apply `patch` to the node at `path` (name checks as for `create`).
+    /// Apply `patch` to the node at `path` (name checks as for `create`). A
+    /// changed own estimate of a task goes into the history (#6; a failure
+    /// only warns, the edit stays).
     pub async fn edit(&mut self, path: &[usize], patch: NodePatch) -> Res<()> {
-        self.tree.edit(path, patch).await
+        let before = self.own_estimate(path);
+        self.tree.edit(path, patch).await?; // keeps the node at `path`
+        if self.own_estimate(path) != before {
+            // `edit` has no `now` (as `create`): a running session counts to now
+            self.record_estimate(path, Moment::Edited, time::now())
+                .await;
+        }
+        Ok(())
+    }
+
+    /// The own estimate of the task at `path`; `None`: not set, or no task.
+    fn own_estimate(&self, path: &[usize]) -> Option<Minutes> {
+        self.tree
+            .get(path)
+            .and_then(|n| n.as_task())
+            .and_then(|t| t.estimate)
     }
 
     /// Unregister the node at `path`; its files stay on disk. A timer on it

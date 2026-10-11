@@ -137,13 +137,18 @@ fn edit_task_is_prefilled_without_folder_rows() {
     let task = Task::new(Some("/uni/lab".into()), local_to_fixed(due).unwrap());
     let node = Node::task("lab 3".into(), task).with_description(Some("ex 1-4".into()));
 
-    let form = Form::edit_node(vec![0, 1], &node);
+    let form = Form::edit_node(vec![0, 1], &node, None);
 
     assert_eq!(form.title, "edit task · lab 3");
     assert_eq!(form.action, FormAction::EditNode { path: vec![0, 1] });
     assert_eq!(
         ids(&form),
-        [FieldId::Name, FieldId::Description, FieldId::Due]
+        [
+            FieldId::Name,
+            FieldId::Description,
+            FieldId::Due,
+            FieldId::Estimate
+        ]
     );
     assert_eq!(form.name(), "lab 3");
     assert_eq!(form.description(), "ex 1-4");
@@ -155,7 +160,7 @@ fn edit_task_is_prefilled_without_folder_rows() {
 #[test]
 fn edit_container_is_prefilled_with_its_kind() {
     let c = Container::new("/uni".into(), ContainerKind::Project);
-    let form = Form::edit_node(vec![0], &Node::container("uni".into(), c));
+    let form = Form::edit_node(vec![0], &Node::container("uni".into(), c), None);
 
     assert_eq!(form.title, "edit container · uni");
     assert_eq!(
@@ -174,7 +179,11 @@ fn create_and_edit_forms_share_field_order() {
         folder: FolderMode::Auto,
     };
     let create = Form::new_task(vec![], "root", None, defaults);
-    let edit = Form::edit_node(vec![0], &Node::task("t".into(), Task::new(None, now())));
+    let edit = Form::edit_node(
+        vec![0],
+        &Node::task("t".into(), Task::new(None, now())),
+        None,
+    );
     // edit = create without the folder rows
     let without_folder: Vec<_> = ids(&create)
         .into_iter()
@@ -185,7 +194,11 @@ fn create_and_edit_forms_share_field_order() {
 
 #[test]
 fn name_is_normalized_but_the_description_kept_raw() {
-    let mut form = Form::edit_node(vec![0], &Node::task("a".into(), Task::new(None, now())));
+    let mut form = Form::edit_node(
+        vec![0],
+        &Node::task("a".into(), Task::new(None, now())),
+        None,
+    );
     focus(&mut form, FieldId::Name);
     for c in "  b   c ".chars() {
         form.handle_key(press(KeyCode::Char(c)));
@@ -680,7 +693,7 @@ fn auto_container_without_a_name_is_refused() {
 fn node_edit_sends_every_field() {
     let due = dt(2026, 10, 15, 14, 30);
     let task = Task::new(None, local_to_fixed(due).unwrap());
-    let form = Form::edit_node(vec![0], &Node::task("lab 3".into(), task));
+    let form = Form::edit_node(vec![0], &Node::task("lab 3".into(), task), None);
 
     let patch = form.node_edit().unwrap();
 
@@ -691,17 +704,107 @@ fn node_edit_sends_every_field() {
         panic!("a task form patches the task");
     };
     assert_eq!(t.due_date, local_to_fixed(due));
+    assert_eq!(t.estimate, Some(None)); // blank: sent anyway, `Core::edit` sees no change
 }
 
 #[test]
 fn node_edit_of_a_container_patches_its_kind() {
     let c = Container::new("/uni".into(), ContainerKind::Project);
-    let form = Form::edit_node(vec![0], &Node::container("uni".into(), c));
+    let form = Form::edit_node(vec![0], &Node::container("uni".into(), c), None);
 
+    assert_eq!(form.estimate(), Ok(None)); // no estimate field
     let Some(BodyPatch::Container(c)) = form.node_edit().unwrap().body else {
         panic!("a container form patches the container");
     };
     assert_eq!(c.kind, Some(ContainerKind::Project));
+}
+
+// --------------- a task's own estimate (#6) ---------------
+
+/// Type `text` at the end of the field `id`.
+fn type_in(form: &mut Form, id: FieldId, text: &str) {
+    focus(form, id);
+    for c in text.chars() {
+        form.handle_key(press(KeyCode::Char(c)));
+    }
+}
+
+/// The placeholder of the text field `id`.
+fn placeholder(form: &Form, id: FieldId) -> Option<&str> {
+    match &form.fields.iter().find(|f| f.id == id)?.input {
+        FieldInput::Text(t) => t.placeholder.as_deref(),
+        _ => None,
+    }
+}
+
+/// An edit form for a task with the own estimate `own`, udo's `learned`.
+fn estimate_form(own: Option<u32>, learned: Option<u32>) -> Form {
+    let task = Task {
+        estimate: own.map(Minutes::new),
+        ..Task::new(None, now())
+    };
+    Form::edit_node(
+        vec![0],
+        &Node::task("lab".into(), task),
+        learned.map(Minutes::new),
+    )
+}
+
+#[test]
+fn estimate_is_prefilled_with_udos_as_placeholder() {
+    let form = estimate_form(Some(45), Some(80));
+    let blank = estimate_form(None, None);
+
+    assert_eq!(form.text_value(FieldId::Estimate), Some("45m"));
+    assert_eq!(placeholder(&form, FieldId::Estimate), Some("udo: 1h20"));
+    assert_eq!(blank.text_value(FieldId::Estimate), Some(""));
+    assert_eq!(placeholder(&blank, FieldId::Estimate), Some("optional"));
+    assert_eq!(FieldId::Estimate.format_hint(), Some(Minutes::EXAMPLES));
+}
+
+#[test]
+fn a_new_task_gets_the_typed_estimate() {
+    let defaults = TaskDefaults {
+        due: dt(2026, 10, 15, 14, 30),
+        folder: FolderMode::None,
+    };
+    let mut form = Form::new_task(vec![], "root", None, defaults);
+    type_in(&mut form, FieldId::Name, "lab");
+    type_in(&mut form, FieldId::Estimate, "1h30");
+
+    let node = form.new_task_node().unwrap();
+
+    assert_eq!(node.as_task().unwrap().estimate, Some(Minutes::new(90)));
+    assert_eq!(placeholder(&form, FieldId::Estimate), Some("optional"));
+}
+
+#[test]
+fn node_edit_sets_and_removes_the_estimate() {
+    let mut set = estimate_form(None, None);
+    type_in(&mut set, FieldId::Estimate, "1h30");
+    let mut cleared = estimate_form(Some(45), None);
+    focus(&mut cleared, FieldId::Estimate);
+    for _ in 0.."45m".len() {
+        cleared.handle_key(press(KeyCode::Backspace));
+    }
+
+    let estimate = |form: &Form| match form.node_edit().unwrap().body {
+        Some(BodyPatch::Task(t)) => t.estimate,
+        _ => panic!("a task form patches the task"),
+    };
+
+    assert_eq!(estimate(&set), Some(Some(Minutes::new(90))));
+    assert_eq!(estimate(&cleared), Some(None));
+}
+
+#[test]
+fn an_estimate_that_is_no_duration_is_an_error() {
+    let mut form = estimate_form(None, None);
+    type_in(&mut form, FieldId::Estimate, "90");
+
+    let want = "estimate: write durations like 1h30, 1h30m, 2h or 45m";
+    assert_eq!(form.node_edit().err().as_deref(), Some(want));
+    assert_eq!(form.new_task_node().err().as_deref(), Some(want));
 }
 
 // --------------- Session form ---------------

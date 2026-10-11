@@ -21,6 +21,11 @@ pub enum Reason {
     /// The task got its first session (the moment a done task's estimate
     /// is frozen at).
     Started,
+    /// Your own estimate was set or changed (#6).
+    Manual,
+    /// Your own estimate was removed: the row is what udo goes by then,
+    /// the learned one (#6).
+    Cleared,
 }
 
 /// A row to append; the store adds the id and the time.
@@ -47,6 +52,7 @@ impl NewEstimate {
         reason: Reason,
     ) -> Self {
         let (method, done_tasks, open_tasks, prior) = match estimate.basis {
+            Basis::Own => (method, 0, 0, None),
             Basis::Prior(p) => ("prior", 0, 0, Some(p.minutes())),
             Basis::Learned {
                 done_tasks,
@@ -115,6 +121,8 @@ impl fmt::Display for Reason {
         f.write_str(match self {
             Self::Created => "created",
             Self::Started => "started",
+            Self::Manual => "manual",
+            Self::Cleared => "cleared",
         })
     }
 }
@@ -126,6 +134,8 @@ impl FromStr for Reason {
         match s {
             "created" => Ok(Self::Created),
             "started" => Ok(Self::Started),
+            "manual" => Ok(Self::Manual),
+            "cleared" => Ok(Self::Cleared),
             other => Err(format!("unknown estimate reason: {other}")),
         }
     }
