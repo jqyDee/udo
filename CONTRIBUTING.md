@@ -15,11 +15,11 @@ cargo test --lib                    # unit tests only (fast)
 cargo test --test example_nvim_tmux # one integration test file
 scripts/test-linux.sh               # clippy + tests on Linux (Docker)
 scripts/seed-testdata.sh            # throwaway data in /tmp/udo-test
-UDO_ROOT=/tmp/udo-test cargo run    # the TUI on it
+cargo run                           # the TUI on /tmp/udo-test
 ```
 
-Never point a test or a try-out at your real data: set `UDO_ROOT` (the seed
-script refuses anything outside `/tmp`).
+Never point a test or a try-out at your real data, as this could break your
+installed personal version going forward.
 
 ## Branches
 
