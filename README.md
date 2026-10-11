@@ -72,7 +72,7 @@ the examples in [examples/run/](examples/run/).
 ```sh
 cargo test                  # unit + integration tests (real binary, PTY, tmux)
 scripts/seed-testdata.sh    # throwaway dataset in /tmp/udo-test
-UDO_ROOT=/tmp/udo-test cargo run
+cargo run                   # this always runs in /tmp/udo-test to keep personal data safe
 ```
 
 `TODO.md` has the plan and what is next.
