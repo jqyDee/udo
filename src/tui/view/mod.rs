@@ -22,7 +22,7 @@ use ratatui::{
 use std::collections::HashSet;
 
 use crate::{
-    estimate::{self, Estimate},
+    estimate::{self, Shown},
     model::{
         id::NodeId,
         node::Node,
@@ -50,9 +50,9 @@ pub struct ViewInfo<'a> {
     pub now: Time,
     /// Sessions of the node at the cursor (details: time rows).
     pub sessions: &'a [Session],
-    /// What udo estimates at the cursor (a task: its container's, without
-    /// itself); `estimate::of_node`.
-    pub estimate: Option<Estimate>,
+    /// What is shown at the cursor: a task's own estimate and udo's learned
+    /// one (its container's, without itself); `estimate::of_node`.
+    pub estimate: Shown,
     /// Page of the sessions tab (`page_len` already for this frame).
     pub session_list: SessionList,
     /// The keys go to the sessions list, not the tree, also under a form or
@@ -97,7 +97,8 @@ pub fn draw(frame: &mut Frame, app: &mut App, now: Time) {
         sessions: &app.sessions,
         estimate: tree
             .get(&app.tree_state.cursor)
-            .and_then(|n| estimate::of_node(n, &app.history)),
+            .map(|n| estimate::of_node(n, &app.history))
+            .unwrap_or_default(),
         session_list: app.session_list,
         tree_inactive: app.in_list(),
     };

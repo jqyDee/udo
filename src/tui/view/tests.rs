@@ -313,6 +313,41 @@ async fn task_time_rows_show_estimate_duration_and_left() {
     assert_eq!(field_row(&rows, "left").as_deref(), Some("48m"));
 }
 
+/// `estimate_tree(setting)` with lab [0, 0] estimated at 45m by you, 30m
+/// worked on it: the app with the cursor on lab.
+async fn app_with_own_estimate(setting: Option<u32>) -> App<'static> {
+    let mut tree = estimate_tree(setting);
+    let Some(NodeBody::Task(t)) = tree.get_mut(&[0, 0]).map(|n| &mut n.body) else {
+        panic!("lab is a task");
+    };
+    t.estimate = Some(Minutes::new(45));
+    let sessions: &[(&[usize], _, _)] = &[(&[0, 0], at(9, 0), at(9, 30))];
+    app_with_sessions(tree, &[0, 0], sessions).await
+}
+
+#[tokio::test]
+async fn own_estimate_shows_yours_and_udos() {
+    let mut app = app_with_own_estimate(Some(120)).await;
+
+    let rows = render_rows(&mut app);
+
+    assert_eq!(
+        field_row(&rows, "estimate").as_deref(),
+        Some("45m (yours, udo: 2h)")
+    );
+    assert_eq!(field_row(&rows, "left").as_deref(), Some("15m")); // from yours
+}
+
+#[tokio::test]
+async fn own_estimate_without_anything_learned() {
+    let mut app = app_with_own_estimate(None).await;
+
+    let rows = render_rows(&mut app);
+
+    assert_eq!(field_row(&rows, "estimate").as_deref(), Some("45m (yours)"));
+    assert_eq!(field_row(&rows, "left").as_deref(), Some("15m"));
+}
+
 #[tokio::test]
 async fn estimate_learned_from_done_tasks() {
     // uni 2h; sheet [0, 1] done with 1h: lab gets (3·120 + 60) / 4

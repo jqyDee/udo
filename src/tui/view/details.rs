@@ -177,24 +177,24 @@ fn setting_lines(tree: &Tree, settings: &[EffectiveSetting]) -> Vec<Line<'static
 }
 
 /// Estimate, duration and what is left (tasks); only duration (containers).
+/// Estimate: yours with udo's next to it (`1h30 (yours, udo: 1h20)`), else
+/// udo's with why. `left` goes by yours if set (`Shown::minutes`).
 fn time_lines(tree: &Tree, node: &Node, info: &ViewInfo) -> Vec<Line<'static>> {
     let time = TimeSummary::of(info.sessions, info.now);
     let duration = field("duration", time.to_string());
     let Some(task) = node.as_task() else {
         return vec![duration]; // container: no estimate, no left
     };
-    let estimate = match &info.estimate {
-        Some(e) => format!("{} ({})", e.minutes, basis_text(tree, &e.basis)),
-        None => "-".into(),
+    let estimate = match (info.estimate.own, &info.estimate.learned) {
+        (Some(own), Some(l)) => format!("{own} (yours, udo: {})", l.minutes),
+        (Some(own), None) => format!("{own} (yours)"),
+        (None, Some(e)) => format!("{} ({})", e.minutes, basis_text(tree, &e.basis)),
+        (None, None) => "-".into(),
     };
     let mut lines = vec![field("estimate", estimate), duration];
     if task.done_at.is_none() {
         lines.push(
-            match info
-                .estimate
-                .as_ref()
-                .map(|e| Left::of(e.minutes, time.duration))
-            {
+            match info.estimate.minutes().map(|m| Left::of(m, time.duration)) {
                 Some(Left::Left(m)) => field("left", m.to_string()),
                 Some(Left::Over(m)) => field("left", format!("over by {m}")).red(),
                 None => field("left", "-".into()),
@@ -300,7 +300,7 @@ fn count(n: usize, what: &str) -> String {
 /// Why the estimate is what it is, for the brackets after it: `learned
 /// from 6 done tasks`, `learned from 1 open task`, `learned from 5 done,
 /// 1 open` (both: short, it has to fit the details row), `from uni` (its
-/// setting), `from uni's tasks` (pooled).
+/// setting), `from uni's tasks` (pooled), `yours` (a task's own).
 /// A container no longer in the tree: `?` (never a panic in a draw).
 fn basis_text(tree: &Tree, basis: &Basis) -> String {
     let name = |id| {
@@ -309,6 +309,7 @@ fn basis_text(tree: &Tree, basis: &Basis) -> String {
             .unwrap_or_else(|| "?".into())
     };
     match basis {
+        Basis::Own => "yours".into(),
         Basis::Learned {
             done_tasks: d,
             open_tasks: 0,

@@ -859,6 +859,51 @@ async fn clearing_the_description_removes_it() {
     assert_eq!(app.core.tree().get(&[0]).unwrap().header.description, None);
 }
 
+/// `e` on the task at the cursor, Tab to `estimate` (name, description,
+/// due, estimate), type `text`, Enter.
+async fn edit_estimate(app: &mut App<'_>, text: &str) {
+    app.handle_key(key('e')).await;
+    for _ in 0..3 {
+        app.handle_key(press(KeyCode::Tab)).await;
+    }
+    app.handle_key(clear()).await;
+    type_into(app, text).await;
+    app.handle_key(press(KeyCode::Enter)).await;
+}
+
+#[tokio::test]
+async fn edit_sets_and_removes_the_own_estimate_on_disk() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = disk_tree(tmp.path()).await;
+    let mut app = test_app(t, state_at(&[0]));
+    let own = |tree: &Tree| tree.get(&[0]).and_then(Node::as_task).unwrap().estimate;
+
+    edit_estimate(&mut app, "1h30").await;
+    let reloaded = Tree::load_from(tmp.path()).await.unwrap();
+    assert_eq!(own(&reloaded), Some(Minutes::new(90)));
+    edit_estimate(&mut app, "").await;
+
+    let reloaded = Tree::load_from(tmp.path()).await.unwrap();
+    assert_eq!(own(&reloaded), None);
+    assert!(matches!(app.mode, Mode::Normal), "form closed");
+}
+
+#[tokio::test]
+async fn an_estimate_that_is_no_duration_keeps_the_form_open() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = disk_tree(tmp.path()).await;
+    let mut app = test_app(t, state_at(&[0]));
+
+    edit_estimate(&mut app, "90").await;
+
+    assert!(matches!(app.mode, Mode::Form(_)), "form closed on error");
+    let toast = app.toast.as_ref().unwrap();
+    assert_eq!(toast.kind, ToastKind::Error);
+    assert!(toast.msg.starts_with("estimate: "), "{}", toast.msg);
+    let task = app.core.tree().get(&[0]).and_then(Node::as_task).unwrap();
+    assert_eq!(task.estimate, None);
+}
+
 #[tokio::test]
 async fn edit_to_a_siblings_name_keeps_form_open_with_error() {
     let tmp = tempfile::tempdir().unwrap();

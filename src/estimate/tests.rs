@@ -3,7 +3,7 @@ use chrono::TimeDelta;
 use super::*;
 use crate::{
     model::{
-        node::Node,
+        node::{Node, NodeBody},
         sessions::{Session, TaskRef},
         task::Task,
         time::{self, Minutes, Time},
@@ -672,8 +672,11 @@ fn of_node_on_a_task_is_its_estimate() {
     let history = History::build(&tree, &sessions, at(23, 0));
     let b = tree.get(&[0, 1]).unwrap();
 
-    assert_eq!(of_node(b, &history), Average.estimate(b.id(), &history));
-    assert_eq!(of_node(b, &history).unwrap().minutes, Minutes::new(85));
+    let shown = of_node(b, &history);
+
+    assert_eq!(shown.learned, Average.estimate(b.id(), &history));
+    assert_eq!(shown.learned.unwrap().minutes, Minutes::new(85));
+    assert_eq!(shown.own, None);
 }
 
 #[test]
@@ -683,12 +686,12 @@ fn of_node_on_a_container_is_its_average() {
     let history = History::build(&tree, &sessions, at(23, 0));
     let cs = tree.get(&[0]).unwrap();
 
+    let shown = of_node(cs, &history);
+
     // a counts here: it is not the node being estimated
-    assert_eq!(
-        of_node(cs, &history),
-        Average.of_container(cs.id(), &history)
-    );
-    assert_eq!(of_node(cs, &history).unwrap().minutes, Minutes::new(85));
+    assert_eq!(shown.learned, Average.of_container(cs.id(), &history));
+    assert_eq!(shown.learned.unwrap().minutes, Minutes::new(85));
+    assert_eq!(shown.own, None); // containers have no own estimate
 }
 
 #[test]
@@ -981,8 +984,12 @@ fn a_done_tasks_estimate_does_not_change_later() {
     let h_before = History::build(&before, &s_before, at(12, 0));
     let h_after = History::build(&after, &s_after, at(16, 0));
 
-    let a_before = of_node(before.get(&[0, 0]).unwrap(), &h_before).unwrap();
-    let a_after = of_node(after.get(&[0, 0]).unwrap(), &h_after).unwrap();
+    let a_before = of_node(before.get(&[0, 0]).unwrap(), &h_before)
+        .learned
+        .unwrap();
+    let a_after = of_node(after.get(&[0, 0]).unwrap(), &h_after)
+        .learned
+        .unwrap();
 
     // at 8:00 nothing was done yet: the setting alone, both times
     assert_eq!(a_before.minutes, Minutes::new(120));
@@ -1021,7 +1028,9 @@ fn a_done_task_does_not_learn_from_later_tasks() {
     let (tree, sessions) = cs_done_in_turn();
     let history = History::build(&tree, &sessions, at(18, 0));
 
-    let a = of_node(tree.get(&[0, 1]).unwrap(), &history).unwrap();
+    let a = of_node(tree.get(&[0, 1]).unwrap(), &history)
+        .learned
+        .unwrap();
 
     // at a's first session (12:00) only b was done; c came later:
     // (3·60 + 120) / 4
@@ -1042,7 +1051,9 @@ fn open_tasks_still_use_todays_data() {
     let (tree, sessions) = cs_done_in_turn();
     let history = History::build(&tree, &sessions, at(18, 0));
 
-    let d = of_node(tree.get(&[0, 3]).unwrap(), &history).unwrap();
+    let d = of_node(tree.get(&[0, 3]).unwrap(), &history)
+        .learned
+        .unwrap();
 
     // all three done ones: (3·60 + 120 + 60 + 120) / 6
     assert_eq!(d.as_of, None);
@@ -1058,7 +1069,9 @@ fn a_task_done_without_sessions_freezes_at_its_creation() {
     )]);
     let history = History::build(&tree, &[], at(18, 0));
 
-    let z = of_node(tree.get(&[0, 0]).unwrap(), &history).unwrap();
+    let z = of_node(tree.get(&[0, 0]).unwrap(), &history)
+        .learned
+        .unwrap();
 
     assert_eq!(z.as_of, Some(at(9, 0)));
     assert_eq!(z.minutes, Minutes::new(60));
@@ -1069,7 +1082,215 @@ fn containers_are_not_frozen() {
     let (tree, sessions) = cs_done_in_turn();
     let history = History::build(&tree, &sessions, at(18, 0));
 
-    let cs = of_node(tree.get(&[0]).unwrap(), &history).unwrap();
+    let cs = of_node(tree.get(&[0]).unwrap(), &history).learned.unwrap();
 
     assert_eq!(cs.as_of, None);
+}
+
+// ---------- a task's own estimate (#6) ----------
+
+/// `node` (a task) with its own estimate.
+fn own(mut node: Node, minutes: u32) -> Node {
+    let NodeBody::Task(t) = &mut node.body else {
+        panic!("own estimates are for tasks");
+    };
+    t.estimate = Some(Minutes::new(minutes));
+    node
+}
+
+/// cs (1h30): a (done, 70m), b (open; its own estimate `own_b`). b learns
+/// (3·90 + 70) / 4 = 85.
+fn cs_with_b(own_b: Option<u32>) -> (Tree, History) {
+    let b = match own_b {
+        Some(m) => own(task("b"), m),
+        None => task("b"),
+    };
+    let tree = tree_with(vec![with_estimate(container("cs", vec![done("a"), b]), 90)]);
+    let sessions = [worked(&tree, &[0, 0], 70)];
+    let history = History::build(&tree, &sessions, at(23, 0));
+    (tree, history)
+}
+
+#[test]
+fn build_records_the_own_estimate() {
+    let (tree, history) = cs_with_b(Some(45));
+
+    let b = history.task(id(&tree, &[0, 1])).unwrap();
+    assert_eq!(b.own_estimate, Some(Minutes::new(45)));
+    let a = history.task(id(&tree, &[0, 0])).unwrap();
+    assert_eq!(a.own_estimate, None);
+}
+
+#[test]
+fn a_deleted_task_has_no_own_estimate() {
+    let gone = own(task("gone"), 45);
+    let cs = container("cs", vec![]);
+    let tree = tree_with(vec![cs]);
+    let sessions = [on_node(
+        &gone,
+        tree.get(&[0]).unwrap(),
+        at(9, 0),
+        Some(at(10, 0)),
+    )];
+
+    let history = History::build(&tree, &sessions, at(18, 0));
+
+    assert_eq!(history.task(gone.id()).unwrap().own_estimate, None);
+}
+
+#[test]
+fn as_of_keeps_the_own_estimate() {
+    let tree = tree_with(vec![container("cs", vec![early(own(task("lab"), 45))])]);
+    let history = History::build(&tree, &[], at(18, 0));
+
+    let then = history.as_of(at(8, 0));
+
+    // no history of it: the current value, also back then
+    let lab = then.task(id(&tree, &[0, 0])).unwrap();
+    assert_eq!(lab.own_estimate, Some(Minutes::new(45)));
+}
+
+#[test]
+fn manual_gives_the_own_estimate() {
+    let (tree, history) = cs_with_b(Some(45));
+
+    assert_eq!(
+        Manual.estimate(id(&tree, &[0, 1]), &history),
+        Some(Estimate {
+            minutes: Minutes::new(45),
+            basis: Basis::Own,
+            as_of: None,
+        })
+    );
+    assert_eq!(Manual.estimate(id(&tree, &[0, 0]), &history), None); // not set
+}
+
+#[test]
+fn average_ignores_own_estimates() {
+    // b's guess is no data: c learns from a's 70m and the setting only
+    let tree = tree_with(vec![with_estimate(
+        container("cs", vec![done("a"), own(task("b"), 10), task("c")]),
+        90,
+    )]);
+    let sessions = [worked(&tree, &[0, 0], 70)];
+    let history = History::build(&tree, &sessions, at(23, 0));
+
+    let c = Average.estimate(id(&tree, &[0, 2]), &history).unwrap();
+
+    assert_eq!(c.minutes, Minutes::new(85)); // (3·90 + 70) / 4
+    // and b itself still learns, as if it had no guess
+    let (plain, plain_history) = cs_with_b(None);
+    assert_eq!(
+        Average
+            .estimate(id(&tree, &[0, 1]), &history)
+            .unwrap()
+            .minutes,
+        Average
+            .estimate(id(&plain, &[0, 1]), &plain_history)
+            .unwrap()
+            .minutes
+    );
+}
+
+#[test]
+fn a_task_with_an_own_estimate_still_teaches_its_container() {
+    // a guessed 10m but took 70m: the 70m count for b
+    let tree = tree_with(vec![with_estimate(
+        container("cs", vec![own(done("a"), 10), task("b")]),
+        90,
+    )]);
+    let sessions = [worked(&tree, &[0, 0], 70)];
+    let history = History::build(&tree, &sessions, at(23, 0));
+
+    let b = Average.estimate(id(&tree, &[0, 1]), &history).unwrap();
+
+    assert_eq!(b.minutes, Minutes::new(85));
+}
+
+#[test]
+fn pick_takes_the_own_estimate_over_the_learned_one() {
+    let (tree, history) = cs_with_b(Some(45));
+
+    let (estimate, by) = pick(id(&tree, &[0, 1]), &history).unwrap();
+
+    assert_eq!(estimate.minutes, Minutes::new(45));
+    assert_eq!(estimate.basis, Basis::Own);
+    assert_eq!((by.method(), by.version()), ("manual", 1));
+}
+
+#[test]
+fn pick_without_an_own_estimate_is_the_average() {
+    let (tree, history) = cs_with_b(None);
+    let b = id(&tree, &[0, 1]);
+
+    let (estimate, by) = pick(b, &history).unwrap();
+
+    assert_eq!(Some(estimate), Average.estimate(b, &history));
+    assert_eq!(by.method(), "average");
+}
+
+#[test]
+fn pick_with_nothing_to_go_by_is_none() {
+    let tree = tree_with(vec![container("cs", vec![task("a")])]);
+    let history = History::build(&tree, &[], at(23, 0));
+
+    assert!(pick(id(&tree, &[0, 0]), &history).is_none());
+}
+
+#[test]
+fn of_node_on_a_task_shows_own_and_learned() {
+    let (tree, history) = cs_with_b(Some(45));
+    let b = tree.get(&[0, 1]).unwrap();
+
+    let shown = of_node(b, &history);
+
+    assert_eq!(shown.own, Some(Minutes::new(45)));
+    assert_eq!(shown.learned, Average.estimate(b.id(), &history)); // 85
+    assert_eq!(shown.minutes(), Some(Minutes::new(45))); // yours wins
+}
+
+#[test]
+fn of_node_on_a_done_task_shows_the_current_own_and_the_frozen_learned() {
+    // compilers (2h): a (own 1h40; 8:00 to 9:30, done 10:00), b (11:00 to
+    // 14:00, done 15:00)
+    let tree = tree_with(vec![with_estimate(
+        container(
+            "compilers",
+            vec![
+                own(early(done_task("a", at(10, 0))), 100),
+                early(done_task("b", at(15, 0))),
+            ],
+        ),
+        120,
+    )]);
+    let sessions = [
+        on(&tree, &[0, 0], at(8, 0), Some(at(9, 30))),
+        on(&tree, &[0, 1], at(11, 0), Some(at(14, 0))),
+    ];
+    let history = History::build(&tree, &sessions, at(16, 0));
+
+    let shown = of_node(tree.get(&[0, 0]).unwrap(), &history);
+
+    assert_eq!(shown.own, Some(Minutes::new(100)));
+    let learned = shown.learned.unwrap();
+    assert_eq!(learned.minutes, Minutes::new(120)); // at 8:00: the setting
+    assert_eq!(learned.as_of, Some(at(8, 0)));
+}
+
+#[test]
+fn shown_goes_by_the_same_estimate_as_pick() {
+    let tree = tree_with(vec![
+        with_estimate(container("cs", vec![own(task("b"), 45), task("c")]), 90),
+        container("misc", vec![own(task("d"), 30), task("e")]),
+    ]);
+    let history = History::build(&tree, &[], at(23, 0));
+
+    // b: own and learned, c: learned only, d: own only, e: neither
+    for path in [[0, 0], [0, 1], [1, 0], [1, 1]] {
+        let node = tree.get(&path).unwrap();
+        let picked = pick(node.id(), &history).map(|(e, _)| e.minutes);
+        assert_eq!(of_node(node, &history).minutes(), picked, "{}", node.name());
+    }
+    let e = of_node(tree.get(&[1, 1]).unwrap(), &history);
+    assert_eq!(e, Shown::default());
 }

@@ -1,5 +1,5 @@
-//! `udo add task NODE [--due] [--dir | --no-dir] [--description]
-//! [--no-run]`.
+//! `udo add task NODE [--due] [--estimate] [--dir | --no-dir]
+//! [--description] [--no-run]`.
 
 use std::path::{Path, PathBuf, absolute};
 
@@ -13,7 +13,12 @@ use crate::{
         resolve::{path_text, resolve_parent},
     },
     core::Core,
-    model::{NodePath, node::Node, task::Task, time::local_to_fixed},
+    model::{
+        NodePath,
+        node::Node,
+        task::Task,
+        time::{Minutes, local_to_fixed},
+    },
 };
 
 #[derive(clap::Args)]
@@ -24,6 +29,9 @@ pub struct AddTaskArgs {
     /// default: the container's default deadline
     #[arg(long, value_parser = parse::due)]
     pub due: Option<Due>,
+    /// Your own estimate, like 1h30, 2h or 45m; wins over the learned one
+    #[arg(long)]
+    pub estimate: Option<Minutes>,
     /// Folder for the task (relative to the current folder)
     #[arg(long, conflicts_with = "no_dir")]
     pub dir: Option<PathBuf>,
@@ -57,8 +65,11 @@ pub async fn run(
         (None, true) => None,
         (None, false) => core.tree().auto_task_dir(&parent, &name),
     };
-    let node =
-        Node::task(name, Task::new(dir.clone(), due)).with_description(args.description.clone());
+    let task = Task {
+        estimate: args.estimate, // set before `create`: its row is `manual`
+        ..Task::new(dir.clone(), due)
+    };
+    let node = Node::task(name, task).with_description(args.description.clone());
     let path = core.create(&parent, node).await?;
     let added = Added {
         what: "task".into(),
@@ -85,6 +96,7 @@ mod tests {
         AddTaskArgs {
             node: node.into(),
             due: None,
+            estimate: None,
             dir: None,
             no_dir: false,
             description: None,
@@ -175,6 +187,32 @@ mod tests {
             .unwrap();
 
         assert!(err.to_string().contains("not a container"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_task_with_its_own_estimate() {
+        let (tmp, mut core) = core().await;
+        let args = AddTaskArgs {
+            estimate: Some(Minutes::new(90)),
+            ..task_args("ws/lab 4")
+        };
+
+        let (path, _) = run(&mut core, tmp.path(), thursday_noon(), &args)
+            .await
+            .unwrap();
+
+        let task = core.tree().get(&path).and_then(|n| n.as_task()).unwrap();
+        assert_eq!(task.estimate, Some(Minutes::new(90)));
+    }
+
+    #[test]
+    fn estimate_is_parsed_as_a_duration() {
+        let parsed = Cli::try_parse_from(["udo", "add", "task", "x", "--estimate", "1h30"]);
+        let wrong = Cli::try_parse_from(["udo", "add", "task", "x", "--estimate", "90"]);
+
+        assert!(parsed.is_ok());
+        let err = wrong.err().unwrap().to_string();
+        assert!(err.contains("write durations like 1h30"), "{err}");
     }
 
     #[test]
