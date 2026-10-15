@@ -75,12 +75,16 @@ scripts/seed-testdata.sh    # throwaway dataset in /tmp/udo-test
 cargo run                   # this always runs in /tmp/udo-test to keep personal data safe
 ```
 
-`TODO.md` has the plan and what is next.
+Planned work and known bugs are tracked as
+[GitHub issues](https://github.com/jqyDee/udo/issues), grouped by
+[milestones](https://github.com/jqyDee/udo/milestones).
 
 ## Contributing
 
 Contributions are welcome: bug reports, ideas, fixes, and run configs for
-more tools. Before a pull request:
+more tools. Bug reports and ideas go into a
+[GitHub issue](https://github.com/jqyDee/udo/issues). Before a pull
+request:
 
 - `cargo fmt`, `cargo clippy --all-targets` without warnings, `cargo test`
   green

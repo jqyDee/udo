@@ -21,9 +21,20 @@ cargo run                           # the TUI on /tmp/udo-test
 Never point a test or a try-out at your real data, as this could break your
 installed personal version going forward.
 
+## Issues
+
+Bugs, ideas and planned work are tracked as
+[GitHub issues](https://github.com/jqyDee/udo/issues), grouped by
+[milestones](https://github.com/jqyDee/udo/milestones) (e.g. estimates
+and reports, timetable / scheduling, AI features). Look there for what is
+next; a bigger change starts as an issue, so it can be discussed first.
+
 ## Branches
 
 - `dev`: where work happens; pull requests go here
+- one branch per issue, off `dev`, named after it
+  (`9-show-estimate-vs-actual-per-task-and-container`, as GitHub's
+  "Create a branch" names it); the pull request links the issue
 - `main`: releases only, protected (pull requests with green checks). A
   release is cut on `dev` (`cargo release`, tag `vX.Y.Z`, which builds and
   publishes it), then `dev` is merged into `main` with a merge commit
