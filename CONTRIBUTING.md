@@ -16,7 +16,10 @@ cargo test --test example_nvim_tmux # one integration test file
 scripts/test-linux.sh               # clippy + tests on Linux (Docker)
 scripts/seed-testdata.sh            # throwaway data in /tmp/udo-test
 cargo run                           # the TUI on /tmp/udo-test
+cargo doc --document-private-items --open  # API docs
 ```
+
+How it fits together (layers, data, flows): [docs/architecture/](docs/architecture/).
 
 Never point a test or a try-out at your real data, as this could break your
 installed personal version going forward.
@@ -65,6 +68,8 @@ A change that cannot be additive needs an issue first.
 - scripts in `examples/run/` pass `shellcheck` (checked by
   `tests/example_lint.rs`), and each has its Python twin in
   `examples/python/`
+- a change to the layers, the stored data or a flow updates
+  `docs/architecture/` in the same pull request
 
 ## Layout
 
@@ -80,7 +85,7 @@ A change that cannot be additive needs an issue first.
 | `src/run/` | run configs: finding and launching scripts |
 | `tests/` | integration tests against the real binary (`tests/common/` helpers: fresh root, pseudo-terminal, fakes on `PATH`) |
 | `examples/` | run config examples, in bash and Python |
-| `docs/` | the run config guide; architecture diagrams (`docs/tree/*.puml`) |
+| `docs/` | the run config guide; the architecture (`docs/architecture/`, Mermaid diagrams) |
 
 ## Conventions
 
@@ -89,7 +94,8 @@ A change that cannot be additive needs an issue first.
 - **Recorded time is never lost.** Sessions are not deleted, also not with
   their task: the history feeds estimates.
 - **Every backend passes the same contract tests.** A new store implements
-  the trait and runs the shared contract (`store_contract!`).
+  the trait and runs the shared contract (`session_store_contract!`,
+  `estimate_store_contract!`).
 - **Tests use the real thing where it is cheap:** the real binary, a real
   tmux on a server of its own, a pseudo-terminal for the TUI. Fakes only
   for what cannot run in a test (GUI editors).

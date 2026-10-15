@@ -75,6 +75,8 @@ scripts/seed-testdata.sh    # throwaway dataset in /tmp/udo-test
 cargo run                   # this always runs in /tmp/udo-test to keep personal data safe
 ```
 
+How the code fits together: [docs/architecture/](docs/architecture/).
+
 Planned work and known bugs are tracked as
 [GitHub issues](https://github.com/jqyDee/udo/issues), grouped by
 [milestones](https://github.com/jqyDee/udo/milestones).
