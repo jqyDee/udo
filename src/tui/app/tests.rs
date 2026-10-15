@@ -2325,7 +2325,7 @@ async fn o_on_a_container_with_more_open_tasks_opens_the_task_picker() {
     assert_eq!(p.title, "open ws for");
     assert_eq!(
         labels(p),
-        ["ws", "b", "wk / c", "d"],
+        ["ws", "b", "d", "wk / c"],
         "ws itself, then paths below it in tree order"
     );
     assert_eq!(p.cursor, 0, "no task preselected, not the one due first");
@@ -2357,8 +2357,8 @@ async fn enter_in_the_task_picker_runs_for_the_picked_task() {
     let (ws, d) = (t.get(&[1]).unwrap().id(), t.get(&[1, 2]).unwrap().id());
     let mut app = test_app(t, state_at(&[1]));
     app.handle_key(key('o')).await;
-    for _ in 0..3 {
-        app.handle_key(key('j')).await; // ws -> b -> c -> d
+    for _ in 0..2 {
+        app.handle_key(key('j')).await; // ws -> b -> d (tasks before wk)
     }
 
     let Flow::Run(request) = app.handle_key(press(KeyCode::Enter)).await else {
