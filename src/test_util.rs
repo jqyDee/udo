@@ -163,17 +163,24 @@ pub async fn disk_tree() -> (TempDir, Tree) {
     (tmp, tree)
 }
 
-/// `disk_tree` in an existing `root_dir`.
+/// `disk_tree` in an existing `root_dir`. The tasks are created at 0:00 of
+/// `at`'s day, before every `at` time: `task()` takes the real now, which
+/// may lie after the sessions (`History::as_of` would drop them).
 pub async fn disk_tree_in(root_dir: &Path) -> Tree {
     let ws_dir = root_dir.join("ws");
     std::fs::create_dir(&ws_dir).unwrap();
+    let early = |name| {
+        let mut node = task(name);
+        node.header.created_at = at(0, 0);
+        node
+    };
     let tree = Tree::new(container_at(
         "root",
         root_dir,
         ContainerKind::Root,
         vec![
-            task("a"),
-            container_at("ws", &ws_dir, ContainerKind::Workspace, vec![task("b")]),
+            early("a"),
+            container_at("ws", &ws_dir, ContainerKind::Workspace, vec![early("b")]),
         ],
     ));
     tree.save(&[]).await.unwrap();
