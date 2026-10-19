@@ -39,7 +39,8 @@ flowchart TD
 - **`storage`** (`src/storage/`) keeps what is recorded over time
   (sessions, estimate rows) in `udo.db`, each behind a trait.
 - **`estimate`** (`src/estimate/`) computes estimates from a snapshot
-  (`History`); no I/O, no async.
+  (`History`), the totals per container and the texts shared by the TUI
+  and `udo show` ([what they mean](../estimates.md)); no I/O, no async.
 - **`run`** (`src/run/`) finds and starts run configs. udo starts no timer
   for a run: the scripts call `udo track` themselves
   ([run configs](../run-configs.md)).
@@ -48,5 +49,5 @@ flowchart TD
 
 1. [model.md](model.md): the tree in memory and on disk, the view state
 2. [storage.md](storage.md): sessions and estimate rows in `udo.db`
-3. [estimates.md](estimates.md): how an estimate is computed and recorded
+3. [estimates.md](estimates.md): how an estimate is computed, summed (totals) and recorded
 4. [flows.md](flows.md): load, create, edit, delete, save, the timer

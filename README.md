@@ -52,12 +52,22 @@ udo stop                    # nothing for the node of the current folder
 udo session list            # recorded time, last 7 days
 udo edit "lab 3" --estimate 2h
 udo estimate "lab 3"        # yours (if set), what udo learned, and why
+udo show uni                # estimated, tracked and left over its tasks
+udo ls -t                   # the tree with tracked/estimate per row
 udo settings set uni open_with=nvim-tmux
 udo run "lab 3"             # open it with its run config
 ```
 
 `--json` on any command prints the result as JSON; `udo help <command>`
 explains the rest.
+
+## Estimates
+
+udo learns how long a task takes from the time you tracked on similar
+tasks, or goes by your own estimate, and shows it next to the tracked
+time: `left` on open tasks, `result` on done ones, and sums per container.
+What every row means and how it is computed:
+[docs/estimates.md](docs/estimates.md).
 
 ## Run configs
 
