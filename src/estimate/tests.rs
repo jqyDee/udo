@@ -884,6 +884,33 @@ fn as_of_drops_tasks_created_later() {
 }
 
 #[test]
+fn task_lookup_agrees_with_a_scan() {
+    // tree order is not `tasks()` order, plus a deleted task: the index
+    // has to follow the sort, and be rebuilt by `as_of`
+    let late = created(task("late"), at(11, 0));
+    let early = created(task("early"), at(10, 0));
+    let tree = tree_with(vec![container("cs", vec![late, early])]);
+    let old = task("old");
+    let sessions = [on_node(
+        &old,
+        tree.get(&[0]).unwrap(),
+        at(9, 0),
+        Some(at(9, 30)),
+    )];
+    let history = History::build(&tree, &sessions, at(18, 0));
+    let then = history.as_of(at(10, 30)); // "late" not created yet
+
+    for h in [&history, &then] {
+        for rec in h.tasks() {
+            assert_eq!(h.task(rec.id), Some(rec));
+        }
+    }
+    assert_eq!(then.tasks().len(), 2);
+    assert_eq!(then.task(id(&tree, &[0, 0])), None);
+    assert_eq!(history.task(task("unknown").id()), None);
+}
+
+#[test]
 fn as_of_cuts_sessions_at_t() {
     let tree = tree_with(vec![container("cs", vec![early(task("lab"))])]);
     let sessions = [
