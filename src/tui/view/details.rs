@@ -12,7 +12,9 @@ use ratatui::{
 
 use crate::{
     DATE_FMT,
-    estimate::{Basis, Prior},
+    estimate::text::{
+        done_text, estimate_text, estimated_text, left_text, result_text, totals_left_text,
+    },
     model::{
         node::{Node, NodeBody},
         sessions::{Session, SessionSource, TimeSummary},
@@ -176,30 +178,40 @@ fn setting_lines(tree: &Tree, settings: &[EffectiveSetting]) -> Vec<Line<'static
         .collect()
 }
 
-/// Estimate, duration and what is left (tasks); only duration (containers).
-/// Estimate: yours with udo's next to it (`1h30 (yours, udo: 1h20)`), else
-/// udo's with why. `left` goes by yours if set (`Shown::minutes`).
+/// A task: estimate, duration, then `left` (open) or `result` (done, only
+/// with an estimate). A container: estimated, duration, left, done, from
+/// its `Totals` (`left` / `done` only with estimated tasks). Texts from
+/// `estimate::text` (shared with `udo show`), colour here: over is red.
+/// `left` goes by yours if set (`Shown::minutes`).
 fn time_lines(tree: &Tree, node: &Node, info: &ViewInfo) -> Vec<Line<'static>> {
     let time = TimeSummary::of(info.sessions, info.now);
     let duration = field("duration", time.to_string());
     let Some(task) = node.as_task() else {
-        return vec![duration]; // container: no estimate, no left
+        let Some(t) = &info.totals else {
+            return vec![duration]; // never: a container always has totals
+        };
+        let mut lines = vec![field("estimated", estimated_text(t)), duration];
+        lines.extend(totals_left_text(t).map(|s| field("left", s)));
+        lines.extend(done_text(t).map(|s| field("done", s)));
+        return lines;
     };
-    let estimate = match (info.estimate.own, &info.estimate.learned) {
-        (Some(own), Some(l)) => format!("{own} (yours, udo: {})", l.minutes),
-        (Some(own), None) => format!("{own} (yours)"),
-        (None, Some(e)) => format!("{} ({})", e.minutes, basis_text(tree, &e.basis)),
-        (None, None) => "-".into(),
-    };
+    let estimate = estimate_text(tree, &info.estimate);
     let mut lines = vec![field("estimate", estimate), duration];
     if task.done_at.is_none() {
         lines.push(
             match info.estimate.minutes().map(|m| Left::of(m, time.duration)) {
-                Some(Left::Left(m)) => field("left", m.to_string()),
-                Some(Left::Over(m)) => field("left", format!("over by {m}")).red(),
+                Some(left @ Left::Over(_)) => field("left", left_text(left)).red(),
+                Some(left) => field("left", left_text(left)),
                 None => field("left", "-".into()),
             },
         );
+    } else if let Some(estimate) = info.estimate.minutes() {
+        let result = field("result", result_text(estimate, time.duration));
+        lines.push(if time.duration > estimate {
+            result.red()
+        } else {
+            result
+        });
     }
     lines
 }
@@ -286,48 +298,4 @@ fn fit(name: &str, width: usize) -> String {
     }
     let cut: String = name.chars().take(width.saturating_sub(1)).collect();
     format!("{cut}…")
-}
-
-/// `1 done task`, `2 open tasks` (for `basis_text`).
-fn count(n: usize, what: &str) -> String {
-    if n == 1 {
-        format!("1 {what} task")
-    } else {
-        format!("{n} {what} tasks")
-    }
-}
-
-/// Why the estimate is what it is, for the brackets after it: `learned
-/// from 6 done tasks`, `learned from 1 open task`, `learned from 5 done,
-/// 1 open` (both: short, it has to fit the details row), `from uni` (its
-/// setting), `from uni's tasks` (pooled), `yours` (a task's own).
-/// A container no longer in the tree: `?` (never a panic in a draw).
-fn basis_text(tree: &Tree, basis: &Basis) -> String {
-    let name = |id| {
-        tree.path_of(id)
-            .and_then(|p| tree.get(&p).map(|n| n.name().to_string()))
-            .unwrap_or_else(|| "?".into())
-    };
-    match basis {
-        Basis::Own => "yours".into(),
-        Basis::Learned {
-            done_tasks: d,
-            open_tasks: 0,
-            ..
-        } => format!("learned from {}", count(*d, "done")),
-        Basis::Learned {
-            done_tasks: 0,
-            open_tasks: o,
-            ..
-        } => format!("learned from {}", count(*o, "open")),
-        Basis::Learned {
-            done_tasks: d,
-            open_tasks: o,
-            ..
-        } => format!("learned from {d} done, {o} open"), // short: the row is narrow
-        Basis::Prior(Prior::Setting { container, .. }) => format!("from {}", name(*container)),
-        Basis::Prior(Prior::Parent { container, .. }) => {
-            format!("from {}'s tasks", name(*container))
-        }
-    }
 }

@@ -54,6 +54,8 @@ struct ContainerInfo {
 #[derive(Debug, Clone, Default)]
 pub struct History {
     tasks: Vec<TaskRecord>,
+    /// `tasks` position by id, for `task`.
+    index: HashMap<NodeId, usize>,
     containers: HashMap<NodeId, ContainerInfo>,
     /// Each task's sessions, for `as_of`.
     spans: HashMap<NodeId, Vec<Span>>,
@@ -100,6 +102,7 @@ impl History {
             history.spans.insert(id, sum.spans);
         }
         history.tasks.sort_by_key(|t| (t.created_at, t.id));
+        history.reindex();
         history
     }
 
@@ -135,11 +138,14 @@ impl History {
                 record
             })
             .collect();
-        Self {
+        let mut h = Self {
             tasks,
+            index: HashMap::new(),
             containers: self.containers.clone(),
             spans,
-        }
+        };
+        h.reindex();
+        h
     }
 
     /// All tasks, oldest first (`created_at`, then id).
@@ -153,7 +159,7 @@ impl History {
     }
 
     pub fn task(&self, id: NodeId) -> Option<&TaskRecord> {
-        self.tasks().iter().find(|t| t.id == id)
+        self.index.get(&id).map(|&i| &self.tasks[i])
     }
 
     /// `None`: the root, or an unknown container.
@@ -177,6 +183,17 @@ impl History {
             cur = self.parent(c);
         }
         false
+    }
+
+    /// Rebuilds index from tasks; call after every change to tasks. This makes
+    /// lookup O(1).
+    fn reindex(&mut self) {
+        self.index = self
+            .tasks
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (t.id, i))
+            .collect();
     }
 
     /// Containers into `containers`, tasks into `tasks`; takes each task's sum
