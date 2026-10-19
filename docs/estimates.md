@@ -45,13 +45,30 @@ open, with 3h55: more than 3h, so it counts at half weight.
 ### Done tasks keep the estimate of their start
 
 A done task's learned estimate is **frozen at its first session** (no
-session: at its creation): it is
-what udo estimated when you started the task, computed on what was known
-then. Tasks done later do not change it. So `result` compares the
-estimate you started with to the time it really took. A task finished
-before udo had anything to learn from has no estimate (`-`) and no
-`result`. Your own estimate is never frozen: it is always the current
-value.
+session: at its creation): it is what udo estimated when you started the
+task, computed on what was known then. Tasks done later do not change it.
+So `result` compares the estimate you started with to the time it really
+took. A task finished before udo had anything to learn from has no
+estimate (`-`) and no `result`. Your own estimate is never frozen: it is
+always the current value.
+
+Work logged afterwards counts as of when it happened. A session added
+back-dated is a task's first session even if it lies before the task was
+created, and the task counts as existing from then on. So a task created
+today for yesterday's work is frozen at yesterday's session, and learns
+from what was done before it.
+
+For that, "done" can be back-dated too:
+
+```sh
+udo done "lab 3" --at "2026-10-17 18:00"   # or --at -2h
+```
+
+`--at` refuses a time in the future, a time before one of the task's
+sessions ended, a task whose timer still runs, and a task already done.
+`-f` / `--force` stops the running timer at that time, or changes the done
+time of a task already done. A timer that started after `--at` is never
+stopped: the session would end before it began.
 
 ## A task
 
