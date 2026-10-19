@@ -16,11 +16,12 @@ use crate::cli::{
 use crate::{
     DATE_FMT, Res,
     core::Core,
+    estimate::{Shown as Estimated, Totals, text},
     model::{
         id::NodeId,
         node::NodeBody,
         sessions::TimeSummary,
-        time::{Minutes, Time},
+        time::{Left, Minutes, Time},
     },
 };
 
@@ -31,7 +32,8 @@ pub struct ShowArgs {
 }
 
 /// One node in detail. Containers have `kind`, tasks `status`, `due` and
-/// `overdue`.
+/// `overdue`. Estimate vs. actual (#9): tasks have `estimate`, `own`,
+/// `learned` and `diff`, containers the totals of their tasks.
 #[derive(Serialize)]
 pub struct Shown {
     /// The plain ID; as NODE: `id:<this>` (survives renames).
@@ -53,6 +55,76 @@ pub struct Shown {
     pub sessions: usize,
     /// The timer runs on this task (or on one below this container).
     pub running: bool,
+    /// A task's estimate; its keys sit at the top level of the JSON.
+    #[serde(flatten)]
+    pub task_estimate: Option<TaskEstimate>,
+    /// A container's totals; its keys sit at the top level of the JSON.
+    #[serde(flatten)]
+    pub container_estimate: Option<ContainerEstimate>,
+}
+
+/// A task's estimate next to its tracked time (#9). JSON: minutes, `null`
+/// where there is none.
+#[derive(Serialize)]
+pub struct TaskEstimate {
+    /// What udo goes by: yours, else the learned one.
+    pub estimate: Option<u32>,
+    pub own: Option<u32>,
+    pub learned: Option<u32>,
+    /// Tracked minus `estimate`, signed: positive is over.
+    pub diff: Option<i64>,
+    /// The `estimate:` line; made in `run` (it names containers: needs the
+    /// tree, `Display` has none).
+    #[serde(skip)]
+    pub line: String,
+    /// Done: a `result:` line instead of `left:`.
+    #[serde(skip)]
+    pub done: bool,
+}
+
+impl TaskEstimate {
+    fn of(shown: &Estimated, line: String, done: bool, tracked: Minutes) -> Self {
+        let estimate = shown.minutes().map(Minutes::get);
+        Self {
+            estimate,
+            own: shown.own.map(Minutes::get),
+            learned: shown.learned.map(|e| e.minutes.get()),
+            diff: estimate.map(|e| i64::from(tracked.get()) - i64::from(e)),
+            line,
+            done,
+        }
+    }
+}
+
+/// A container's sums over the tasks below it (`estimate::Totals`), in
+/// minutes for the JSON.
+#[derive(Serialize)]
+pub struct ContainerEstimate {
+    pub estimated: u32,
+    pub estimated_tasks: usize,
+    pub tasks: usize,
+    pub left: u32,
+    pub over: usize,
+    pub done_estimated: u32,
+    pub done_actual: u32,
+    /// For the text lines (`estimate::text`).
+    #[serde(skip)]
+    pub totals: Totals,
+}
+
+impl From<Totals> for ContainerEstimate {
+    fn from(t: Totals) -> Self {
+        Self {
+            estimated: t.estimated.get(),
+            estimated_tasks: t.estimated_tasks,
+            tasks: t.tasks,
+            left: t.left.get(),
+            over: t.over,
+            done_estimated: t.done_estimated.get(),
+            done_actual: t.done_actual.get(),
+            totals: t,
+        }
+    }
 }
 
 /// The details of `args.node`, sessions timed up to `now`.
@@ -77,6 +149,15 @@ pub async fn run(core: &Core, cwd: &Path, now: Time, args: &ShowArgs) -> Res<Sho
             )
         }
     };
+    let (task_estimate, container_estimate) = match &node.body {
+        NodeBody::Task(t) => {
+            let shown = core.estimate(&path, now).await?;
+            let line = text::estimate_text(tree, &shown);
+            let e = TaskEstimate::of(&shown, line, t.done_at.is_some(), summary.duration);
+            (Some(e), None)
+        }
+        NodeBody::Container(_) => (None, Some(core.totals(&path, now).await?.into())),
+    };
     Ok(Shown {
         id: node.id(),
         path: path_text(tree, &path),
@@ -90,6 +171,8 @@ pub async fn run(core: &Core, cwd: &Path, now: Time, args: &ShowArgs) -> Res<Sho
         minutes: summary.duration.get(),
         sessions: summary.sessions,
         running: summary.running,
+        task_estimate,
+        container_estimate,
     })
 }
 
@@ -123,12 +206,38 @@ impl fmt::Display for Shown {
             line(f, "description", description)?;
         }
 
+        // as the TUI details: estimate, tracked, then left / result / done
+        if let Some(e) = &self.task_estimate {
+            line(f, "estimate", &e.line)?;
+        }
+        if let Some(c) = &self.container_estimate {
+            line(f, "estimated", &text::estimated_text(&c.totals))?;
+        }
         let tracked = TimeSummary {
             duration: Minutes::new(self.minutes),
             sessions: self.sessions,
             running: self.running,
         };
-        line(f, "tracked", &tracked)
+        line(f, "tracked", &tracked)?;
+
+        if let Some(e) = &self.task_estimate {
+            let tracked = Minutes::new(self.minutes);
+            match (e.estimate.map(Minutes::new), e.done) {
+                (Some(est), true) => line(f, "result", &text::result_text(est, tracked))?,
+                (Some(est), false) => line(f, "left", &text::left_text(Left::of(est, tracked)))?,
+                (None, false) => line(f, "left", &"-")?,
+                (None, true) => {} // done without an estimate: nothing to compare
+            }
+        }
+        if let Some(c) = &self.container_estimate {
+            if let Some(left) = text::totals_left_text(&c.totals) {
+                line(f, "left", &left)?;
+            }
+            if let Some(done) = text::done_text(&c.totals) {
+                line(f, "done", &done)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -139,6 +248,10 @@ mod tests {
     use super::*;
     use crate::{
         cli::report::render,
+        model::{
+            node::{BodyPatch, NodePatch},
+            task::TaskPatch,
+        },
         test_util::{at, core, local}, // core: disk_tree, root: [a, ws: [b]]
     };
 
@@ -146,6 +259,134 @@ mod tests {
         ShowArgs {
             node: Some(node.into()),
         }
+    }
+
+    /// Set the own estimate of the task at `path` (through `Core::edit`).
+    async fn set_own(core: &mut Core, path: &[usize], minutes: u32) {
+        let patch = NodePatch {
+            body: Some(BodyPatch::Task(TaskPatch {
+                estimate: Some(Some(Minutes::new(minutes))),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        core.edit(path, patch).await.unwrap();
+    }
+
+    /// `udo show NODE` at 12:00, as text and as JSON.
+    async fn both(core: &Core, cwd: &Path, node: &str) -> (String, serde_json::Value) {
+        let shown = run(core, cwd, at(12, 0), &named(node)).await.unwrap();
+        let json = serde_json::from_str(&render(&shown, true).unwrap()).unwrap();
+        (shown.to_string(), json)
+    }
+
+    #[tokio::test]
+    async fn an_open_task_shows_its_estimate_and_what_is_left() {
+        // b: yours 1h30, 20m tracked
+        let (tmp, mut core) = core().await;
+        set_own(&mut core, &[1, 0], 90).await;
+        core.add_session(&[1, 0], at(9, 0), at(9, 20), at(12, 0))
+            .await
+            .unwrap();
+
+        let (text, json) = both(&core, tmp.path(), "b").await;
+
+        assert!(text.contains("\nestimate:    1h30 (yours)\n"), "{text}");
+        assert!(text.ends_with("\nleft:        1h10"), "{text}");
+        assert_eq!(json["estimate"], 90);
+        assert_eq!(json["own"], 90);
+        assert_eq!(json["diff"], -70);
+        assert!(json["learned"].is_null()); // nothing to learn from
+        assert!(json.get("estimated").is_none()); // a container's key
+    }
+
+    #[tokio::test]
+    async fn a_task_without_an_estimate_has_nulls_and_no_left() {
+        let (tmp, core) = core().await;
+
+        let (text, json) = both(&core, tmp.path(), "b").await;
+
+        assert!(text.contains("\nestimate:    -\n"), "{text}");
+        assert!(text.ends_with("\nleft:        -"), "{text}");
+        for key in ["estimate", "own", "learned", "diff"] {
+            assert!(json[key].is_null(), "{key}: {json}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_done_task_shows_its_result() {
+        // b: yours 1h, done after 1h20
+        let (tmp, mut core) = core().await;
+        set_own(&mut core, &[1, 0], 60).await;
+        core.add_session(&[1, 0], at(9, 0), at(10, 20), at(12, 0))
+            .await
+            .unwrap();
+        core.set_done(&[1, 0], true, at(11, 0)).await.unwrap();
+
+        let (text, json) = both(&core, tmp.path(), "b").await;
+
+        assert!(text.ends_with("\nresult:      over by 20m"), "{text}");
+        assert!(!text.contains("\nleft:"), "{text}");
+        assert_eq!(json["diff"], 20);
+    }
+
+    #[tokio::test]
+    async fn a_container_shows_the_totals() {
+        // ws: [b (yours 1h, 20m tracked)]
+        let (tmp, mut core) = core().await;
+        set_own(&mut core, &[1, 0], 60).await;
+        core.add_session(&[1, 0], at(9, 0), at(9, 20), at(12, 0))
+            .await
+            .unwrap();
+
+        let (text, json) = both(&core, tmp.path(), "ws").await;
+
+        assert!(
+            text.contains("\nestimated:   1h (1 of 1 tasks)\n"),
+            "{text}"
+        );
+        assert!(text.ends_with("\nleft:        40m"), "{text}"); // no done row
+        assert_eq!(json["estimated"], 60);
+        assert_eq!(json["estimated_tasks"], 1);
+        assert_eq!(json["tasks"], 1);
+        assert_eq!(json["left"], 40);
+        assert_eq!(json["over"], 0);
+        assert_eq!(json["done_estimated"], 0);
+        assert!(json.get("own").is_none()); // a task's key
+    }
+
+    #[tokio::test]
+    async fn a_container_with_done_tasks_compares_them() {
+        // ws: [b (yours 1h, done after 1h20)]
+        let (tmp, mut core) = core().await;
+        set_own(&mut core, &[1, 0], 60).await;
+        core.add_session(&[1, 0], at(9, 0), at(10, 20), at(12, 0))
+            .await
+            .unwrap();
+        core.set_done(&[1, 0], true, at(11, 0)).await.unwrap();
+
+        let (text, json) = both(&core, tmp.path(), "ws").await;
+
+        assert!(
+            text.ends_with(
+                "\nleft:        0m\ndone:        1h estimated, 1h20 tracked (over by 20m)"
+            ),
+            "{text}"
+        );
+        assert_eq!(json["done_estimated"], 60);
+        assert_eq!(json["done_actual"], 80);
+    }
+
+    #[tokio::test]
+    async fn a_container_without_estimates_has_no_left_or_done() {
+        let (tmp, core) = core().await;
+
+        let (text, _) = both(&core, tmp.path(), "ws").await;
+
+        assert!(
+            text.ends_with("\nestimated:   - (0 of 1 tasks)\ntracked:     0m in 0 sessions"),
+            "{text}"
+        );
     }
 
     #[tokio::test]
@@ -259,6 +500,8 @@ mod tests {
             minutes: 72,
             sessions: 1,
             running: true,
+            task_estimate: None,
+            container_estimate: None,
         };
 
         assert_eq!(
@@ -288,6 +531,8 @@ mod tests {
             minutes: 0,
             sessions: 0,
             running: false,
+            task_estimate: None,
+            container_estimate: None,
         };
 
         assert!(

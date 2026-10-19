@@ -1470,3 +1470,74 @@ fn an_empty_container_is_all_zero() {
 
     assert_eq!(totals_of(&tree, &[], &[0]), Totals::default());
 }
+
+// ---------- speed ----------
+
+/// When task `i` of a course starts: one after another, 50m each from 8:00,
+/// so a done task's frozen estimate has the ones done before it.
+fn slot(i: usize) -> Time {
+    at(8, 0) + TimeDelta::minutes(i as i64 * 50)
+}
+
+/// 3 workspaces × 10 courses × 10 tasks (every other one done, right after
+/// its sessions), 10 sessions each: 300 tasks, 3000 sessions. ws0 has an
+/// `estimate` setting (its `prior` stops there), the others walk up to the
+/// root.
+fn big_tree() -> (Tree, Vec<Session>) {
+    let course = |w: usize, c: usize| {
+        let tasks = (0..10)
+            .map(|i| {
+                let name = format!("t{w}-{c}-{i}");
+                early(if i % 2 == 0 {
+                    done_task(&name, slot(i) + TimeDelta::minutes(49))
+                } else {
+                    task(&name)
+                })
+            })
+            .collect();
+        container(&format!("c{w}-{c}"), tasks)
+    };
+    let ws = |w: usize| {
+        let ws = container(&format!("ws{w}"), (0..10).map(|c| course(w, c)).collect());
+        if w == 0 { with_estimate(ws, 90) } else { ws }
+    };
+    let tree = tree_with((0..3).map(ws).collect());
+
+    let mut sessions = Vec::new();
+    for w in 0..3 {
+        for c in 0..10 {
+            for t in 0..10 {
+                for s in 0..10 {
+                    let start = slot(t) + TimeDelta::minutes(s * 5);
+                    let end = start + TimeDelta::minutes(3);
+                    sessions.push(on(&tree, &[w, c, t], start, Some(end)));
+                }
+            }
+        }
+    }
+    (tree, sessions)
+}
+
+/// What the TUI pays on every key (`reload`): the history and every task's
+/// estimate. By hand, in release:
+/// `cargo test --release estimates_build_is_fast -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn estimates_build_is_fast() {
+    let (tree, sessions) = big_tree();
+
+    let start = std::time::Instant::now();
+    let history = History::build(&tree, &sessions, at(23, 0));
+    let estimates = Estimates::build(&tree, &history);
+    let took = start.elapsed();
+
+    println!("300 tasks, 3000 sessions: {took:?}");
+    // really estimated: an open and a done task (frozen), in a ws without
+    // a setting
+    assert!(estimates.get(id(&tree, &[1, 0, 1])).minutes().is_some());
+    assert!(estimates.get(id(&tree, &[1, 0, 2])).minutes().is_some());
+    // the budget is for release (what is installed); debug is ~10× slower
+    if !cfg!(debug_assertions) {
+        assert!(took < std::time::Duration::from_millis(50), "{took:?}");
+    }
+}
