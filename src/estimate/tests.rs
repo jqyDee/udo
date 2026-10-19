@@ -890,6 +890,23 @@ fn as_of_drops_tasks_created_later() {
     assert_eq!(then.task(id(&tree, &[0, 1])), None);
 }
 
+/// Back-dated work counts as of when it happened (#67): a task with a
+/// session before its creation is there from that session on.
+#[test]
+fn as_of_keeps_a_task_from_its_back_dated_session() {
+    let tree = tree_with(vec![container(
+        "cs",
+        vec![created(task("logged"), at(12, 0))], // created after the work
+    )]);
+    let sessions = [on(&tree, &[0, 0], at(9, 0), Some(at(10, 0)))];
+    let history = History::build(&tree, &sessions, at(18, 0));
+    let logged = id(&tree, &[0, 0]);
+
+    let after_the_work = history.as_of(at(10, 30)).task(logged).cloned();
+    assert_eq!(after_the_work.unwrap().actual, Minutes::new(60));
+    assert_eq!(history.as_of(at(8, 0)).task(logged), None); // before the work
+}
+
 #[test]
 fn task_lookup_agrees_with_a_scan() {
     // tree order is not `tasks()` order, plus a deleted task: the index
@@ -966,11 +983,11 @@ fn as_of_twice_is_as_of_the_earlier() {
 }
 
 #[test]
-fn frozen_at_is_the_first_session_but_never_before_creation() {
+fn frozen_at_is_the_first_session_else_creation() {
     let tree = tree_with(vec![container(
         "cs",
         vec![
-            created(task("x"), at(10, 0)), // a session added by hand before it
+            created(task("x"), at(10, 0)), // a session back-dated before it
             early(task("y")),
             created(task("z"), at(9, 0)), // never worked on
         ],
@@ -982,9 +999,37 @@ fn frozen_at_is_the_first_session_but_never_before_creation() {
     let history = History::build(&tree, &sessions, at(18, 0));
     let frozen = |path: &[usize]| history.task(id(&tree, path)).unwrap().frozen_at();
 
-    assert_eq!(frozen(&[0, 0]), at(10, 0));
+    assert_eq!(frozen(&[0, 0]), at(9, 0)); // its session, not its creation (#67)
     assert_eq!(frozen(&[0, 1]), at(11, 0));
     assert_eq!(frozen(&[0, 2]), at(9, 0));
+}
+
+/// cs: a (1h, done 8:00), c (2h, done 11:30), then b: created 12:00 with
+/// a session back-dated to 9:00, done. b is frozen at 9:00: it learns
+/// from a, not from c (done after b began).
+#[test]
+fn a_back_dated_first_session_learns_from_what_was_done_before_it() {
+    let tree = tree_with(vec![container(
+        "cs",
+        vec![
+            early(done_task("a", at(8, 0))),
+            created(done_task("b", at(13, 0)), at(12, 0)),
+            early(done_task("c", at(11, 30))),
+        ],
+    )]);
+    let sessions = [
+        on(&tree, &[0, 0], at(7, 0), Some(at(8, 0))),
+        on(&tree, &[0, 1], at(9, 0), Some(at(11, 0))),
+        on(&tree, &[0, 2], at(9, 30), Some(at(11, 30))),
+    ];
+    let history = History::build(&tree, &sessions, at(18, 0));
+
+    let b = of_node(tree.get(&[0, 1]).unwrap(), &history)
+        .learned
+        .unwrap();
+
+    assert_eq!(b.as_of, Some(at(9, 0)));
+    assert_eq!(b.minutes, Minutes::new(60)); // a's hour; c would make it 1h30
 }
 
 /// compilers (2h): a done (8:00 to 9:30, done 10:00); b 11:00 to 12:00

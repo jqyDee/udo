@@ -30,13 +30,18 @@ pub struct TaskRecord {
 }
 
 impl TaskRecord {
-    /// When a done task's estimate is frozen: its first session, else its
-    /// creation; never before its creation (a session added by hand can
-    /// start earlier, and `as_of` would drop the task itself).
-    pub fn frozen_at(&self) -> Time {
+    /// When the task existed from (`as_of`): its creation, or its first
+    /// session if that lies before (work logged afterwards counts as of
+    /// when it happened, #67).
+    pub fn since(&self) -> Time {
         self.first_session
-            .unwrap_or(self.created_at)
-            .max(self.created_at)
+            .map_or(self.created_at, |first| first.min(self.created_at))
+    }
+
+    /// When a done task's estimate is frozen: its first session, also a
+    /// back-dated one (#67), else its creation.
+    pub fn frozen_at(&self) -> Time {
+        self.first_session.unwrap_or(self.created_at)
     }
 }
 
@@ -106,16 +111,17 @@ impl History {
         history
     }
 
-    /// As it was at `t`: tasks created after `t` dropped, every session cut
-    /// at `t`, done only if done by `t` (a task done later is open then,
-    /// with its time so far). Containers and their settings stay, and so
-    /// do the tasks' own estimates: neither has a history.
+    /// As it was at `t`: tasks that did not exist yet (`since` after `t`)
+    /// dropped, every session cut at `t`, done only if done by `t` (a task
+    /// done later is open then, with its time so far). Containers and their
+    /// settings stay, and so do the tasks' own estimates: neither has a
+    /// history.
     pub fn as_of(&self, t: Time) -> Self {
         let mut spans = HashMap::new();
         let tasks = self
             .tasks
             .iter()
-            .filter(|r| r.created_at <= t)
+            .filter(|r| r.since() <= t)
             .map(|r| {
                 let cut: Vec<Span> = self
                     .spans

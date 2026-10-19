@@ -116,6 +116,10 @@ async fn every_write_counts_as_a_change() {
 
     core.set_done(&[1, 0], true, at(15, 0)).await.unwrap();
     n = moved(&core, n, "set_done");
+    core.done_at(&[0], at(15, 0), at(16, 0), false)
+        .await
+        .unwrap();
+    n = moved(&core, n, "done_at");
     core.delete(&c, at(15, 0)).await.unwrap();
     n = moved(&core, n, "delete");
     let plan = core.purge_plan(&[1]).unwrap().unwrap();

@@ -20,6 +20,7 @@ classDiagram
         actual : Minutes
         first_session : Option~Time~
         own_estimate : Option~Minutes~
+        since() Time
         frozen_at() Time
     }
     class Estimator {
@@ -63,15 +64,20 @@ classDiagram
 
 - **`History`** is the tree's tasks plus their sessions, read once
   (`Core::history`). Deleted tasks are in it too, from their sessions.
-  `as_of(t)` cuts it back to what was known at `t`: later tasks dropped,
-  sessions cut at `t`, tasks done later count as open.
+  `as_of(t)` cuts it back to what was known at `t`: tasks that did not
+  exist yet dropped (`TaskRecord::since`: the creation, or the first
+  session if that lies before; back-dated work counts as of when it
+  happened, #67), sessions cut at `t`, tasks done later count as open.
 - **`Average`** blends a container's tasks with a prior (the container's
   `estimate` setting, else what the parent's tasks give). `Manual` gives
   the task's own estimate. Both are `Estimator`s; method and version go
   into every recorded row.
-- **A done task's learned estimate is frozen** at its first session
-  (`TaskRecord::frozen_at`): computed on `history.as_of(frozen_at)`, so it
-  never changes afterwards and can be compared with the actual time.
+- **A done task's learned estimate is frozen** at its first session, also
+  a back-dated one, else at its creation (`TaskRecord::frozen_at`):
+  computed on `history.as_of(frozen_at)`, so it can be compared with the
+  actual time. It is a replay: a changed `estimate` setting still moves it
+  (settings have no history); #60 reads the recorded row instead.
+  `done_at` can be back-dated too (`Core::done_at`, `udo done --at`).
 
 ## What udo shows and goes by
 

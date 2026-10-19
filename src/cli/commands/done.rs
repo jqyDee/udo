@@ -7,6 +7,7 @@ use serde::Serialize;
 
 use super::timer::SessionLine;
 use crate::cli::{
+    parse::{SessionTime, session_time},
     report::Report,
     resolve::{path_text, resolve},
 };
@@ -19,6 +20,19 @@ pub struct DoneArgs {
     /// Reopen the task instead
     #[arg(long)]
     pub undo: bool,
+    /// Done at this time, in the past: YYYY-MM-DD HH:MM, now or -45m (before
+    /// now); not before the end of its last session
+    #[arg(
+        long,
+        value_parser = session_time,
+        allow_hyphen_values = true,
+        conflicts_with = "undo"
+    )]
+    pub at: Option<SessionTime>,
+    /// With --at: stop the task's running timer at that time, or change the
+    /// done time of a task already done, instead of refusing
+    #[arg(short, long, requires = "at")]
+    pub force: bool,
 }
 
 /// A task's status after `done`, and the timer it stopped.
@@ -29,10 +43,16 @@ pub struct Marked {
     pub stopped: Option<SessionLine>,
 }
 
-/// Mark the task done at `now`, or reopen it (`--undo`).
+/// Mark the task done at `now` (`--at`: then), or reopen it (`--undo`).
 pub async fn run(core: &mut Core, cwd: &Path, now: Time, args: &DoneArgs) -> Res<Marked> {
     let path = resolve(core.tree(), args.node.as_deref(), cwd)?;
-    let stopped = core.set_done(&path, !args.undo, now).await?;
+    let stopped = match args.at {
+        Some(at) => {
+            let at = at.resolve(now, None)?;
+            core.done_at(&path, at, now, args.force).await?
+        }
+        None => core.set_done(&path, !args.undo, now).await?,
+    };
     let with_sessions = core.tasks_with_sessions().await?;
     let node = core.tree().get(&path).ok_or("no such node")?;
     let task = node.as_task().ok_or("only tasks can be done")?;
@@ -62,7 +82,7 @@ mod tests {
     use super::*;
     use crate::{
         cli::Cli,
-        model::sessions::SessionStore,
+        model::{sessions::SessionStore, time::Minutes},
         test_util::{at, core}, // core: disk_tree, root: [a, ws: [b]]
     };
 
@@ -70,6 +90,17 @@ mod tests {
         DoneArgs {
             node: Some(node.into()),
             undo,
+            at: None,
+            force: false,
+        }
+    }
+
+    /// `done --at -<ago>` (and `--force`) on `node`.
+    fn back_dated(node: &str, ago: u32, force: bool) -> DoneArgs {
+        DoneArgs {
+            at: Some(SessionTime::Ago(Minutes::new(ago))),
+            force,
+            ..args(node, false)
         }
     }
 
@@ -130,5 +161,57 @@ mod tests {
         assert!(Cli::try_parse_from(["udo", "done"]).is_ok());
         assert!(Cli::try_parse_from(["udo", "done", "--undo", "lab 3"]).is_ok());
         assert!(Cli::try_parse_from(["udo", "mark", "done", "lab 3"]).is_err());
+    }
+
+    // ---------- --at / --force (#67) ----------
+
+    #[tokio::test]
+    async fn at_back_dates_the_done() {
+        let (tmp, mut core) = core().await;
+
+        let marked = run(
+            &mut core,
+            tmp.path(),
+            at(14, 0),
+            &back_dated("b", 60, false),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(marked.to_string(), "ws/b -> done");
+        let b = core.tree().get(&[1, 0]).and_then(|n| n.as_task()).unwrap();
+        assert_eq!(b.done_at, Some(at(13, 0)));
+    }
+
+    #[tokio::test]
+    async fn at_on_the_timed_task_needs_force() {
+        let (tmp, mut core) = core().await;
+        core.start(&[0], at(12, 0)).await.unwrap();
+
+        let refused = run(
+            &mut core,
+            tmp.path(),
+            at(14, 0),
+            &back_dated("a", 60, false),
+        )
+        .await;
+        let forced = run(&mut core, tmp.path(), at(14, 0), &back_dated("a", 60, true)).await;
+
+        let Err(refused) = refused else {
+            panic!("refused without --force");
+        };
+        assert!(refused.to_string().contains("--force"), "{refused}");
+        assert_eq!(forced.unwrap().to_string(), "a -> done\nstopped: a (1h)");
+    }
+
+    #[test]
+    fn force_needs_at_and_at_is_not_for_undo() {
+        let parse = |argv: &[&str]| Cli::try_parse_from([&["udo", "done"], argv].concat());
+
+        assert!(parse(&["--at", "2026-10-19 12:00", "b"]).is_ok());
+        assert!(parse(&["-f", "--at", "-1h"]).is_ok());
+        assert!(parse(&["--force", "--at", "now"]).is_ok());
+        assert!(parse(&["-f"]).is_err()); // nothing to force without --at
+        assert!(parse(&["--undo", "--at", "-1h"]).is_err());
     }
 }
