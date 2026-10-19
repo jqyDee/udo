@@ -2,7 +2,13 @@
 //! and the CLI read through it freely and write only through its methods,
 //! so rules that span tree and sessions live in one place.
 
-use std::{path::Path, sync::Mutex};
+use std::{
+    path::Path,
+    sync::{
+        Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 
 use crate::{
     Res,
@@ -31,6 +37,11 @@ pub struct Core {
     /// ...`): the action stands, the CLI / TUI show these after each call.
     /// A `Mutex`: `&self` methods (`add_session`) warn too.
     warnings: Mutex<Vec<String>>,
+    /// How many writes so far (`changes`): the TUI rebuilds its history
+    /// only when this moved (#61). Bumped before writing, so a failed write
+    /// counts too (it may have changed part of the data). Atomic: `&self`
+    /// methods (`add_session`) write too.
+    changes: AtomicU64,
 }
 
 impl Core {
@@ -48,7 +59,20 @@ impl Core {
             tree,
             storage,
             warnings: Mutex::default(),
+            changes: AtomicU64::default(),
         }
+    }
+
+    /// How many writes so far; two calls differ when something was written
+    /// in between (through this `Core`: changes from the CLI elsewhere are
+    /// not counted).
+    pub fn changes(&self) -> u64 {
+        self.changes.load(Ordering::Relaxed)
+    }
+
+    /// Count a write; first thing in every write method.
+    fn changed(&self) {
+        self.changes.fetch_add(1, Ordering::Relaxed);
     }
 
     /// The tree, to read.

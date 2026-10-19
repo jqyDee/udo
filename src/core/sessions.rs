@@ -40,6 +40,7 @@ impl Core {
         end: Time,
         now: Time,
     ) -> Res<Session> {
+        self.changed();
         not_after(now, &[Some(start), Some(end)])?;
         let task = self.task_ref(path)?;
         let session = self.storage.sessions.add(task, start, end).await?;
@@ -53,12 +54,14 @@ impl Core {
     /// Move a session's start and / or end. A time after `now` is refused,
     /// before the store is touched. Callers pass `time::now()`.
     pub async fn edit_session(&self, id: SessionId, patch: SessionPatch, now: Time) -> Res<()> {
+        self.changed();
         not_after(now, &[patch.start, patch.end])?;
         Ok(self.storage.sessions.edit(id, patch).await?)
     }
 
     /// Split a session in two at `at`; `at` on its start or end: `None`.
     pub async fn split_session(&self, id: SessionId, at: Time) -> Res<Option<(Session, Session)>> {
+        self.changed();
         Ok(self.storage.sessions.split(id, at).await?)
     }
 
@@ -72,12 +75,14 @@ impl Core {
         to: Time,
         now: Time,
     ) -> Res<Vec<Session>> {
+        self.changed();
         not_after(now, &[Some(from), Some(to)])?;
         Ok(self.storage.sessions.cut(id, from, to).await?)
     }
 
     /// Soft delete: hidden, the data stays.
     pub async fn delete_session(&self, id: SessionId) -> Res<()> {
+        self.changed();
         Ok(self.storage.sessions.delete(id).await?)
     }
 }

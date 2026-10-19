@@ -1,8 +1,12 @@
 use crate::{
     core::Core,
-    model::sessions::SessionStore,
+    model::{
+        node::{HeaderPatch, NodePatch},
+        sessions::{Owner, SessionPatch, SessionStore},
+        settings::ContainerSettings,
+    },
     storage::{Storage, sqlite::DB_FILE_NAME},
-    test_util::{at, core, disk_tree},
+    test_util::{at, core, disk_tree, task},
 };
 
 #[tokio::test]
@@ -45,6 +49,107 @@ async fn warnings_are_taken_once_oldest_first() {
         ]
     );
     assert!(core.take_warnings().is_empty()); // taken: gone
+}
+
+// ---------- changes (the TUI rebuilds only when they moved, #61) ----------
+
+/// `core.changes()`, which must have moved since `before` (`what` did it).
+fn moved(core: &Core, before: u64, what: &str) -> u64 {
+    let now = core.changes();
+    assert!(now > before, "{what} is no change");
+    now
+}
+
+#[tokio::test]
+async fn every_write_counts_as_a_change() {
+    let (_tmp, mut core) = core().await;
+    let mut n = core.changes();
+
+    let c = core.create(&[1], task("c")).await.unwrap();
+    n = moved(&core, n, "create");
+    let rename = NodePatch {
+        header: HeaderPatch {
+            name: Some("c2".into()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    core.edit(&c, rename).await.unwrap();
+    n = moved(&core, n, "edit");
+    core.set_settings(&[1], ContainerSettings::default(), None)
+        .await
+        .unwrap();
+    n = moved(&core, n, "set_settings");
+
+    let s = core
+        .add_session(&[1, 0], at(9, 0), at(11, 0), at(12, 0))
+        .await
+        .unwrap();
+    n = moved(&core, n, "add_session");
+    let patch = SessionPatch {
+        end: Some(at(10, 30)),
+        ..Default::default()
+    };
+    core.edit_session(s.id, patch, at(12, 0)).await.unwrap();
+    n = moved(&core, n, "edit_session");
+    let (first, _) = core.split_session(s.id, at(10, 0)).await.unwrap().unwrap();
+    n = moved(&core, n, "split_session");
+    let left = core
+        .cut_session(first.id, at(9, 15), at(9, 30), at(12, 0))
+        .await
+        .unwrap();
+    n = moved(&core, n, "cut_session");
+    core.delete_session(left[0].id).await.unwrap();
+    n = moved(&core, n, "delete_session");
+
+    core.start(&[0], at(13, 0)).await.unwrap();
+    n = moved(&core, n, "start");
+    core.stop(at(13, 30)).await.unwrap();
+    n = moved(&core, n, "stop");
+    let owner: Owner = "tmux:a".parse().unwrap();
+    core.track_start(&[0], "tmux".parse().unwrap(), owner.clone(), at(14, 0))
+        .await
+        .unwrap();
+    n = moved(&core, n, "track_start");
+    core.track_stop(&owner, at(14, 30)).await.unwrap();
+    n = moved(&core, n, "track_stop");
+
+    core.set_done(&[1, 0], true, at(15, 0)).await.unwrap();
+    n = moved(&core, n, "set_done");
+    core.delete(&c, at(15, 0)).await.unwrap();
+    n = moved(&core, n, "delete");
+    let plan = core.purge_plan(&[1]).unwrap().unwrap();
+    core.purge(&plan, |_| Ok(()), at(15, 0)).await.unwrap();
+    moved(&core, n, "purge");
+}
+
+#[tokio::test]
+async fn reads_are_no_change() {
+    let (_tmp, core) = core().await;
+    let before = core.changes();
+
+    core.history(at(12, 0)).await.unwrap();
+    core.estimates(at(12, 0)).await.unwrap();
+    core.estimate(&[0], at(12, 0)).await.unwrap();
+    core.totals(&[1], at(12, 0)).await.unwrap();
+    core.sessions_of(&[1]).await.unwrap();
+    core.running_session().await.unwrap();
+    core.tasks_with_sessions().await.unwrap();
+    core.purge_plan(&[1]).unwrap();
+    core.task_defaults(&[1], at(12, 0).naive_local());
+
+    assert_eq!(core.changes(), before);
+}
+
+/// A failed write may have changed part of the data: it counts too.
+#[tokio::test]
+async fn a_refused_write_still_counts() {
+    let (_tmp, mut core) = core().await;
+    let before = core.changes();
+
+    assert!(core.start(&[1], at(9, 0)).await.is_err()); // a container
+
+    moved(&core, before, "a refused start");
 }
 
 // ---------- sessions_of (core: root: [a, ws: [b]]) ----------

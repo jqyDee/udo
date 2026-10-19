@@ -55,7 +55,8 @@ impl Core {
     }
 
     /// The history and every task's `Shown` (`Estimates`), read and computed
-    /// once: the TUI per `reload`, `ls --time` per call.
+    /// once: the TUI per `rebuild` (when the data changed), `ls --time` per
+    /// call.
     pub async fn estimates(&self, now: Time) -> Res<(History, estimate::Estimates)> {
         let history = self.history(now).await?;
         let estimates = estimate::Estimates::build(&self.tree, &history);
