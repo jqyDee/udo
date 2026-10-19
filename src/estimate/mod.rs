@@ -9,6 +9,7 @@ mod manual;
 pub mod store;
 #[cfg(test)]
 mod tests;
+mod totals;
 
 use crate::model::{
     id::NodeId,
@@ -20,6 +21,7 @@ use crate::model::{
 pub use average::{Average, K};
 pub use history::{History, TaskRecord};
 pub use manual::Manual;
+pub use totals::{Estimates, Totals, totals};
 
 /// What udo estimates for a task, and why.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
