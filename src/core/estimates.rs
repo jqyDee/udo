@@ -1,13 +1,14 @@
 //! Estimates: `Core` reads the snapshot (`History`) the pure `estimate`
-//! module works on. The TUI keeps the `History` (`history`); the CLI asks
-//! once (`estimate`). And it records them into the history (#47) when a
-//! task is created or gets its first session (`record_estimate`).
+//! module works on. The TUI keeps the `History` and every task's `Shown`
+//! (`estimates`); the CLI asks once (`estimate`, `totals`). And it records
+//! them into the history (#47) when a task is created, gets its first
+//! session, or its own estimate changes (#6; `record_estimate`).
 
 use crate::{
     Res,
     core::Core,
     estimate::{
-        self, Average, Estimate, Estimator, History,
+        self, Average, Estimator, History, Shown,
         store::{EstimateStore, NewEstimate, Reason},
     },
     model::{
@@ -23,6 +24,9 @@ pub(super) enum Moment {
     /// A session starting at `start` (as stored) was just stored for the
     /// task: a row only if it is the task's first.
     Started { start: Time },
+    /// The task's own estimate was set, changed or removed (`Core::edit`;
+    /// only on a real change).
+    Edited,
 }
 
 impl Core {
@@ -37,24 +41,45 @@ impl Core {
         Ok(History::build(&self.tree, &sessions, now))
     }
 
-    /// The estimate for the node at `path` (`estimate::of_node`); `None`:
-    /// no such node, or nothing to estimate from. Reads the whole history:
-    /// for one answer (CLI), not per frame.
-    pub async fn estimate(&self, path: &[usize], now: Time) -> Res<Option<Estimate>> {
+    /// What is shown for the node at `path` (`estimate::of_node`): your own
+    /// estimate and the learned one. Both `None`: no such node, nothing
+    /// set, nothing to learn from. Reads the whole history: for one answer
+    /// (CLI), not per frame.
+    pub async fn estimate(&self, path: &[usize], now: Time) -> Res<Shown> {
         let history = self.history(now).await?;
         Ok(self
             .tree
             .get(path)
-            .and_then(|n| estimate::of_node(n, &history)))
+            .map(|n| estimate::of_node(n, &history))
+            .unwrap_or_default())
+    }
+
+    /// The history and every task's `Shown` (`Estimates`), read and computed
+    /// once: the TUI per `reload`, `ls --time` per call.
+    pub async fn estimates(&self, now: Time) -> Res<(History, estimate::Estimates)> {
+        let history = self.history(now).await?;
+        let estimates = estimate::Estimates::build(&self.tree, &history);
+        Ok((history, estimates))
+    }
+
+    /// Estimate vs. actual over the tasks at or below `path`
+    /// (`estimate::totals`); a task: itself alone. No such node: all 0.
+    /// Builds everything: for one answer (CLI), not per frame.
+    pub async fn totals(&self, path: &[usize], now: Time) -> Res<estimate::Totals> {
+        let (history, estimates) = self.estimates(now).await?;
+        Ok(estimate::totals(&self.tree, path, &estimates, &history))
     }
 
     /// Write the estimate of the task at `path` into the history (#47), as
-    /// udo gives it at the task's `frozen_at`: its creation (`Created`) or
-    /// its first session (`Started`; call after the session is stored).
-    /// "First" is #8's: the earliest session not removed, so a session
-    /// added before the old first one is a new first. Never fails the
-    /// action it follows: an error becomes a warning. A container, a later
-    /// session, nothing to estimate from, or a repeat: no row.
+    /// udo goes by it (`estimate::pick`: yours, else the learned one) at
+    /// the task's `frozen_at`: its creation (`Created`) or its first
+    /// session (`Started`; call after the session is stored). "First" is
+    /// #8's: the earliest session not removed, so a session added before
+    /// the old first one is a new first. `Edited` (#6, after the edit):
+    /// your own estimate as set now (`manual`), or, removed, the learned
+    /// one as shown from now on (`cleared`). Never fails the action it
+    /// follows: an error becomes a warning. A container, a later session,
+    /// nothing to estimate from, or a repeat: no row.
     pub(super) async fn record_estimate(&self, path: &[usize], moment: Moment, now: Time) {
         if let Err(e) = self.try_record_estimate(path, moment, now).await {
             self.warn(format!("estimate not recorded: {e}"));
@@ -70,14 +95,28 @@ impl Core {
         let Some(task) = history.task(id) else {
             return Ok(());
         };
-        let reason = match moment {
-            Moment::Created => Reason::Created,
+        // as at `frozen_at`; `as_of` keeps the own estimate, so `pick` gives yours
+        let then = || history.as_of(task.frozen_at());
+        let (reason, picked) = match moment {
+            Moment::Created => (Reason::Created, estimate::pick(id, &then())),
             // only the task's first session is a moment (#8 freezes there)
-            Moment::Started { start } if task.first_session == Some(start) => Reason::Started,
+            Moment::Started { start } if task.first_session == Some(start) => {
+                (Reason::Started, estimate::pick(id, &then()))
+            }
             Moment::Started { .. } => return Ok(()),
+            // set or changed: `pick` gives yours (`Manual`), never frozen
+            Moment::Edited if task.own_estimate.is_some() => {
+                (Reason::Manual, estimate::pick(id, &history))
+            }
+            // removed: what udo goes by from now on, the learned estimate as
+            // shown (frozen for a done task)
+            Moment::Edited => {
+                let learned = estimate::of_node(node, &history).learned;
+                let average: &'static dyn Estimator = &Average; // the one `of_node` learns with
+                (Reason::Cleared, learned.map(|e| (e, average)))
+            }
         };
-        let estimator = Average; // the one `of_node` shows
-        let Some(estimate) = estimator.estimate(id, &history.as_of(task.frozen_at())) else {
+        let Some((estimate, estimator)) = picked else {
             return Ok(()); // nothing set, no data: no row
         };
         let row = NewEstimate::of(
@@ -97,10 +136,19 @@ mod tests {
     use super::Moment;
     use crate::{
         core::Core,
-        estimate::Basis,
-        estimate::store::{EstimateStore, NewEstimate, Reason},
-        model::container::ContainerKind,
-        model::{id::NodeId, sessions::SessionStore, settings::ContainerSettings, time::Minutes},
+        estimate::{
+            Basis, Shown,
+            store::{EstimateStore, NewEstimate, Reason},
+        },
+        model::{
+            container::ContainerKind,
+            id::NodeId,
+            node::{BodyPatch, HeaderPatch, NodeBody, NodePatch},
+            sessions::SessionStore,
+            settings::ContainerSettings,
+            task::TaskPatch,
+            time::Minutes,
+        },
         // core: disk_tree, root: [a, ws: [b]]
         test_util::{at, core, core_with_broken_estimates, new_container, task},
     };
@@ -139,7 +187,7 @@ mod tests {
         core.set_done(&[1, 0], true, at(11, 0)).await.unwrap();
         let c = core.create(&[1], task("c")).await.unwrap();
 
-        let estimate = core.estimate(&c, at(12, 0)).await.unwrap().unwrap();
+        let estimate = core.estimate(&c, at(12, 0)).await.unwrap().learned.unwrap();
 
         assert_eq!(estimate.minutes, Minutes::new(60));
         assert!(matches!(
@@ -153,6 +201,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn estimates_give_every_task_its_shown() {
+        // ws: [b (done, 1h), c]: c's estimate is learned from b
+        let (_tmp, mut core) = core().await;
+        core.add_session(&[1, 0], at(9, 0), at(10, 0), at(12, 0))
+            .await
+            .unwrap();
+        core.set_done(&[1, 0], true, at(11, 0)).await.unwrap();
+        let c_path = core.create(&[1], task("c")).await.unwrap();
+
+        let (history, estimates) = core.estimates(at(12, 0)).await.unwrap();
+
+        let b = core.tree().get(&[1, 0]).unwrap().id();
+        let c = core.tree().get(&c_path).unwrap().id();
+        assert_eq!(history.task(b).unwrap().actual, Minutes::new(60));
+        let one_answer = core.estimate(&c_path, at(12, 0)).await.unwrap();
+        assert_eq!(estimates.get(c), one_answer);
+        assert!(one_answer.learned.is_some()); // not two empty ones
+    }
+
+    #[tokio::test]
+    async fn totals_sum_the_tasks_below() {
+        // ws: [b (done, 1h), c (open, learns 1h from b, nothing tracked)]
+        let (_tmp, mut core) = core().await;
+        core.add_session(&[1, 0], at(9, 0), at(10, 0), at(12, 0))
+            .await
+            .unwrap();
+        core.set_done(&[1, 0], true, at(11, 0)).await.unwrap();
+        core.create(&[1], task("c")).await.unwrap();
+
+        let ws = core.totals(&[1], at(12, 0)).await.unwrap();
+
+        assert_eq!(ws.tasks, 2);
+        assert_eq!(ws.actual, Minutes::new(60));
+        assert_eq!(ws.left, Minutes::new(60)); // c: 1h estimated, 0 tracked
+    }
+
+    #[tokio::test]
+    async fn totals_of_no_such_node_are_all_zero() {
+        let (_tmp, core) = core().await;
+
+        let none = core.totals(&[9], at(12, 0)).await.unwrap();
+
+        assert_eq!(none, crate::estimate::Totals::default());
+    }
+
+    #[tokio::test]
     async fn a_container_gets_its_average() {
         let (_tmp, mut core) = core().await;
         core.add_session(&[1, 0], at(9, 0), at(10, 0), at(12, 0))
@@ -160,7 +254,12 @@ mod tests {
             .unwrap();
         core.set_done(&[1, 0], true, at(11, 0)).await.unwrap();
 
-        let estimate = core.estimate(&[1], at(12, 0)).await.unwrap().unwrap();
+        let estimate = core
+            .estimate(&[1], at(12, 0))
+            .await
+            .unwrap()
+            .learned
+            .unwrap();
 
         assert_eq!(estimate.minutes, Minutes::new(60));
     }
@@ -169,14 +268,20 @@ mod tests {
     async fn nothing_to_estimate_from_is_none() {
         let (_tmp, core) = core().await;
 
-        assert_eq!(core.estimate(&[0], at(12, 0)).await.unwrap(), None);
+        assert_eq!(
+            core.estimate(&[0], at(12, 0)).await.unwrap(),
+            Shown::default()
+        );
     }
 
     #[tokio::test]
     async fn unknown_path_is_none() {
         let (_tmp, core) = core().await;
 
-        assert_eq!(core.estimate(&[7, 7], at(12, 0)).await.unwrap(), None);
+        assert_eq!(
+            core.estimate(&[7, 7], at(12, 0)).await.unwrap(),
+            Shown::default()
+        );
     }
 
     // ---------- record_estimate ----------
@@ -414,5 +519,160 @@ mod tests {
             };
             assert!(warning.starts_with("estimate not recorded: "), "{warning}");
         }
+    }
+
+    // ---------- a task's own estimate (#6) ----------
+
+    /// The task at `path` gets its own estimate (`Some`) or loses it
+    /// (`None`), through `Core::edit`.
+    async fn set_own(core: &mut Core, path: &[usize], minutes: Option<u32>) {
+        let patch = NodePatch {
+            body: Some(BodyPatch::Task(TaskPatch {
+                estimate: Some(minutes.map(Minutes::new)),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        core.edit(path, patch).await.unwrap();
+    }
+
+    /// `(method, minutes, reason)` of every row of the node at `path`.
+    async fn summary(core: &Core, path: &[usize]) -> Vec<(String, u32, Reason)> {
+        rows(core, id(core, path))
+            .await
+            .into_iter()
+            .map(|r| (r.method, r.minutes.get(), r.reason))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn own_estimate_set_changed_and_removed_are_recorded() {
+        let (_tmp, mut core) = core().await;
+        set_estimate(&mut core, 90).await; // so a removal has a learned value
+        let c = create_at_8(&mut core, "c").await;
+
+        set_own(&mut core, &c, Some(45)).await;
+        set_own(&mut core, &c, Some(45)).await; // the same: no change, no row
+        set_own(&mut core, &c, Some(60)).await;
+        set_own(&mut core, &c, None).await;
+
+        assert_eq!(
+            summary(&core, &c).await,
+            [
+                ("prior".into(), 90, Reason::Created),
+                ("manual".into(), 45, Reason::Manual),
+                ("manual".into(), 60, Reason::Manual),
+                ("prior".into(), 90, Reason::Cleared),
+            ]
+        );
+        assert!(core.take_warnings().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_task_created_with_its_own_estimate_records_it() {
+        let (_tmp, mut core) = core().await;
+        set_estimate(&mut core, 90).await;
+        let mut node = task("c");
+        node.header.created_at = at(8, 0);
+        let NodeBody::Task(t) = &mut node.body else {
+            unreachable!("task() builds a task");
+        };
+        t.estimate = Some(Minutes::new(45));
+        let c = core.create(&[1], node).await.unwrap();
+
+        core.start(&c, at(12, 0)).await.unwrap(); // the same 45m: a repeat
+
+        assert_eq!(
+            summary(&core, &c).await,
+            [("manual".into(), 45, Reason::Created)]
+        );
+    }
+
+    #[tokio::test]
+    async fn removing_it_with_nothing_learned_records_nothing() {
+        let (_tmp, mut core) = core().await; // no setting, no data
+        let c = create_at_8(&mut core, "c").await;
+
+        set_own(&mut core, &c, Some(45)).await;
+        set_own(&mut core, &c, None).await;
+
+        assert_eq!(
+            summary(&core, &c).await,
+            [("manual".into(), 45, Reason::Manual)]
+        );
+        assert!(core.take_warnings().is_empty());
+    }
+
+    /// Renames, due dates, and an edit form sending the unchanged (unset)
+    /// estimate: no row.
+    #[tokio::test]
+    async fn other_edits_record_nothing() {
+        let (_tmp, mut core) = core().await;
+        set_estimate(&mut core, 90).await;
+        let c = create_at_8(&mut core, "c").await;
+        let patch = NodePatch {
+            header: HeaderPatch {
+                name: Some("c2".into()),
+                ..Default::default()
+            },
+            body: Some(BodyPatch::Task(TaskPatch {
+                due_date: Some(at(20, 0)),
+                estimate: Some(None), // was not set either
+                ..Default::default()
+            })),
+        };
+
+        core.edit(&c, patch).await.unwrap();
+
+        assert_eq!(
+            summary(&core, &c).await,
+            [("prior".into(), 90, Reason::Created)]
+        );
+    }
+
+    /// Removed on a done task: the learned estimate as shown, frozen at its
+    /// first session (d, done later with 5h, does not count).
+    #[tokio::test]
+    async fn removing_it_on_a_done_task_records_the_frozen_estimate() {
+        let (_tmp, mut core) = core().await;
+        set_estimate(&mut core, 90).await;
+        b_done_in_an_hour(&mut core).await;
+        let c = create_at_8(&mut core, "c").await;
+        let d = create_at_8(&mut core, "d").await;
+        core.add_session(&c, at(12, 0), at(12, 30), at(23, 0))
+            .await
+            .unwrap();
+        core.set_done(&c, true, at(13, 0)).await.unwrap();
+        core.add_session(&d, at(13, 0), at(18, 0), at(23, 0))
+            .await
+            .unwrap();
+        core.set_done(&d, true, at(18, 0)).await.unwrap();
+
+        set_own(&mut core, &c, Some(45)).await;
+        set_own(&mut core, &c, None).await;
+
+        let shown = core.estimate(&c, at(23, 0)).await.unwrap().learned.unwrap();
+        assert_eq!(shown.as_of, Some(at(12, 0)));
+        let last = rows(&core, id(&core, &c)).await.pop().unwrap();
+        assert_eq!(last.reason, Reason::Cleared);
+        assert_eq!(last.minutes, shown.minutes);
+        assert_eq!(last.done_tasks, 1); // only b
+    }
+
+    #[tokio::test]
+    async fn a_failing_store_keeps_the_own_estimate_and_warns() {
+        let (_tmp, mut core) = core_with_broken_estimates().await;
+        let c = create_at_8(&mut core, "c").await;
+        core.take_warnings(); // nothing to record at creation anyway
+
+        set_own(&mut core, &c, Some(45)).await;
+
+        let task = core.tree().get(&c).and_then(|n| n.as_task()).unwrap();
+        assert_eq!(task.estimate, Some(Minutes::new(45)));
+        let warnings = core.take_warnings();
+        let [warning] = &warnings[..] else {
+            panic!("one warning: {warnings:?}");
+        };
+        assert!(warning.starts_with("estimate not recorded: "), "{warning}");
     }
 }

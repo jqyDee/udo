@@ -354,6 +354,22 @@ async fn a_timer_started_elsewhere_shows_after_reload() {
     assert_eq!(timed(&app).as_deref(), Some("b"));
 }
 
+/// `reload` builds the estimates with the history: a draw only looks up.
+#[tokio::test]
+async fn reload_rebuilds_the_estimates() {
+    // ws sets 1h: b learns it
+    let mut tree = tree();
+    let ws = tree.get_mut(&[1]).and_then(Node::as_container_mut).unwrap();
+    ws.settings.estimate = Some(Minutes::new(60));
+    let mut app = test_app(tree, state_at(&[1, 0]));
+    let b = app.core.tree().get(&[1, 0]).unwrap().id();
+    assert_eq!(app.estimates.get(b).minutes(), None); // not built yet
+
+    app.reload().await;
+
+    assert_eq!(app.estimates.get(b).minutes(), Some(Minutes::new(60)));
+}
+
 #[tokio::test]
 async fn old_status_keys_do_nothing() {
     let (_tmp, mut app) = sheet_app().await;
@@ -857,6 +873,51 @@ async fn clearing_the_description_removes_it() {
     app.handle_key(press(KeyCode::Enter)).await;
 
     assert_eq!(app.core.tree().get(&[0]).unwrap().header.description, None);
+}
+
+/// `e` on the task at the cursor, Tab to `estimate` (name, description,
+/// due, estimate), type `text`, Enter.
+async fn edit_estimate(app: &mut App<'_>, text: &str) {
+    app.handle_key(key('e')).await;
+    for _ in 0..3 {
+        app.handle_key(press(KeyCode::Tab)).await;
+    }
+    app.handle_key(clear()).await;
+    type_into(app, text).await;
+    app.handle_key(press(KeyCode::Enter)).await;
+}
+
+#[tokio::test]
+async fn edit_sets_and_removes_the_own_estimate_on_disk() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = disk_tree(tmp.path()).await;
+    let mut app = test_app(t, state_at(&[0]));
+    let own = |tree: &Tree| tree.get(&[0]).and_then(Node::as_task).unwrap().estimate;
+
+    edit_estimate(&mut app, "1h30").await;
+    let reloaded = Tree::load_from(tmp.path()).await.unwrap();
+    assert_eq!(own(&reloaded), Some(Minutes::new(90)));
+    edit_estimate(&mut app, "").await;
+
+    let reloaded = Tree::load_from(tmp.path()).await.unwrap();
+    assert_eq!(own(&reloaded), None);
+    assert!(matches!(app.mode, Mode::Normal), "form closed");
+}
+
+#[tokio::test]
+async fn an_estimate_that_is_no_duration_keeps_the_form_open() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = disk_tree(tmp.path()).await;
+    let mut app = test_app(t, state_at(&[0]));
+
+    edit_estimate(&mut app, "90").await;
+
+    assert!(matches!(app.mode, Mode::Form(_)), "form closed on error");
+    let toast = app.toast.as_ref().unwrap();
+    assert_eq!(toast.kind, ToastKind::Error);
+    assert!(toast.msg.starts_with("estimate: "), "{}", toast.msg);
+    let task = app.core.tree().get(&[0]).and_then(Node::as_task).unwrap();
+    assert_eq!(task.estimate, None);
 }
 
 #[tokio::test]
@@ -2280,7 +2341,7 @@ async fn o_on_a_container_with_more_open_tasks_opens_the_task_picker() {
     assert_eq!(p.title, "open ws for");
     assert_eq!(
         labels(p),
-        ["ws", "b", "wk / c", "d"],
+        ["ws", "b", "d", "wk / c"],
         "ws itself, then paths below it in tree order"
     );
     assert_eq!(p.cursor, 0, "no task preselected, not the one due first");
@@ -2312,8 +2373,8 @@ async fn enter_in_the_task_picker_runs_for_the_picked_task() {
     let (ws, d) = (t.get(&[1]).unwrap().id(), t.get(&[1, 2]).unwrap().id());
     let mut app = test_app(t, state_at(&[1]));
     app.handle_key(key('o')).await;
-    for _ in 0..3 {
-        app.handle_key(key('j')).await; // ws -> b -> c -> d
+    for _ in 0..2 {
+        app.handle_key(key('j')).await; // ws -> b -> d (tasks before wk)
     }
 
     let Flow::Run(request) = app.handle_key(press(KeyCode::Enter)).await else {

@@ -10,7 +10,7 @@ use crossterm::event::KeyEvent;
 
 use super::{App, Flow, Mode};
 use crate::{
-    Res,
+    Res, estimate,
     model::{
         NodePath,
         container::ContainerKind,
@@ -75,7 +75,11 @@ impl App<'_> {
         match self.tree_state.selected(self.core.tree()) {
             Some(node) => {
                 let path = self.tree_state.cursor.clone();
-                self.mode = Mode::Form(Box::new(Form::edit_node(path, node)));
+                // what applies when the estimate is empty: its placeholder
+                let learned = estimate::of_node(node, &self.history)
+                    .learned
+                    .map(|e| e.minutes);
+                self.mode = Mode::Form(Box::new(Form::edit_node(path, node, learned)));
             }
             None => self.error("nothing selected"),
         }

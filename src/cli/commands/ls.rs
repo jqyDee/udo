@@ -1,6 +1,7 @@
 //! `udo ls [NODE]`: the tree from a node down. No argument: the node of the
 //! current folder, or the root outside udo folders. A container lists
-//! everything below it; a task lists only itself.
+//! everything below it; a task lists only itself. `-t`: with tracked time
+//! and estimate per row (#9).
 
 use std::{fmt, path::Path};
 
@@ -14,14 +15,24 @@ use crate::cli::{
 use crate::{
     DATE_FMT, Res,
     core::Core,
-    model::{node::NodeBody, time::Time},
+    estimate,
+    model::{
+        node::NodeBody,
+        time::{Minutes, Time},
+    },
 };
 
 #[derive(clap::Args)]
 pub struct LsArgs {
     /// Where to start; default: the node of the current folder, else the root
     pub node: Option<String>,
+    /// Show tracked time / estimate per row (containers: over their tasks)
+    #[arg(short, long)]
+    pub time: bool,
 }
+
+/// Width of the `tracked/estimate` column (`-t`), gap included.
+const TIME_WIDTH: usize = 14;
 
 /// Everything below a node, one row per node, in tree order.
 #[derive(Serialize)]
@@ -30,7 +41,8 @@ pub struct Listing {
 }
 
 /// One node of a `Listing`. Containers have `kind`, tasks `status`, `due`
-/// and `overdue`.
+/// and `overdue`. Only with `-t`: `minutes`, and `estimate` (tasks) or
+/// `estimated` (containers), `null` without one.
 #[derive(Serialize)]
 pub struct ListRow {
     pub path: String,
@@ -45,12 +57,28 @@ pub struct ListRow {
     pub due: Option<Time>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub overdue: Option<bool>,
+    /// Tracked minutes: a task's own, a container's over its tasks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minutes: Option<u32>,
+    /// A task's estimate in minutes (yours, else the learned one). Outer
+    /// `None`: no `-t` (no key); inner: none (`null`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub estimate: Option<Option<u32>>,
+    /// A container's estimate over its tasks (`Totals::estimated`), as
+    /// `estimate`; `null` without an estimated task.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub estimated: Option<Option<u32>>,
 }
 
 /// The listing of `args.node` (see the module doc for the rules), overdue
-/// as of `now`.
+/// as of `now`. `-t`: the history and estimates are read once; without it,
+/// not at all.
 pub async fn run(core: &Core, cwd: &Path, now: Time, args: &LsArgs) -> Res<Listing> {
     let with_sessions = core.tasks_with_sessions().await?;
+    let time = match args.time {
+        true => Some(core.estimates(now).await?),
+        false => None,
+    };
     let tree = core.tree();
     let start = match &args.node {
         Some(node) => resolve(tree, Some(node), cwd)?,
@@ -76,7 +104,7 @@ pub async fn run(core: &Core, cwd: &Path, now: Time, args: &LsArgs) -> Res<Listi
             } else {
                 r.depth - start.len()
             };
-            match &r.node.body {
+            let row = match &r.node.body {
                 NodeBody::Container(c) => {
                     ListRow::container(&path, name, depth, &c.kind.to_string())
                 }
@@ -85,7 +113,14 @@ pub async fn run(core: &Core, cwd: &Path, now: Time, args: &LsArgs) -> Res<Listi
                     let (status, overdue) = (status.to_string(), t.is_overdue(now));
                     ListRow::task(&path, name, depth, &status, t.due_date, overdue)
                 }
-            }
+            };
+            let Some((history, estimates)) = &time else {
+                return row;
+            };
+            // the same numbers as `udo show` and the TUI details
+            let t = estimate::totals(tree, &r.path, estimates, history);
+            let estimate = (t.estimated_tasks > 0).then_some(t.estimated);
+            row.timed(t.actual, estimate)
         })
         .collect();
     Ok(Listing { rows })
@@ -101,6 +136,9 @@ impl ListRow {
             status: None,
             due: None,
             overdue: None,
+            minutes: None,
+            estimate: None,
+            estimated: None,
         }
     }
 
@@ -113,17 +151,49 @@ impl ListRow {
             status: Some(status.into()),
             due: Some(due),
             overdue: Some(overdue),
+            minutes: None,
+            estimate: None,
+            estimated: None,
         }
     }
 
+    /// With `-t`: `tracked` and `estimate` (`None`: none) as of `Totals`
+    /// (a task: itself alone), into `estimate` or `estimated` by kind.
+    fn timed(mut self, tracked: Minutes, estimate: Option<Minutes>) -> Self {
+        self.minutes = Some(tracked.get());
+        let minutes = Some(estimate.map(Minutes::get));
+        match self.kind {
+            Some(_) => self.estimated = minutes,
+            None => self.estimate = minutes,
+        }
+        self
+    }
+
+    /// The `tracked/estimate` column (`1h10/1h30`, `-` for no estimate),
+    /// padded; empty without `-t`, so the line is as before.
+    fn time_column(&self) -> String {
+        let Some(tracked) = self.minutes else {
+            return String::new();
+        };
+        let estimate = match self.estimate.or(self.estimated).flatten() {
+            Some(m) => Minutes::new(m).to_string(),
+            None => "-".into(),
+        };
+        let column = format!("{}/{estimate}", Minutes::new(tracked));
+        format!("{column:<TIME_WIDTH$}")
+    }
+
     /// `name/` + kind for containers; name, status, local due and
-    /// `overdue` for tasks.
+    /// `overdue` for tasks. `-t`: the time column after the name.
     fn line(&self) -> String {
         let indent = "  ".repeat(self.depth);
+        let time = self.time_column();
         match (&self.kind, &self.status, &self.due) {
-            (Some(kind), _, _) => format!("{:<30}{kind}", format!("{indent}{}/", self.name)),
+            (Some(kind), _, _) => {
+                format!("{:<30}{time}{kind}", format!("{indent}{}/", self.name))
+            }
             (_, Some(status), Some(due)) => format!(
-                "{:<30}{status:<12}{}{}",
+                "{:<30}{time}{status:<12}{}{}",
                 format!("{indent}{}", self.name),
                 due.with_timezone(&Local).format(DATE_FMT),
                 if self.overdue == Some(true) {
@@ -156,6 +226,10 @@ mod tests {
     use super::*;
     use crate::{
         cli::report::render,
+        model::{
+            node::{BodyPatch, NodePatch},
+            task::TaskPatch,
+        },
         test_util::{at, core}, // core: disk_tree, root: [a, ws: [b]]
     };
 
@@ -170,11 +244,117 @@ mod tests {
     fn ls(node: Option<&str>) -> LsArgs {
         LsArgs {
             node: node.map(Into::into),
+            time: false,
         }
     }
 
     async fn list(core: &Core, cwd: &Path, node: Option<&str>) -> Listing {
         run(core, cwd, at(12, 0), &ls(node)).await.unwrap()
+    }
+
+    /// `udo ls -t /` at 12:00, as text and as JSON.
+    async fn timed(core: &Core, cwd: &Path) -> (String, serde_json::Value) {
+        let args = LsArgs {
+            time: true,
+            ..ls(Some("/"))
+        };
+        let listing = run(core, cwd, at(12, 0), &args).await.unwrap();
+        let json = serde_json::from_str(&render(&listing, true).unwrap()).unwrap();
+        (listing.to_string(), json)
+    }
+
+    /// Own estimate of the task at `path` (through `Core::edit`).
+    async fn set_own(core: &mut Core, path: &[usize], minutes: u32) {
+        let patch = NodePatch {
+            body: Some(BodyPatch::Task(TaskPatch {
+                estimate: Some(Some(Minutes::new(minutes))),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        core.edit(path, patch).await.unwrap();
+    }
+
+    /// a: 30m tracked, no estimate; ws: [b: yours 1h30, 1h10 tracked].
+    #[tokio::test]
+    async fn with_time_each_row_has_tracked_and_estimate() {
+        let (tmp, mut core) = core().await;
+        set_own(&mut core, &[1, 0], 90).await;
+        core.add_session(&[0], at(8, 0), at(8, 30), at(12, 0))
+            .await
+            .unwrap();
+        core.add_session(&[1, 0], at(9, 0), at(10, 10), at(12, 0))
+            .await
+            .unwrap();
+
+        let (text, json) = timed(&core, tmp.path()).await;
+
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(&lines[0][30..44], "30m/-         ", "{text}");
+        assert_eq!(&lines[1][30..44], "1h10/1h30     ", "{text}"); // ws: over b
+        assert_eq!(&lines[2][30..44], "1h10/1h30     ", "{text}");
+        assert!(lines[1].ends_with("workspace"), "{text}");
+
+        let rows = &json["rows"];
+        assert_eq!(rows[0]["minutes"], 30);
+        assert!(rows[0]["estimate"].is_null()); // the key, empty
+        assert!(rows[0].get("estimated").is_none()); // a container's key
+        assert_eq!(rows[1]["minutes"], 70);
+        assert_eq!(rows[1]["estimated"], 90);
+        assert!(rows[1].get("estimate").is_none()); // a task's key
+        assert_eq!(rows[2]["estimate"], 90);
+    }
+
+    #[tokio::test]
+    async fn with_time_a_container_without_estimates_is_null() {
+        let (tmp, core) = core().await;
+
+        let (text, json) = timed(&core, tmp.path()).await;
+
+        assert!(text.lines().nth(1).unwrap().contains("0m/-"), "{text}");
+        assert!(json["rows"][1]["estimated"].is_null());
+        assert_eq!(json["rows"][1]["minutes"], 0);
+    }
+
+    #[tokio::test]
+    async fn without_time_there_is_no_column_and_no_keys() {
+        let (tmp, mut core) = core().await;
+        set_own(&mut core, &[1, 0], 90).await;
+
+        let listing = run(&core, tmp.path(), at(12, 0), &ls(Some("/")))
+            .await
+            .unwrap();
+
+        assert!(!listing.to_string().contains("/1h30"), "{listing}");
+        let json: serde_json::Value =
+            serde_json::from_str(&render(&listing, true).unwrap()).unwrap();
+        for row in json["rows"].as_array().unwrap() {
+            for key in ["minutes", "estimate", "estimated"] {
+                assert!(row.get(key).is_none(), "{key}: {row}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_time_column_goes_after_the_name() {
+        let due = Local
+            .with_ymd_and_hms(2026, 10, 15, 22, 0, 0)
+            .unwrap()
+            .fixed_offset();
+        let listing = Listing {
+            rows: vec![
+                ListRow::container("uni", "uni", 0, "workspace")
+                    .timed(Minutes::new(70), Some(Minutes::new(90))),
+                ListRow::task("uni/lab 3", "lab 3", 1, "to do", due, false)
+                    .timed(Minutes::new(0), None),
+            ],
+        };
+
+        let expected = format!(
+            "{:<30}{:<14}workspace\n{:<30}{:<14}{:<12}2026-10-15 22:00",
+            "uni/", "1h10/1h30", "  lab 3", "0m/-", "to do"
+        );
+        assert_eq!(listing.to_string(), expected);
     }
 
     #[tokio::test]

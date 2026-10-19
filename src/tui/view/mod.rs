@@ -22,7 +22,7 @@ use ratatui::{
 use std::collections::HashSet;
 
 use crate::{
-    estimate::{self, Estimate},
+    estimate::{self, Shown, Totals},
     model::{
         id::NodeId,
         node::Node,
@@ -50,15 +50,19 @@ pub struct ViewInfo<'a> {
     pub now: Time,
     /// Sessions of the node at the cursor (details: time rows).
     pub sessions: &'a [Session],
-    /// What udo estimates at the cursor (a task: its container's, without
-    /// itself); `estimate::of_node`.
-    pub estimate: Option<Estimate>,
+    /// What is shown at the cursor: a task's own estimate and udo's learned
+    /// one (its container's, without itself); looked up in `App::estimates`
+    /// (built per `reload`), not estimated per frame. A container: empty.
+    pub estimate: Shown,
     /// Page of the sessions tab (`page_len` already for this frame).
     pub session_list: SessionList,
     /// The keys go to the sessions list, not the tree, also under a form or
     /// prompt opened from it (`App::in_list`): the tree's cursor is drawn
     /// dimmed.
     pub tree_inactive: bool,
+    /// On a container: estimate vs. actual over its tasks (`estimate::totals`);
+    /// a task: `None`.
+    pub totals: Option<Totals>,
 }
 
 impl ViewInfo<'_> {
@@ -90,22 +94,23 @@ pub fn draw(frame: &mut Frame, app: &mut App, now: Time) {
         .set_page_len(details::page_len(details_area), &ids);
 
     let tree = app.core.tree();
+    let node = tree.get(&app.tree_state.cursor);
     let info = ViewInfo {
         with_sessions: &app.with_sessions,
         running: app.running.as_ref().map(|s| s.task.id),
         now,
         sessions: &app.sessions,
-        estimate: tree
-            .get(&app.tree_state.cursor)
-            .and_then(|n| estimate::of_node(n, &app.history)),
+        estimate: node.map(|n| app.estimates.get(n.id())).unwrap_or_default(),
         session_list: app.session_list,
         tree_inactive: app.in_list(),
+        totals: node
+            .filter(|n| n.as_container().is_some())
+            .map(|_| estimate::totals(tree, &app.tree_state.cursor, &app.estimates, &app.history)),
     };
     tree::draw(frame, left, tree, &mut app.tree_state, &info);
 
     // node at the cursor path; `[]` (empty tree) is the root, so every tab
     // shows the root then
-    let node = tree.get(&app.tree_state.cursor);
     let settings = tree.effective_settings(&app.tree_state.cursor);
     details::draw(
         frame,

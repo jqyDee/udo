@@ -188,7 +188,7 @@ mod tests {
         let t = deep_tree();
 
         assert_eq!(tasks_below(&t, &[1]), vec!["b", "c"]);
-        assert_eq!(tasks_below(&t, &[]), vec!["a", "b", "c", "z"]); // the root
+        assert_eq!(tasks_below(&t, &[]), vec!["a", "z", "b", "c"]); // the root
     }
 
     #[test]
@@ -295,7 +295,7 @@ mod tests {
         }
 
         assert_eq!(names(&t, &t.open_tasks(&[1])), ["c"]); // b is done
-        assert_eq!(names(&t, &t.open_tasks(&[])), ["a", "c", "z"]); // the root
+        assert_eq!(names(&t, &t.open_tasks(&[])), ["a", "z", "c"]); // the root
     }
 
     #[test]

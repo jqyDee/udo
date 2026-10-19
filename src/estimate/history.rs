@@ -24,6 +24,9 @@ pub struct TaskRecord {
     pub actual: Minutes,
     /// Start of its earliest session; `None`: never worked on.
     pub first_session: Option<Time>,
+    /// Its own estimate (`Task::estimate`), for `Manual`; `None`: not set,
+    /// or deleted (the task row is gone).
+    pub own_estimate: Option<Minutes>,
 }
 
 impl TaskRecord {
@@ -51,6 +54,8 @@ struct ContainerInfo {
 #[derive(Debug, Clone, Default)]
 pub struct History {
     tasks: Vec<TaskRecord>,
+    /// `tasks` position by id, for `task`.
+    index: HashMap<NodeId, usize>,
     containers: HashMap<NodeId, ContainerInfo>,
     /// Each task's sessions, for `as_of`.
     spans: HashMap<NodeId, Vec<Span>>,
@@ -92,17 +97,19 @@ impl History {
                 done_at: None,
                 actual: minutes(&sum.spans),
                 first_session: Some(first),
+                own_estimate: None, // was in the task row, gone with it
             });
             history.spans.insert(id, sum.spans);
         }
         history.tasks.sort_by_key(|t| (t.created_at, t.id));
+        history.reindex();
         history
     }
 
     /// As it was at `t`: tasks created after `t` dropped, every session cut
     /// at `t`, done only if done by `t` (a task done later is open then,
-    /// with its time so far). Containers and their settings stay: settings
-    /// have no history.
+    /// with its time so far). Containers and their settings stay, and so
+    /// do the tasks' own estimates: neither has a history.
     pub fn as_of(&self, t: Time) -> Self {
         let mut spans = HashMap::new();
         let tasks = self
@@ -131,11 +138,14 @@ impl History {
                 record
             })
             .collect();
-        Self {
+        let mut h = Self {
             tasks,
+            index: HashMap::new(),
             containers: self.containers.clone(),
             spans,
-        }
+        };
+        h.reindex();
+        h
     }
 
     /// All tasks, oldest first (`created_at`, then id).
@@ -149,7 +159,7 @@ impl History {
     }
 
     pub fn task(&self, id: NodeId) -> Option<&TaskRecord> {
-        self.tasks().iter().find(|t| t.id == id)
+        self.index.get(&id).map(|&i| &self.tasks[i])
     }
 
     /// `None`: the root, or an unknown container.
@@ -175,6 +185,17 @@ impl History {
         false
     }
 
+    /// Rebuilds index from tasks; call after every change to tasks. This makes
+    /// lookup O(1).
+    fn reindex(&mut self) {
+        self.index = self
+            .tasks
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (t.id, i))
+            .collect();
+    }
+
     /// Containers into `containers`, tasks into `tasks`; takes each task's sum
     /// out of `sums`, so what is left belongs to deleted tasks.
     fn walk(&mut self, node: &Node, parent: Option<NodeId>, sums: &mut HashMap<NodeId, Sum>) {
@@ -191,6 +212,7 @@ impl History {
                     done_at: t.done_at,
                     actual: minutes(&spans),
                     first_session: first_start(&spans),
+                    own_estimate: t.estimate,
                 });
                 self.spans.insert(node.id(), spans);
             }

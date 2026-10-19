@@ -1,10 +1,12 @@
-use std::{fmt, str::FromStr};
+use std::{fmt, ops::AddAssign, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
 /// A length of time in whole minutes, written like `1h30`, `2h` or `45m`
-/// (in files, forms and the CLI).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+/// (in files, forms and the CLI). `Default`: `0m` (sums start there).
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+)]
 #[serde(try_from = "String", into = "String")]
 pub struct Minutes(u32);
 
@@ -74,6 +76,14 @@ impl TryFrom<String> for Minutes {
 impl From<Minutes> for String {
     fn from(m: Minutes) -> Self {
         m.to_string()
+    }
+}
+
+/// For sums (estimate totals). Saturates: absurd data shows a big number,
+/// it does not panic.
+impl AddAssign for Minutes {
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 = self.0.saturating_add(rhs.0);
     }
 }
 

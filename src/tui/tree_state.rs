@@ -303,15 +303,16 @@ mod tests {
         (tree_with(vec![]), TreeState::default())
     }
 
+    /// Every row's path in shown order (tasks first): the stored indices.
     fn all_paths() -> Vec<NodePath> {
         vec![
             vec![0],
+            vec![2],
+            vec![3],
             vec![1],
             vec![1, 0],
             vec![1, 1],
             vec![1, 1, 0],
-            vec![2],
-            vec![3],
         ]
     }
 
@@ -320,7 +321,7 @@ mod tests {
         s.rows(t).iter().skip(1).map(|r| r.node.name()).collect()
     }
 
-    const ALL: [&str; 7] = ["a", "inner", "b", "deep", "c", "z", "empty"];
+    const ALL: [&str; 7] = ["a", "z", "empty", "inner", "b", "deep", "c"];
 
     // ---------- move_down / move_up ----------
 
@@ -332,12 +333,12 @@ mod tests {
             assert_eq!(s.cursor, expected);
         }
         s.move_down(&t);
-        assert_eq!(s.cursor, vec![3]); // stays on last
+        assert_eq!(s.cursor, vec![1, 1, 0]); // stays on last ("c")
     }
 
     #[test]
     fn move_up_walks_back_to_the_root_then_stays() {
-        let (t, mut s) = setup(&[3]);
+        let (t, mut s) = setup(&[1, 1, 0]);
         for expected in all_paths().into_iter().rev().skip(1) {
             s.move_up(&t);
             assert_eq!(s.cursor, expected);
@@ -445,7 +446,7 @@ mod tests {
     fn collapse_hides_children() {
         let (t, mut s) = setup(&[1]);
         s.collapse(&t);
-        assert_eq!(names(&s, &t), vec!["a", "inner", "z", "empty"]);
+        assert_eq!(names(&s, &t), vec!["a", "z", "empty", "inner"]);
         assert_eq!(s.cursor, vec![1]);
     }
 
@@ -453,7 +454,7 @@ mod tests {
     fn collapse_nested_keeps_outer_open() {
         let (t, mut s) = setup(&[1, 1]);
         s.collapse(&t);
-        assert_eq!(names(&s, &t), vec!["a", "inner", "b", "deep", "z", "empty"]);
+        assert_eq!(names(&s, &t), vec!["a", "z", "empty", "inner", "b", "deep"]);
     }
 
     #[test]
@@ -461,7 +462,7 @@ mod tests {
         let (t, mut s) = setup(&[1, 0]); // task "b" inside "inner"
         s.collapse(&t);
         assert_eq!(s.cursor, vec![1]);
-        assert_eq!(names(&s, &t), vec!["a", "inner", "z", "empty"]);
+        assert_eq!(names(&s, &t), vec!["a", "z", "empty", "inner"]);
     }
 
     #[test]
@@ -487,7 +488,7 @@ mod tests {
         s.move_out();
         s.collapse(&t); // inner
         s.expand(&t); // inner again
-        assert_eq!(names(&s, &t), vec!["a", "inner", "b", "deep", "z", "empty"]);
+        assert_eq!(names(&s, &t), vec!["a", "z", "empty", "inner", "b", "deep"]);
     }
 
     #[test]
@@ -509,10 +510,15 @@ mod tests {
 
     #[test]
     fn move_down_skips_collapsed_children() {
-        let (t, mut s) = setup(&[1]);
+        // in deep_tree the folded containers are the last rows: nothing to skip to
+        let t = tree_with(vec![
+            container("p", vec![task("b")]),
+            container("q", vec![]),
+        ]);
+        let mut s = state_at(&[0]);
         s.collapse(&t);
         s.move_down(&t);
-        assert_eq!(s.cursor, vec![2]); // "z", not "b"
+        assert_eq!(s.cursor, vec![1]); // "q", not "b"
     }
 
     #[test]
@@ -529,7 +535,7 @@ mod tests {
         let (t, mut s) = setup(&[1, 1, 0]);
         s.collapse_all(&t);
         assert_eq!(s.cursor, vec![1]); // top-level ancestor stays visible
-        assert_eq!(names(&s, &t), vec!["a", "inner", "z", "empty"]);
+        assert_eq!(names(&s, &t), vec!["a", "z", "empty", "inner"]);
 
         s.expand_all();
         assert_eq!(s.cursor, vec![1]);
@@ -553,7 +559,7 @@ mod tests {
         let (mut t, mut s) = setup(&[1]);
         s.collapse(&t);
         t.get_mut(&[1]).unwrap().header.name = "renamed".into();
-        assert_eq!(names(&s, &t), vec!["a", "renamed", "z", "empty"]);
+        assert_eq!(names(&s, &t), vec!["a", "z", "empty", "renamed"]);
     }
 
     // ---------- reveal ----------
@@ -562,7 +568,7 @@ mod tests {
     fn reveal_unfolds_every_ancestor_and_selects() {
         let (t, mut s) = setup(&[0]);
         s.collapse_all(&t); // inner and deep folded
-        assert_eq!(names(&s, &t), vec!["a", "inner", "z", "empty"]);
+        assert_eq!(names(&s, &t), vec!["a", "z", "empty", "inner"]);
 
         s.reveal(&t, vec![1, 1, 0]);
 
@@ -578,7 +584,7 @@ mod tests {
         s.reveal(&t, vec![3]); // "empty", top level: nothing above to unfold
 
         assert_eq!(s.cursor, vec![3]);
-        assert_eq!(names(&s, &t), vec!["a", "inner", "z", "empty"]);
+        assert_eq!(names(&s, &t), vec!["a", "z", "empty", "inner"]);
     }
 
     // ---------- after_remove ----------

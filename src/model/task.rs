@@ -2,7 +2,7 @@ use std::{fmt, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::time::Time;
+use crate::model::time::{Minutes, Time};
 
 /// Task body of a `Node` (id and name live on the node).
 ///
@@ -16,6 +16,11 @@ pub struct Task {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub done_at: Option<Time>,
     pub due_date: Time,
+    /// Your own guess of how long it takes (`estimate = "1h30"`); wins over
+    /// the learned one. Not the container setting of the same name: a task
+    /// field, never inherited. `None`: not set (no line in the file).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimate: Option<Minutes>,
 }
 
 impl Task {
@@ -24,6 +29,7 @@ impl Task {
             dir,
             done_at: None,
             due_date,
+            estimate: None,
         }
     }
 
@@ -51,6 +57,9 @@ impl Task {
         }
         if let Some(dir) = patch.dir {
             self.dir = Some(dir);
+        }
+        if let Some(estimate) = patch.estimate {
+            self.estimate = estimate;
         }
     }
 }
@@ -81,6 +90,8 @@ pub struct TaskPatch {
     /// `Some(None)`: reopen.
     pub done_at: Option<Option<Time>>,
     pub due_date: Option<Time>,
+    /// `Some(None)`: remove, `Some(Some(m))`: set.
+    pub estimate: Option<Option<Minutes>>,
 }
 
 #[cfg(test)]
@@ -149,11 +160,29 @@ mod tests {
             dir: Some("/tmp/new".into()),
             done_at: Some(None),
             due_date: Some(due),
+            estimate: Some(Some(Minutes::new(90))),
         });
 
         assert_eq!(t.dir, Some(PathBuf::from("/tmp/new")));
         assert_eq!(t.done_at, None);
         assert_eq!(t.due_date, due);
+        assert_eq!(t.estimate, Some(Minutes::new(90)));
+    }
+
+    #[test]
+    fn update_keeps_sets_and_removes_the_estimate() {
+        let mut t = Task::new(None, time::now());
+        let estimate = |e: Option<Option<u32>>| TaskPatch {
+            estimate: e.map(|e| e.map(Minutes::new)),
+            ..Default::default()
+        };
+
+        t.update(estimate(Some(Some(45))));
+        assert_eq!(t.estimate, Some(Minutes::new(45))); // set
+        t.update(estimate(None));
+        assert_eq!(t.estimate, Some(Minutes::new(45))); // kept
+        t.update(estimate(Some(None)));
+        assert_eq!(t.estimate, None); // removed
     }
 
     #[test]
