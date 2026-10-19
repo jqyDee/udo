@@ -52,7 +52,7 @@ pub struct ViewInfo<'a> {
     pub sessions: &'a [Session],
     /// What is shown at the cursor: a task's own estimate and udo's learned
     /// one (its container's, without itself); looked up in `App::estimates`
-    /// (built per `reload`), not estimated per frame. A container: empty.
+    /// (built per `rebuild`), not estimated per frame. A container: empty.
     pub estimate: Shown,
     /// Page of the sessions tab (`page_len` already for this frame).
     pub session_list: SessionList,

@@ -13,7 +13,7 @@ use crate::{
 };
 
 /// What `of_node` gives for every task in the tree, computed once (TUI:
-/// per `reload`). A container's totals are lookups, not new estimates.
+/// per `App::rebuild`, when the data changed). A container's totals are lookups, not new estimates.
 #[derive(Debug, Clone, Default)]
 pub struct Estimates(HashMap<NodeId, Shown>);
 

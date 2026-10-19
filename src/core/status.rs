@@ -24,6 +24,7 @@ impl Core {
         done: bool,
         now: Time,
     ) -> Res<Option<Session>> {
+        self.changed();
         let Some(id) = self
             .tree
             .get(path)

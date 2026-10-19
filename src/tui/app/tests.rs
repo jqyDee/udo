@@ -12,7 +12,7 @@ use crate::{
     model::{
         container::ContainerKind,
         node::{Node, NodeBody},
-        sessions::{Session, SessionError, SessionId},
+        sessions::{Owner, Session, SessionError, SessionId, SessionSource, SessionStore, TaskRef},
         settings::{ContainerSettings, TaskFolderSetting, view::SETTINGS},
         task::TaskStatus,
         time::{DeadlineRule, Minutes, Time},
@@ -27,6 +27,7 @@ use crate::{
         form::{FieldId, FieldInput, FolderMode, Form, FormAction, TextInput},
         keys::PICKER_KEYMAP,
         pick::{PickAction, PickItem, PickValue, Picker},
+        tick::IDLE,
         toast::ToastKind,
     },
 };
@@ -368,6 +369,115 @@ async fn reload_rebuilds_the_estimates() {
     app.reload().await;
 
     assert_eq!(app.estimates.get(b).minutes(), Some(Minutes::new(60)));
+}
+
+// ---------- what a key rebuilds (#61) ----------
+
+/// What a session on the task at `path` remembers of it.
+fn task_ref(app: &App, path: &[usize]) -> TaskRef {
+    let tree = app.core.tree();
+    let parent = tree.get(&path[..path.len() - 1]).unwrap();
+    TaskRef::of(tree.get(path).unwrap(), parent).unwrap()
+}
+
+/// A finished session on `path`, straight into the store, as another udo
+/// would write it: `Core::changes` does not see it.
+async fn add_behind_core(app: &App<'_>, path: &[usize], start: Time, end: Time) {
+    let task = task_ref(app, path);
+    app.core.sessions().add(task, start, end).await.unwrap();
+}
+
+/// A timer on `path`, started like `add_behind_core` (a tmux hook).
+async fn start_behind_core(app: &App<'_>, path: &[usize], at: Time) {
+    let task = task_ref(app, path);
+    let store = app.core.sessions();
+    store
+        .start(task, SessionSource::Manual, Owner::manual(), at)
+        .await
+        .unwrap();
+}
+
+/// Tracked time of the task at `path`, as the last rebuild saw it.
+fn actual(app: &App, path: &[usize]) -> Minutes {
+    let id = app.core.tree().get(path).unwrap().id();
+    app.history.task(id).unwrap().actual
+}
+
+/// Cursor keys read no data: a change from elsewhere waits for the tick.
+#[tokio::test]
+async fn moving_the_cursor_keeps_the_history() {
+    let mut app = test_app(tree(), state_at(&[0]));
+    app.reload().await;
+    add_behind_core(&app, &[1, 0], at(9, 0), at(10, 0)).await;
+
+    app.handle_key(key('j')).await;
+    assert_eq!(actual(&app, &[1, 0]), Minutes::new(0));
+
+    app.reload().await; // the tick
+    assert_eq!(actual(&app, &[1, 0]), Minutes::new(60));
+}
+
+/// Every TUI action writes through `Core`: the next key rebuilds.
+#[tokio::test]
+async fn a_change_through_core_shows_at_the_next_key() {
+    let mut app = test_app(tree(), state_at(&[0]));
+    app.reload().await;
+    app.core
+        .add_session(&[1, 0], at(9, 0), at(10, 0), at(12, 0))
+        .await
+        .unwrap();
+
+    app.handle_key(key('j')).await;
+
+    assert_eq!(actual(&app, &[1, 0]), Minutes::new(60));
+    let b = app.core.tree().get(&[1, 0]).unwrap().id();
+    assert!(app.with_sessions.contains(&b));
+}
+
+/// A tmux hook / the CLI started a timer: the running session is read per
+/// key, and a new one rebuilds the rest too.
+#[tokio::test]
+async fn a_timer_started_elsewhere_shows_at_the_next_key() {
+    let mut app = test_app(tree(), state_at(&[0]));
+    app.reload().await;
+    start_behind_core(&app, &[1, 0], at(9, 0)).await;
+
+    app.handle_key(key('j')).await;
+
+    assert_eq!(timed(&app).as_deref(), Some("b"));
+    let b = app.core.tree().get(&[1, 0]).unwrap().id();
+    assert_eq!(app.history.task(b).unwrap().first_session, Some(at(9, 0)));
+}
+
+/// Keys pressed steadily keep pushing the tick back (the loop counts it
+/// from the last wake): a key a tick's length after the last rebuild
+/// rebuilds anyway, so changes from elsewhere still show.
+#[tokio::test]
+async fn a_key_a_tick_after_the_last_rebuild_rebuilds() {
+    let mut app = test_app(tree(), state_at(&[0]));
+    app.reload().await;
+    add_behind_core(&app, &[1, 0], at(9, 0), at(10, 0)).await;
+    app.rebuilt_at -= IDLE;
+
+    app.handle_key(key('j')).await;
+
+    assert_eq!(actual(&app, &[1, 0]), Minutes::new(60));
+}
+
+/// Each typed char is a key; a form writes nothing until it is saved.
+#[tokio::test]
+async fn typing_in_a_form_keeps_the_history() {
+    let mut app = test_app(tree(), state_at(&[0]));
+    app.reload().await;
+    add_behind_core(&app, &[1, 0], at(9, 0), at(10, 0)).await;
+
+    app.handle_key(key('t')).await;
+    app.handle_key(key('x')).await;
+    assert!(matches!(app.mode, Mode::Form(_)));
+    assert_eq!(actual(&app, &[1, 0]), Minutes::new(0));
+
+    app.handle_key(press(KeyCode::Esc)).await; // cancelled: still nothing written
+    assert_eq!(actual(&app, &[1, 0]), Minutes::new(0));
 }
 
 #[tokio::test]

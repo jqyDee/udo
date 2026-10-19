@@ -7,8 +7,9 @@ use chrono::TimeDelta;
 
 use crate::model::{sessions::Session, time::Time};
 
-/// At most this long between two reloads.
-const IDLE: Duration = Duration::from_secs(60);
+/// At most this long between two reloads; a key this long after the last
+/// one rebuilds too (`App::reload_after_key`).
+pub const IDLE: Duration = Duration::from_secs(60);
 
 /// How long from `now` until the next tick: when the shown minutes of the
 /// running session change (start + shown minutes + 1), else in `IDLE`.

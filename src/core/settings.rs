@@ -16,6 +16,7 @@ impl Core {
         settings: ContainerSettings,
         root: Option<RootSettings>,
     ) -> Res<()> {
+        self.changed();
         self.tree.set_settings(path, settings, root).await
     }
 }

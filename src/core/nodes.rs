@@ -35,6 +35,7 @@ impl Core {
     /// The tree checks the name and creates the node's folder. A task's
     /// estimate goes into the history (#47; a failure only warns).
     pub async fn create(&mut self, parent: &[usize], node: Node) -> Res<NodePath> {
+        self.changed();
         // the node's own creation time is "now" (`create` has no `now`)
         let created = node.header.created_at;
         let path = self.tree.create(parent, node).await?;
@@ -46,6 +47,7 @@ impl Core {
     /// changed own estimate of a task goes into the history (#6; a failure
     /// only warns, the edit stays).
     pub async fn edit(&mut self, path: &[usize], patch: NodePatch) -> Res<()> {
+        self.changed();
         let before = self.own_estimate(path);
         self.tree.edit(path, patch).await?; // keeps the node at `path`
         if self.own_estimate(path) != before {
@@ -68,6 +70,7 @@ impl Core {
     /// or on a task below it is stopped first (at `at`) and returned; the
     /// session keeps its task's data. Callers pass `time::now()`.
     pub async fn delete(&mut self, path: &[usize], at: Time) -> Res<Option<Session>> {
+        self.changed();
         let tasks = self.removable_tasks(path)?;
         let stopped = self.stop_if_on(&tasks, at).await?;
         self.tree.delete(path).await?;
@@ -88,6 +91,7 @@ impl Core {
         trash: TrashFn,
         at: Time,
     ) -> Res<(PurgeReport, Option<Session>)> {
+        self.changed();
         let tasks = self.removable_tasks(&plan.path)?;
         let stopped = self.stop_if_on(&tasks, at).await?;
         let report = self.tree.purge(plan, trash).await?;
