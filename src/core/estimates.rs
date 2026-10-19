@@ -1,8 +1,8 @@
 //! Estimates: `Core` reads the snapshot (`History`) the pure `estimate`
-//! module works on. The TUI keeps the `History` (`history`); the CLI asks
-//! once (`estimate`). And it records them into the history (#47) when a
-//! task is created, gets its first session, or its own estimate changes
-//! (#6; `record_estimate`).
+//! module works on. The TUI keeps the `History` and every task's `Shown`
+//! (`estimates`); the CLI asks once (`estimate`, `totals`). And it records
+//! them into the history (#47) when a task is created, gets its first
+//! session, or its own estimate changes (#6; `record_estimate`).
 
 use crate::{
     Res,
@@ -52,6 +52,22 @@ impl Core {
             .get(path)
             .map(|n| estimate::of_node(n, &history))
             .unwrap_or_default())
+    }
+
+    /// The history and every task's `Shown` (`Estimates`), read and computed
+    /// once: the TUI per `reload`, `ls --time` per call.
+    pub async fn estimates(&self, now: Time) -> Res<(History, estimate::Estimates)> {
+        let history = self.history(now).await?;
+        let estimates = estimate::Estimates::build(&self.tree, &history);
+        Ok((history, estimates))
+    }
+
+    /// Estimate vs. actual over the tasks at or below `path`
+    /// (`estimate::totals`); a task: itself alone. No such node: all 0.
+    /// Builds everything: for one answer (CLI), not per frame.
+    pub async fn totals(&self, path: &[usize], now: Time) -> Res<estimate::Totals> {
+        let (history, estimates) = self.estimates(now).await?;
+        Ok(estimate::totals(&self.tree, path, &estimates, &history))
     }
 
     /// Write the estimate of the task at `path` into the history (#47), as
@@ -182,6 +198,52 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[tokio::test]
+    async fn estimates_give_every_task_its_shown() {
+        // ws: [b (done, 1h), c]: c's estimate is learned from b
+        let (_tmp, mut core) = core().await;
+        core.add_session(&[1, 0], at(9, 0), at(10, 0), at(12, 0))
+            .await
+            .unwrap();
+        core.set_done(&[1, 0], true, at(11, 0)).await.unwrap();
+        let c_path = core.create(&[1], task("c")).await.unwrap();
+
+        let (history, estimates) = core.estimates(at(12, 0)).await.unwrap();
+
+        let b = core.tree().get(&[1, 0]).unwrap().id();
+        let c = core.tree().get(&c_path).unwrap().id();
+        assert_eq!(history.task(b).unwrap().actual, Minutes::new(60));
+        let one_answer = core.estimate(&c_path, at(12, 0)).await.unwrap();
+        assert_eq!(estimates.get(c), one_answer);
+        assert!(one_answer.learned.is_some()); // not two empty ones
+    }
+
+    #[tokio::test]
+    async fn totals_sum_the_tasks_below() {
+        // ws: [b (done, 1h), c (open, learns 1h from b, nothing tracked)]
+        let (_tmp, mut core) = core().await;
+        core.add_session(&[1, 0], at(9, 0), at(10, 0), at(12, 0))
+            .await
+            .unwrap();
+        core.set_done(&[1, 0], true, at(11, 0)).await.unwrap();
+        core.create(&[1], task("c")).await.unwrap();
+
+        let ws = core.totals(&[1], at(12, 0)).await.unwrap();
+
+        assert_eq!(ws.tasks, 2);
+        assert_eq!(ws.actual, Minutes::new(60));
+        assert_eq!(ws.left, Minutes::new(60)); // c: 1h estimated, 0 tracked
+    }
+
+    #[tokio::test]
+    async fn totals_of_no_such_node_are_all_zero() {
+        let (_tmp, core) = core().await;
+
+        let none = core.totals(&[9], at(12, 0)).await.unwrap();
+
+        assert_eq!(none, crate::estimate::Totals::default());
     }
 
     #[tokio::test]

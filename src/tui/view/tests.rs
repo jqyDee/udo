@@ -547,7 +547,8 @@ async fn a_done_task_has_no_left_row() {
 }
 
 #[tokio::test]
-async fn a_container_shows_only_the_duration_of_the_tasks_below() {
+async fn a_container_shows_the_totals_of_the_tasks_below() {
+    // uni 2h: lab 1h, sheet 30m tracked, both open and learning 2h from uni
     let sessions: &[(&[usize], _, _)] = &[
         (&[0, 0], at(9, 0), at(10, 0)),
         (&[0, 1], at(10, 0), at(10, 30)),
@@ -557,10 +558,73 @@ async fn a_container_shows_only_the_duration_of_the_tasks_below() {
     let rows = render_rows(&mut app);
 
     assert_eq!(
+        field_row(&rows, "estimated").as_deref(),
+        Some("4h (2 of 2 tasks)")
+    );
+    assert_eq!(
         field_row(&rows, "duration").as_deref(),
         Some("1h30 in 2 sessions")
     );
-    assert_eq!(field_row(&rows, "estimate"), None);
+    assert_eq!(field_row(&rows, "left").as_deref(), Some("2h30")); // 1h + 1h30
+    assert_eq!(field_row(&rows, "done"), None); // nothing done
+    assert_eq!(field_row(&rows, "estimate"), None); // a task's row
+}
+
+#[tokio::test]
+async fn a_container_without_estimates_has_no_left_or_done() {
+    let mut app = app_with_sessions(estimate_tree(None), &[0], &[]).await;
+
+    let rows = render_rows(&mut app);
+
+    assert_eq!(
+        field_row(&rows, "estimated").as_deref(),
+        Some("- (0 of 2 tasks)")
+    );
+    assert_eq!(field_row(&rows, "left"), None);
+    assert_eq!(field_row(&rows, "done"), None);
+}
+
+#[tokio::test]
+async fn a_container_counts_tasks_over_and_done() {
+    // uni 1h: lab 1h20 (open, over), sheet 30m (done)
+    let mut tree = estimate_tree(Some(60));
+    mark_done(&mut tree, &[0, 1]);
+    let sessions: &[(&[usize], _, _)] = &[
+        (&[0, 0], at(9, 0), at(10, 20)),
+        (&[0, 1], at(10, 30), at(11, 0)),
+    ];
+    let mut app = app_with_sessions(tree, &[0], sessions).await;
+
+    let rows = render_rows(&mut app);
+
+    assert_eq!(field_row(&rows, "left").as_deref(), Some("0m (1 over)"));
+    assert!(field_row(&rows, "done").is_some());
+}
+
+#[tokio::test]
+async fn a_done_task_shows_its_result_not_left() {
+    // uni 1h, lab done after 1h20
+    let mut tree = estimate_tree(Some(60));
+    mark_done(&mut tree, &[0, 0]);
+    let sessions: &[(&[usize], _, _)] = &[(&[0, 0], at(9, 0), at(10, 20))];
+    let mut app = app_with_sessions(tree, &[0, 0], sessions).await;
+
+    let rows = render_rows(&mut app);
+
+    assert_eq!(field_row(&rows, "left"), None);
+    assert_eq!(field_row(&rows, "result").as_deref(), Some("over by 20m"));
+    assert_eq!(fg_of(&mut app, "over by"), Color::Red);
+}
+
+#[tokio::test]
+async fn a_done_task_without_estimate_has_no_result() {
+    let mut tree = estimate_tree(None);
+    mark_done(&mut tree, &[0, 0]);
+    let mut app = app_with_sessions(tree, &[0, 0], &[]).await;
+
+    let rows = render_rows(&mut app);
+
+    assert_eq!(field_row(&rows, "result"), None);
     assert_eq!(field_row(&rows, "left"), None);
 }
 

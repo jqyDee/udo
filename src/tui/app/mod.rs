@@ -43,7 +43,7 @@ pub use crate::run::RunRequest;
 
 use crate::{
     core::Core,
-    estimate::History,
+    estimate::{self, History},
     model::{
         id::NodeId,
         node::Node,
@@ -102,6 +102,9 @@ pub struct App<'a> {
     /// What the estimates are computed from; reloaded with the rest
     /// (`reload`), so moving the cursor costs nothing.
     pub history: History,
+    /// Every task's `Shown`, built with `history` (`reload`): the details
+    /// look up, they do not estimate per frame.
+    pub estimates: estimate::Estimates,
 }
 
 impl<'a> App<'a> {
@@ -122,6 +125,7 @@ impl<'a> App<'a> {
             sessions: Vec::new(),
             session_list: SessionList::default(),
             history: History::default(),
+            estimates: estimate::Estimates::default(),
         }
     }
 
@@ -142,8 +146,11 @@ impl<'a> App<'a> {
             Ok(running) => self.running = running,
             Err(e) => self.error(e.to_string()),
         }
-        match self.core.history((self.clock)()).await {
-            Ok(history) => self.history = history,
+        match self.core.estimates((self.clock)()).await {
+            Ok((history, estimates)) => {
+                self.history = history;
+                self.estimates = estimates;
+            }
             Err(e) => self.error(e.to_string()),
         }
     }

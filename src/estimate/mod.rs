@@ -9,6 +9,7 @@ mod manual;
 pub mod store;
 #[cfg(test)]
 mod tests;
+pub mod text;
 mod totals;
 
 use crate::model::{

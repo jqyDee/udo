@@ -354,6 +354,22 @@ async fn a_timer_started_elsewhere_shows_after_reload() {
     assert_eq!(timed(&app).as_deref(), Some("b"));
 }
 
+/// `reload` builds the estimates with the history: a draw only looks up.
+#[tokio::test]
+async fn reload_rebuilds_the_estimates() {
+    // ws sets 1h: b learns it
+    let mut tree = tree();
+    let ws = tree.get_mut(&[1]).and_then(Node::as_container_mut).unwrap();
+    ws.settings.estimate = Some(Minutes::new(60));
+    let mut app = test_app(tree, state_at(&[1, 0]));
+    let b = app.core.tree().get(&[1, 0]).unwrap().id();
+    assert_eq!(app.estimates.get(b).minutes(), None); // not built yet
+
+    app.reload().await;
+
+    assert_eq!(app.estimates.get(b).minutes(), Some(Minutes::new(60)));
+}
+
 #[tokio::test]
 async fn old_status_keys_do_nothing() {
     let (_tmp, mut app) = sheet_app().await;
