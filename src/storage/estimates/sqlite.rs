@@ -1,4 +1,4 @@
-//! Estimate rows in `udo.db` (table `estimates`, migration 002).
+//! Estimate rows in `udo.db` (table `estimates`, migrations 002 and 003).
 
 use std::sync::{Arc, Mutex};
 
@@ -6,7 +6,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter, typ
 use uuid::Uuid;
 
 use crate::{
-    estimate::store::{EstimateError, EstimateStore, NewEstimate, Recorded},
+    estimate::store::{EstimateError, EstimateStore, NewEstimate, PriorSource, Recorded},
     model::{
         id::NodeId,
         time::{Clock, Minutes, Time},
@@ -59,7 +59,7 @@ impl EstimateStore for SqliteEstimates {
             // write lock first (`BEGIN IMMEDIATE`): another process cannot
             // write between our check and our insert
             let tx = write_tx(conn)?;
-            if latest(&tx, row.task)?.is_some_and(|last| row.repeats(&last.estimate)) {
+            if latest_in_chain(&tx, &row)?.is_some_and(|last| row.repeats(&last.estimate)) {
                 return Ok(None); // `tx` dropped: rolled back, nothing was written
             }
             let recorded = Recorded {
@@ -109,15 +109,31 @@ fn latest(conn: &Connection, task: NodeId) -> rusqlite::Result<Option<Recorded>>
     .optional()
 }
 
+/// The latest row of `row`'s task in `row`'s chain (`same_chain`; order as
+/// `latest`). Reads the task's rows newest first: a task has few.
+fn latest_in_chain(conn: &Connection, row: &NewEstimate) -> rusqlite::Result<Option<Recorded>> {
+    let mut stmt =
+        conn.prepare("SELECT * FROM estimates WHERE task_id = ?1 ORDER BY at DESC, id DESC")?;
+    for r in stmt.query_map([row.task], recorded_from_row)? {
+        let r = r?;
+        if row.same_chain(&r.estimate) {
+            return Ok(Some(r));
+        }
+    }
+    Ok(None)
+}
+
 /// Store a new row.
 fn insert(conn: &Connection, r: &Recorded) -> Result<(), EstimateError> {
     let e = &r.estimate;
     let (at, at_offset) = time_to_sql(r.at);
+    let (source, container, tasks) = source_to_sql(e.prior_source);
     conn.execute(
         "INSERT INTO estimates (
              id, task_id, minutes, method, version, done_tasks, open_tasks,
-             prior_minutes, reason, at, at_offset
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+             prior_minutes, reason, at, at_offset,
+             prior_source, prior_container, prior_tasks
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             r.id.to_string(), // `Uuid` has no `ToSql` (orphan rule); text like sessions
             e.task,
@@ -130,6 +146,9 @@ fn insert(conn: &Connection, r: &Recorded) -> Result<(), EstimateError> {
             e.reason,
             at,
             at_offset,
+            source,
+            container,
+            tasks,
         ],
     )?;
     Ok(())
@@ -153,6 +172,7 @@ fn recorded_from_row(row: &Row) -> rusqlite::Result<Recorded> {
             prior: row
                 .get::<_, Option<u32>>("prior_minutes")?
                 .map(Minutes::new),
+            prior_source: source_from_row(row)?,
             reason: row.get("reason")?,
         },
         at: time_from_row(row, "at", "at_offset")?,
@@ -164,6 +184,44 @@ fn count(row: &Row, column: &str) -> rusqlite::Result<usize> {
     let n: i64 = row.get(column)?;
     usize::try_from(n)
         .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, Type::Integer, Box::new(e)))
+}
+
+/// A `PriorSource` as its three columns: `prior_source`, `prior_container`,
+/// `prior_tasks`. `None` (before #60): all NULL.
+fn source_to_sql(s: Option<PriorSource>) -> (Option<&'static str>, Option<NodeId>, Option<i64>) {
+    match s {
+        None => (None, None, None),
+        Some(PriorSource::NoPrior) => (Some("none"), None, None),
+        Some(PriorSource::Setting { container }) => (Some("setting"), Some(container), None),
+        Some(PriorSource::Parent { container, tasks }) => {
+            (Some("parent"), Some(container), Some(tasks as i64)) // `usize` is no `ToSql`
+        }
+    }
+}
+
+/// The three columns -> a `PriorSource`; any other combination (a source
+/// without its container, an unknown name, a negative count) is an error.
+fn source_from_row(row: &Row) -> rusqlite::Result<Option<PriorSource>> {
+    let source: Option<String> = row.get("prior_source")?;
+    let container: Option<NodeId> = row.get("prior_container")?;
+    let tasks: Option<i64> = row.get("prior_tasks")?;
+    let broken = || {
+        rusqlite::Error::FromSqlConversionFailure(
+            0,
+            Type::Text,
+            format!("prior source {source:?} / {container:?} / {tasks:?}").into(),
+        )
+    };
+    Ok(match (source.as_deref(), container, tasks) {
+        (None, None, None) => None,
+        (Some("none"), None, None) => Some(PriorSource::NoPrior),
+        (Some("setting"), Some(container), None) => Some(PriorSource::Setting { container }),
+        (Some("parent"), Some(container), Some(n)) => Some(PriorSource::Parent {
+            container,
+            tasks: usize::try_from(n).map_err(|_| broken())?,
+        }),
+        _ => return Err(broken()),
+    })
 }
 
 #[cfg(test)]
@@ -192,6 +250,7 @@ mod tests {
             done_tasks: 2,
             open_tasks: 1,
             prior: None,
+            prior_source: Some(PriorSource::Setting { container: task }),
             reason: Reason::Started,
         }
     }
@@ -281,6 +340,34 @@ mod tests {
                 at(20, 0).timestamp_millis(),
             )
         );
+        let source: (String, String, Option<i64>) = conn
+            .query_row(
+                "SELECT prior_source, prior_container, prior_tasks FROM estimates",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(source, ("setting".into(), task.to_string(), None));
+    }
+
+    /// A row from before migration 003 has no source: read as `None`.
+    #[tokio::test]
+    async fn a_row_from_before_003_has_no_prior_source() {
+        let s = store();
+        let task = NodeId::new();
+        s.record(row(task)).await.unwrap();
+        s.conn
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE estimates SET prior_source = NULL, prior_container = NULL",
+                [],
+            )
+            .unwrap();
+
+        let read = s.last_of(task).await.unwrap().unwrap();
+
+        assert_eq!(read.estimate.prior_source, None);
     }
 
     /// A broken row (edited by hand, or a bug) is an error when read, never
@@ -290,9 +377,11 @@ mod tests {
         for (column, value) in [
             ("id", "'not a uuid'"),
             ("task_id", "''"),
-            ("reason", "'Created'"), // names are lowercase
-            ("done_tasks", "-1"),    // a count below zero
-            ("prior_minutes", "-5"), // does not fit `u32`
+            ("reason", "'Created'"),      // names are lowercase
+            ("done_tasks", "-1"),         // a count below zero
+            ("prior_minutes", "-5"),      // does not fit `u32`
+            ("prior_source", "'pooled'"), // no such source
+            ("prior_container", "NULL"),  // a setting without its container
         ] {
             let s = store();
             s.record(row(NodeId::new())).await.unwrap().unwrap();

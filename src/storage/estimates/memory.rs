@@ -26,7 +26,11 @@ impl MemoryEstimates {
 impl EstimateStore for MemoryEstimates {
     async fn record(&self, row: NewEstimate) -> Result<Option<Recorded>, EstimateError> {
         let mut rows = self.rows.lock().unwrap(); // held until the push: one step
-        if latest(&rows, row.task).is_some_and(|last| row.repeats(&last.estimate)) {
+        let last = rows
+            .iter()
+            .filter(|r| r.estimate.task == row.task && row.same_chain(&r.estimate))
+            .max_by_key(|r| (r.at, r.id));
+        if last.is_some_and(|last| row.repeats(&last.estimate)) {
             return Ok(None);
         }
         let recorded = Recorded {

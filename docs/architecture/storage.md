@@ -103,5 +103,12 @@ classDiagram
   (created, first session, own estimate set or removed), with the method,
   its version and what it learned from (`NewEstimate`). Rows stay when the
   task is deleted.
-- `record` skips a row that repeats the task's latest one (same minutes and
-  method). When rows are written: [estimates.md](estimates.md#recording).
+- `record` skips a row that repeats the latest row of its chain (same
+  minutes, method and prior source). A chain: yours (`manual`) or learned,
+  times `created` / `started` or not, so a `manual` row never hides a
+  learned repeat and a `cleared` one never a `started` one (#60). When rows
+  are written: [estimates.md](estimates.md#recording).
+- Since migration 003 a row also says where its prior came from
+  (`prior_source`: `none`, `setting`, `parent`; `prior_container`,
+  `prior_tasks`). NULL: written before; such rows are never changed, a
+  newer row supersedes them.

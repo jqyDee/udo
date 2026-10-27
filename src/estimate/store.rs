@@ -6,7 +6,7 @@ use std::{fmt, str::FromStr};
 use uuid::Uuid;
 
 use crate::{
-    estimate::{Basis, Estimate},
+    estimate::{Basis, Estimate, Prior},
     model::{
         id::NodeId,
         time::{Minutes, Time},
@@ -28,6 +28,38 @@ pub enum Reason {
     Cleared,
 }
 
+impl Reason {
+    /// A row a done task's estimate is read from (#60): the moments it is
+    /// frozen at.
+    pub fn freezes(self) -> bool {
+        matches!(self, Self::Created | Self::Started)
+    }
+}
+
+/// Where a row's prior came from (#60), so the row alone gives the whole
+/// estimate, explanation included.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PriorSource {
+    /// No prior (and yours: `manual` rows).
+    NoPrior,
+    /// The `estimate` setting of `container`.
+    Setting { container: NodeId },
+    /// `tasks` tasks pooled in `container`.
+    Parent { container: NodeId, tasks: usize },
+}
+
+impl PriorSource {
+    fn of(prior: Option<Prior>) -> Self {
+        match prior {
+            None => Self::NoPrior,
+            Some(Prior::Setting { container, .. }) => Self::Setting { container },
+            Some(Prior::Parent {
+                container, tasks, ..
+            }) => Self::Parent { container, tasks },
+        }
+    }
+}
+
 /// A row to append; the store adds the id and the time.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewEstimate {
@@ -39,6 +71,8 @@ pub struct NewEstimate {
     pub done_tasks: usize,
     pub open_tasks: usize,
     pub prior: Option<Minutes>,
+    /// `None`: written before #60 (migration 003), unknown.
+    pub prior_source: Option<PriorSource>,
     pub reason: Reason,
 }
 
@@ -53,13 +87,13 @@ impl NewEstimate {
     ) -> Self {
         let (method, done_tasks, open_tasks, prior) = match estimate.basis {
             Basis::Own => (method, 0, 0, None),
-            Basis::Prior(p) => ("prior", 0, 0, Some(p.minutes())),
+            Basis::Prior(p) => ("prior", 0, 0, Some(p)),
             Basis::Learned {
                 done_tasks,
                 open_tasks,
                 prior,
                 ..
-            } => (method, done_tasks, open_tasks, prior.map(|p| p.minutes())),
+            } => (method, done_tasks, open_tasks, prior),
         };
         Self {
             task,
@@ -68,16 +102,31 @@ impl NewEstimate {
             version,
             done_tasks,
             open_tasks,
-            prior,
+            prior: prior.map(|p| p.minutes()),
+            prior_source: Some(PriorSource::of(prior)),
             reason,
         }
     }
 
-    /// Would this row repeat `last`: same minutes, same method? Then it says
-    /// nothing new (the reason alone does not count: a task started with
-    /// the estimate it was created with gets no second row).
+    /// Do this row and `other` belong to one chain, the rows `repeats`
+    /// compares within (#60): both yours (`manual`) or both learned, and
+    /// both a moment a done task is read from (`created`, `started`) or
+    /// both not. So a `manual` row never hides a learned repeat, nor a
+    /// `cleared` one a `started` one.
+    pub fn same_chain(&self, other: &NewEstimate) -> bool {
+        (self.method == "manual") == (other.method == "manual")
+            && self.reason.freezes() == other.reason.freezes()
+    }
+
+    /// Would this row repeat `last` (the latest of its chain): same
+    /// minutes, method and prior source? Then it says nothing new (the
+    /// reason alone does not count: a task started with the estimate it was
+    /// created with gets no second row). A row without a source (before
+    /// #60) is never repeated by one with it.
     pub fn repeats(&self, last: &NewEstimate) -> bool {
-        self.minutes == last.minutes && self.method == last.method
+        self.minutes == last.minutes
+            && self.method == last.method
+            && self.prior_source == last.prior_source
     }
 }
 
@@ -106,9 +155,9 @@ impl fmt::Display for EstimateError {
 #[allow(async_fn_in_trait)]
 pub trait EstimateStore {
     /// Append `row`, timed by the store's clock, unless it repeats the
-    /// task's latest row (`repeats`): `None`, nothing written. Check and
-    /// write are one step, also across processes, so two at once write it
-    /// once.
+    /// latest row of its chain (`same_chain`, `repeats`): `None`, nothing
+    /// written. Check and write are one step, also across processes, so
+    /// two at once write it once.
     async fn record(&self, row: NewEstimate) -> Result<Option<Recorded>, EstimateError>;
     /// The task's latest row (#9: what udo estimated last).
     async fn last_of(&self, task: NodeId) -> Result<Option<Recorded>, EstimateError>;
@@ -166,8 +215,9 @@ mod tests {
         // uni/algorithms/sheet-3 at its first session: 3h05 from one open
         // sheet, starting from the 3h setting
         let task = NodeId::new();
+        let uni = NodeId::new();
         let prior = Prior::Setting {
-            container: NodeId::new(),
+            container: uni,
             minutes: Minutes::new(180),
         };
 
@@ -189,9 +239,57 @@ mod tests {
                 done_tasks: 0,
                 open_tasks: 1,
                 prior: Some(Minutes::new(180)),
+                prior_source: Some(PriorSource::Setting { container: uni }),
                 reason: Reason::Started,
             }
         );
+    }
+
+    #[test]
+    fn a_row_keeps_where_its_prior_came_from() {
+        let ws = NodeId::new();
+        let setting = Prior::Setting {
+            container: ws,
+            minutes: Minutes::new(180),
+        };
+        let parent = Prior::Parent {
+            container: ws,
+            tasks: 5,
+            minutes: Minutes::new(96),
+        };
+        let prior_only = Estimate {
+            minutes: Minutes::new(96),
+            basis: Basis::Prior(parent),
+            as_of: None,
+        };
+        let own = Estimate {
+            minutes: Minutes::new(45),
+            basis: Basis::Own,
+            as_of: None,
+        };
+        let source = |e: &Estimate| {
+            NewEstimate::of(NodeId::new(), e, "average", 1, Reason::Created).prior_source
+        };
+
+        assert_eq!(
+            source(&learned(0, 1, Some(setting))),
+            Some(PriorSource::Setting { container: ws })
+        );
+        assert_eq!(
+            source(&prior_only),
+            Some(PriorSource::Parent {
+                container: ws,
+                tasks: 5
+            })
+        );
+        assert_eq!(source(&learned(2, 0, None)), Some(PriorSource::NoPrior));
+        assert_eq!(source(&own), Some(PriorSource::NoPrior));
+    }
+
+    #[test]
+    fn created_and_started_rows_freeze() {
+        assert!(Reason::Created.freezes() && Reason::Started.freezes());
+        assert!(!Reason::Manual.freezes() && !Reason::Cleared.freezes());
     }
 
     #[test]
