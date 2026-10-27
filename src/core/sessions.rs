@@ -1,14 +1,17 @@
 //! Reading and correcting recorded time: the sessions of a node; add, edit,
 //! split, cut and delete sessions. Thin: the store keeps its own rules
 //! (overlap, outside, running); Core adds "not in the future" (`not_after`),
-//! which needs a `now` the store does not have.
+//! which needs a `now` the store does not have. A change that moves a
+//! task's first session records its estimate anew (#60; a failure only
+//! warns).
 
 use crate::{
     Res,
     core::{Core, estimates::Moment},
     model::{
+        NodePath,
         sessions::{Session, SessionId, SessionPatch, SessionQuery, SessionStore},
-        time::Time,
+        time::{self, Time},
     },
 };
 
@@ -56,7 +59,10 @@ impl Core {
     pub async fn edit_session(&self, id: SessionId, patch: SessionPatch, now: Time) -> Res<()> {
         self.changed();
         not_after(now, &[patch.start, patch.end])?;
-        Ok(self.storage.sessions.edit(id, patch).await?)
+        let before = self.before_change(id).await?;
+        self.storage.sessions.edit(id, patch).await?;
+        self.record_first_moved(before, now).await;
+        Ok(())
     }
 
     /// Split a session in two at `at`; `at` on its start or end: `None`.
@@ -77,13 +83,52 @@ impl Core {
     ) -> Res<Vec<Session>> {
         self.changed();
         not_after(now, &[Some(from), Some(to)])?;
-        Ok(self.storage.sessions.cut(id, from, to).await?)
+        let before = self.before_change(id).await?;
+        let left = self.storage.sessions.cut(id, from, to).await?;
+        self.record_first_moved(before, now).await;
+        Ok(left)
     }
 
     /// Soft delete: hidden, the data stays.
     pub async fn delete_session(&self, id: SessionId) -> Res<()> {
         self.changed();
-        Ok(self.storage.sessions.delete(id).await?)
+        let before = self.before_change(id).await?;
+        self.storage.sessions.delete(id).await?;
+        // `delete` has no `now` (as `edit`): a running session counts to now
+        self.record_first_moved(before, time::now()).await;
+        Ok(())
+    }
+
+    /// The path of session `id`'s task and the start of that task's first
+    /// session, before a change (`Moment::FirstMoved`). `None`: no such
+    /// session, or its task is no longer in the tree.
+    async fn before_change(&self, id: SessionId) -> Res<Option<(NodePath, Option<Time>)>> {
+        let all = self
+            .storage
+            .sessions
+            .query(&SessionQuery::default())
+            .await?;
+        let Some(task) = all.iter().find(|s| s.id == id).map(|s| s.task.id) else {
+            return Ok(None);
+        };
+        let Some(path) = self.tree.path_of(task) else {
+            return Ok(None);
+        };
+        let first = all
+            .iter()
+            .filter(|s| s.task.id == task)
+            .map(|s| s.start)
+            .min();
+        Ok(Some((path, first)))
+    }
+
+    /// After a change: a row if the first session of the task in `before`
+    /// (`before_change`) moved.
+    async fn record_first_moved(&self, before: Option<(NodePath, Option<Time>)>, now: Time) {
+        if let Some((path, first)) = before {
+            let moment = Moment::FirstMoved { before: first };
+            self.record_estimate(&path, moment, now).await;
+        }
     }
 }
 

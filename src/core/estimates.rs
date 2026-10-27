@@ -2,7 +2,8 @@
 //! module works on. The TUI keeps the `History` and every task's `Shown`
 //! (`estimates`); the CLI asks once (`estimate`, `totals`). And it records
 //! them into the history (#47) when a task is created, gets its first
-//! session, or its own estimate changes (#6; `record_estimate`).
+//! session, its first session moves (#60), or its own estimate changes
+//! (#6; `record_estimate`).
 
 use crate::{
     Res,
@@ -24,6 +25,10 @@ pub(super) enum Moment {
     /// A session starting at `start` (as stored) was just stored for the
     /// task: a row only if it is the task's first.
     Started { start: Time },
+    /// A session of the task was edited, cut or deleted; `before`: the
+    /// start of its first session before. A row only if that moved and a
+    /// session is left (#60).
+    FirstMoved { before: Option<Time> },
     /// The task's own estimate was set, changed or removed (`Core::edit`;
     /// only on a real change).
     Edited,
@@ -71,12 +76,13 @@ impl Core {
         Ok(estimate::totals(&self.tree, path, &estimates, &history))
     }
 
-    /// Write the estimate of the task at `path` into the history (#47), as
-    /// udo goes by it (`estimate::pick`: yours, else the learned one) at
-    /// the task's `frozen_at`: its creation (`Created`) or its first
+    /// Write the estimate of the task at `path` into the history (#47) at
+    /// the task's `frozen_at`: yours and the learned one, each its own row
+    /// (`estimate::each`, #60), at its creation (`Created`) or its first
     /// session (`Started`; call after the session is stored). "First" is
     /// #8's: the earliest session not removed, so a session added before
-    /// the old first one is a new first. `Edited` (#6, after the edit):
+    /// the old first one is a new first, and so is the next one when the
+    /// first is edited, cut or deleted (`FirstMoved`). `Edited` (#6, after the edit):
     /// your own estimate as set now (`manual`), or, removed, the learned
     /// one as shown from now on (`cleared`). Never fails the action it
     /// follows: an error becomes a warning. A container, a later session,
@@ -96,38 +102,51 @@ impl Core {
         let Some(task) = history.task(id) else {
             return Ok(());
         };
-        // as at `frozen_at`; `as_of` keeps the own estimate, so `pick` gives yours
-        let then = || history.as_of(task.frozen_at());
-        let (reason, picked) = match moment {
-            Moment::Created => (Reason::Created, estimate::pick(id, &then())),
+        // as at `frozen_at`; `as_of` keeps the own estimate, so `each` gives
+        // yours and the learned one (#60: both are recorded)
+        let then = || estimate::each(id, &history.as_of(task.frozen_at()));
+        let (reason, rows) = match moment {
+            Moment::Created => (Reason::Created, then()),
             // only the task's first session is a moment (#8 freezes there)
             Moment::Started { start } if task.first_session == Some(start) => {
-                (Reason::Started, estimate::pick(id, &then()))
+                (Reason::Started, then())
             }
             Moment::Started { .. } => return Ok(()),
-            // set or changed: `pick` gives yours (`Manual`), never frozen
-            Moment::Edited if task.own_estimate.is_some() => {
-                (Reason::Manual, estimate::pick(id, &history))
+            // frozen anew at the new first session; none left: the
+            // `created` row counts again, nothing to write
+            Moment::FirstMoved { before }
+                if task.first_session.is_some() && task.first_session != before =>
+            {
+                (Reason::Started, then())
             }
+            Moment::FirstMoved { .. } => return Ok(()),
+            // set or changed: `pick` gives yours (`Manual`), never frozen
+            Moment::Edited if task.own_estimate.is_some() => (
+                Reason::Manual,
+                estimate::pick(id, &history).into_iter().collect(),
+            ),
             // removed: what udo goes by from now on, the learned estimate as
             // shown (frozen for a done task)
             Moment::Edited => {
                 let learned = estimate::of_node(node, &history, &Frozen::default()).learned;
                 let average: &'static dyn Estimator = &Average; // the one `of_node` learns with
-                (Reason::Cleared, learned.map(|e| (e, average)))
+                (
+                    Reason::Cleared,
+                    learned.map(|e| (e, average)).into_iter().collect(),
+                )
             }
         };
-        let Some((estimate, estimator)) = picked else {
-            return Ok(()); // nothing set, no data: no row
-        };
-        let row = NewEstimate::of(
-            id,
-            &estimate,
-            estimator.method(),
-            estimator.version(),
-            reason,
-        );
-        self.storage.estimates.record(row).await?; // `None` (a repeat) is fine
+        // none: nothing set, no data, no row
+        for (estimate, estimator) in rows {
+            let row = NewEstimate::of(
+                id,
+                &estimate,
+                estimator.method(),
+                estimator.version(),
+                reason,
+            );
+            self.storage.estimates.record(row).await?; // `None` (a repeat) is fine
+        }
         Ok(())
     }
 }
@@ -145,10 +164,10 @@ mod tests {
             container::ContainerKind,
             id::NodeId,
             node::{BodyPatch, HeaderPatch, NodeBody, NodePatch},
-            sessions::SessionStore,
+            sessions::{Session, SessionPatch, SessionStore},
             settings::ContainerSettings,
             task::TaskPatch,
-            time::Minutes,
+            time::{Minutes, Time},
         },
         // core: disk_tree, root: [a, ws: [b]]
         test_util::{at, core, core_with_broken_estimates, new_container, task},
@@ -569,8 +588,10 @@ mod tests {
         assert!(core.take_warnings().is_empty());
     }
 
+    /// Yours and the learned one, side by side (#60): a done task's learned
+    /// estimate is read from its row even when it has its own.
     #[tokio::test]
-    async fn a_task_created_with_its_own_estimate_records_it() {
+    async fn created_and_started_record_yours_and_the_learned_one() {
         let (_tmp, mut core) = core().await;
         set_estimate(&mut core, 90).await;
         let mut node = task("c");
@@ -580,12 +601,17 @@ mod tests {
         };
         t.estimate = Some(Minutes::new(45));
         let c = core.create(&[1], node).await.unwrap();
+        b_done_in_an_hour(&mut core).await;
 
-        core.start(&c, at(12, 0)).await.unwrap(); // the same 45m: a repeat
+        core.start(&c, at(12, 0)).await.unwrap();
 
         assert_eq!(
             summary(&core, &c).await,
-            [("manual".into(), 45, Reason::Created)]
+            [
+                ("manual".into(), 45, Reason::Created),
+                ("prior".into(), 90, Reason::Created),
+                ("average".into(), 83, Reason::Started), // the manual 45: a repeat
+            ]
         );
     }
 
@@ -670,6 +696,130 @@ mod tests {
 
         let task = core.tree().get(&c).and_then(|n| n.as_task()).unwrap();
         assert_eq!(task.estimate, Some(Minutes::new(45)));
+        let warnings = core.take_warnings();
+        let [warning] = &warnings[..] else {
+            panic!("one warning: {warnings:?}");
+        };
+        assert!(warning.starts_with("estimate not recorded: "), "{warning}");
+    }
+
+    // ---------- the first session moves (#60) ----------
+
+    /// c in ws (setting 1h30; b worked 9–10, done 11:00), created at 8:00,
+    /// with sessions `spans`; its path and its sessions, oldest first. As
+    /// of 10:00 c learns the setting alone (`prior` 90, a repeat of its
+    /// `created` row); from 11:00 on `average` 83 ((3·90 + 60) / 4).
+    async fn c_with(core: &mut Core, spans: &[(Time, Time)]) -> (Vec<usize>, Vec<Session>) {
+        set_estimate(core, 90).await;
+        let c = create_at_8(core, "c").await;
+        b_done_in_an_hour(core).await;
+        let mut sessions = Vec::new();
+        for &(start, end) in spans {
+            let s = core.add_session(&c, start, end, at(23, 0)).await.unwrap();
+            sessions.push(s);
+        }
+        (c, sessions)
+    }
+
+    #[tokio::test]
+    async fn a_deleted_first_session_records_the_new_first() {
+        let (_tmp, mut core) = core().await;
+        let spans = [(at(10, 0), at(10, 30)), (at(12, 0), at(12, 30))];
+        let (c, s) = c_with(&mut core, &spans).await;
+
+        core.delete_session(s[0].id).await.unwrap();
+
+        assert_eq!(
+            summary(&core, &c).await,
+            [
+                ("prior".into(), 90, Reason::Created),
+                ("average".into(), 83, Reason::Started),
+            ]
+        );
+    }
+
+    /// The first session stays: no row, even when the estimate at it would
+    /// now come out different (settings have no history).
+    #[tokio::test]
+    async fn editing_a_later_session_records_nothing() {
+        let (_tmp, mut core) = core().await;
+        let spans = [(at(10, 0), at(10, 30)), (at(12, 0), at(12, 30))];
+        let (c, s) = c_with(&mut core, &spans).await;
+        set_estimate(&mut core, 300).await;
+
+        let patch = SessionPatch {
+            end: Some(at(12, 45)),
+            ..Default::default()
+        };
+        core.edit_session(s[1].id, patch, at(23, 0)).await.unwrap();
+
+        assert_eq!(
+            summary(&core, &c).await,
+            [("prior".into(), 90, Reason::Created)]
+        );
+    }
+
+    #[tokio::test]
+    async fn moving_the_first_start_records() {
+        let (_tmp, mut core) = core().await;
+        let (c, s) = c_with(&mut core, &[(at(10, 0), at(10, 30))]).await;
+
+        let patch = SessionPatch {
+            start: Some(at(11, 30)),
+            end: Some(at(12, 0)),
+        };
+        core.edit_session(s[0].id, patch, at(23, 0)).await.unwrap();
+
+        let last = rows(&core, id(&core, &c)).await.pop().unwrap();
+        assert_eq!(
+            (last.minutes, last.reason),
+            (Minutes::new(83), Reason::Started)
+        );
+    }
+
+    #[tokio::test]
+    async fn cutting_the_start_off_the_first_session_records() {
+        let (_tmp, mut core) = core().await;
+        let (c, s) = c_with(&mut core, &[(at(10, 0), at(12, 0))]).await;
+
+        core.cut_session(s[0].id, at(10, 0), at(11, 30), at(23, 0))
+            .await
+            .unwrap();
+
+        let last = rows(&core, id(&core, &c)).await.pop().unwrap();
+        assert_eq!(
+            (last.minutes, last.reason),
+            (Minutes::new(83), Reason::Started)
+        );
+    }
+
+    /// No session left: the `created` row counts again, nothing to write.
+    #[tokio::test]
+    async fn deleting_the_last_session_records_nothing() {
+        let (_tmp, mut core) = core().await;
+        let (c, s) = c_with(&mut core, &[(at(12, 0), at(12, 30))]).await;
+
+        core.delete_session(s[0].id).await.unwrap();
+
+        assert_eq!(
+            summary(&core, &c).await,
+            [
+                ("prior".into(), 90, Reason::Created),
+                ("average".into(), 83, Reason::Started),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failing_store_keeps_the_session_change_and_warns() {
+        let (_tmp, mut core) = core_with_broken_estimates().await;
+        let spans = [(at(10, 0), at(10, 30)), (at(12, 0), at(12, 30))];
+        let (c, s) = c_with(&mut core, &spans).await;
+        core.take_warnings();
+
+        core.delete_session(s[0].id).await.unwrap();
+
+        assert_eq!(core.sessions_of(&c).await.unwrap(), vec![s[1].clone()]);
         let warnings = core.take_warnings();
         let [warning] = &warnings[..] else {
             panic!("one warning: {warnings:?}");
