@@ -8,7 +8,7 @@ use crate::{
     Res,
     core::Core,
     estimate::{
-        self, Average, Estimator, History, Shown,
+        self, Average, Estimator, Frozen, History, Shown,
         store::{EstimateStore, NewEstimate, Reason},
     },
     model::{
@@ -50,7 +50,7 @@ impl Core {
         Ok(self
             .tree
             .get(path)
-            .map(|n| estimate::of_node(n, &history))
+            .map(|n| estimate::of_node(n, &history, &Frozen::default()))
             .unwrap_or_default())
     }
 
@@ -59,7 +59,7 @@ impl Core {
     /// call.
     pub async fn estimates(&self, now: Time) -> Res<(History, estimate::Estimates)> {
         let history = self.history(now).await?;
-        let estimates = estimate::Estimates::build(&self.tree, &history);
+        let estimates = estimate::Estimates::build(&self.tree, &history, &Frozen::default());
         Ok((history, estimates))
     }
 
@@ -112,7 +112,7 @@ impl Core {
             // removed: what udo goes by from now on, the learned estimate as
             // shown (frozen for a done task)
             Moment::Edited => {
-                let learned = estimate::of_node(node, &history).learned;
+                let learned = estimate::of_node(node, &history, &Frozen::default()).learned;
                 let average: &'static dyn Estimator = &Average; // the one `of_node` learns with
                 (Reason::Cleared, learned.map(|e| (e, average)))
             }

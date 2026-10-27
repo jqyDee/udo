@@ -4,6 +4,7 @@
 //! estimators read it.
 
 mod average;
+mod frozen;
 mod history;
 mod manual;
 pub mod store;
@@ -20,6 +21,7 @@ use crate::model::{
 };
 
 pub use average::{Average, K};
+pub use frozen::{Frozen, from_rows, replay};
 pub use history::{History, TaskRecord};
 pub use manual::Manual;
 pub use totals::{Estimates, Totals, totals};
@@ -110,13 +112,15 @@ impl Shown {
 /// (current, never frozen), and the learned one: an open task's (its
 /// container's, without itself, from today's data), a done task's (frozen:
 /// as udo would have given it at `TaskRecord::frozen_at`, so it never
-/// changes afterwards and sees no later task). A container: only the
-/// learned one, pooled over its subtree ("a typical task anywhere in it").
-pub fn of_node(node: &Node, history: &History) -> Shown {
+/// changes afterwards and sees no later task): from `frozen` (its recorded
+/// row, #60), replayed only when `frozen` has no entry for it. A
+/// container: only the learned one, pooled over its subtree ("a typical
+/// task anywhere in it").
+pub fn of_node(node: &Node, history: &History, frozen: &Frozen) -> Shown {
     match node.as_task() {
         Some(t) => Shown {
             own: t.estimate,
-            learned: learned_of_task(node.id(), t, history),
+            learned: learned_of_task(node.id(), t, history, frozen),
         },
         None => Shown {
             own: None,
@@ -126,26 +130,38 @@ pub fn of_node(node: &Node, history: &History) -> Shown {
 }
 
 /// The learned estimate of `task` (with id `id`), frozen if it is done.
-fn learned_of_task(id: NodeId, task: &Task, history: &History) -> Option<Estimate> {
-    if task.done_at.is_none() {
-        return Average.estimate(id, history);
+fn learned_of_task(
+    id: NodeId,
+    task: &Task,
+    history: &History,
+    frozen: &Frozen,
+) -> Option<Estimate> {
+    match task.done_at {
+        None => Average.estimate(id, history),
+        Some(_) => frozen.get(id).unwrap_or_else(|| replay(id, history)),
     }
-    let at = history.task(id)?.frozen_at();
-    let then = Average.estimate(id, &history.as_of(at))?;
-    Some(Estimate {
-        as_of: Some(at),
-        ..then
-    })
 }
 
-/// The estimate udo goes by for `task` and records: yours, else the
-/// learned one, with the estimator that gave it (its `method` / `version`
-/// go into the history row). The one place the order lives (no chain:
-/// YAGNI; a third estimator, e.g. AI #13, is one more entry). Not frozen:
-/// callers that want a done task's estimate pass `history.as_of(..)`.
+/// The estimators, yours first: the one place the order lives (no chain:
+/// YAGNI; a third estimator, e.g. AI #13, is one more entry).
+const ORDER: [&dyn Estimator; 2] = [&Manual, &Average];
+
+/// The estimate udo goes by for `task`: yours, else the learned one, with
+/// the estimator that gave it (its `method` / `version` go into the
+/// history row). Not frozen: callers that want a done task's estimate pass
+/// `history.as_of(..)`.
 pub fn pick(task: NodeId, history: &History) -> Option<(Estimate, &'static dyn Estimator)> {
-    let order: [&'static dyn Estimator; 2] = [&Manual, &Average];
-    order
+    ORDER
         .into_iter()
         .find_map(|e| Some((e.estimate(task, history)?, e)))
+}
+
+/// Every estimator's answer for `task`, in `pick`'s order: what is recorded
+/// at a task's `created` / `started` moments, yours and the learned one
+/// side by side (#60).
+pub fn each(task: NodeId, history: &History) -> Vec<(Estimate, &'static dyn Estimator)> {
+    ORDER
+        .into_iter()
+        .filter_map(|e| Some((e.estimate(task, history)?, e)))
+        .collect()
 }

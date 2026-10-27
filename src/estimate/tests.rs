@@ -59,7 +59,7 @@ fn created(mut node: Node, t: Time) -> Node {
 /// `totals` of the node at `path`, the way `Core` will build it.
 fn totals_of(tree: &Tree, sessions: &[Session], path: &[usize]) -> Totals {
     let history = History::build(tree, sessions, at(23, 0));
-    let estimates = Estimates::build(tree, &history);
+    let estimates = Estimates::build(tree, &history, &Frozen::default());
     totals(tree, path, &estimates, &history)
 }
 
@@ -679,7 +679,7 @@ fn of_node_on_a_task_is_its_estimate() {
     let history = History::build(&tree, &sessions, at(23, 0));
     let b = tree.get(&[0, 1]).unwrap();
 
-    let shown = of_node(b, &history);
+    let shown = of_node(b, &history, &Frozen::default());
 
     assert_eq!(shown.learned, Average.estimate(b.id(), &history));
     assert_eq!(shown.learned.unwrap().minutes, Minutes::new(85));
@@ -693,7 +693,7 @@ fn of_node_on_a_container_is_its_average() {
     let history = History::build(&tree, &sessions, at(23, 0));
     let cs = tree.get(&[0]).unwrap();
 
-    let shown = of_node(cs, &history);
+    let shown = of_node(cs, &history, &Frozen::default());
 
     // a counts here: it is not the node being estimated
     assert_eq!(shown.learned, Average.of_container(cs.id(), &history));
@@ -1024,7 +1024,7 @@ fn a_back_dated_first_session_learns_from_what_was_done_before_it() {
     ];
     let history = History::build(&tree, &sessions, at(18, 0));
 
-    let b = of_node(tree.get(&[0, 1]).unwrap(), &history)
+    let b = of_node(tree.get(&[0, 1]).unwrap(), &history, &Frozen::default())
         .learned
         .unwrap();
 
@@ -1063,10 +1063,10 @@ fn a_done_tasks_estimate_does_not_change_later() {
     let h_before = History::build(&before, &s_before, at(12, 0));
     let h_after = History::build(&after, &s_after, at(16, 0));
 
-    let a_before = of_node(before.get(&[0, 0]).unwrap(), &h_before)
+    let a_before = of_node(before.get(&[0, 0]).unwrap(), &h_before, &Frozen::default())
         .learned
         .unwrap();
-    let a_after = of_node(after.get(&[0, 0]).unwrap(), &h_after)
+    let a_after = of_node(after.get(&[0, 0]).unwrap(), &h_after, &Frozen::default())
         .learned
         .unwrap();
 
@@ -1107,7 +1107,7 @@ fn a_done_task_does_not_learn_from_later_tasks() {
     let (tree, sessions) = cs_done_in_turn();
     let history = History::build(&tree, &sessions, at(18, 0));
 
-    let a = of_node(tree.get(&[0, 1]).unwrap(), &history)
+    let a = of_node(tree.get(&[0, 1]).unwrap(), &history, &Frozen::default())
         .learned
         .unwrap();
 
@@ -1130,7 +1130,7 @@ fn open_tasks_still_use_todays_data() {
     let (tree, sessions) = cs_done_in_turn();
     let history = History::build(&tree, &sessions, at(18, 0));
 
-    let d = of_node(tree.get(&[0, 3]).unwrap(), &history)
+    let d = of_node(tree.get(&[0, 3]).unwrap(), &history, &Frozen::default())
         .learned
         .unwrap();
 
@@ -1148,7 +1148,7 @@ fn a_task_done_without_sessions_freezes_at_its_creation() {
     )]);
     let history = History::build(&tree, &[], at(18, 0));
 
-    let z = of_node(tree.get(&[0, 0]).unwrap(), &history)
+    let z = of_node(tree.get(&[0, 0]).unwrap(), &history, &Frozen::default())
         .learned
         .unwrap();
 
@@ -1161,7 +1161,9 @@ fn containers_are_not_frozen() {
     let (tree, sessions) = cs_done_in_turn();
     let history = History::build(&tree, &sessions, at(18, 0));
 
-    let cs = of_node(tree.get(&[0]).unwrap(), &history).learned.unwrap();
+    let cs = of_node(tree.get(&[0]).unwrap(), &history, &Frozen::default())
+        .learned
+        .unwrap();
 
     assert_eq!(cs.as_of, None);
 }
@@ -1321,7 +1323,7 @@ fn of_node_on_a_task_shows_own_and_learned() {
     let (tree, history) = cs_with_b(Some(45));
     let b = tree.get(&[0, 1]).unwrap();
 
-    let shown = of_node(b, &history);
+    let shown = of_node(b, &history, &Frozen::default());
 
     assert_eq!(shown.own, Some(Minutes::new(45)));
     assert_eq!(shown.learned, Average.estimate(b.id(), &history)); // 85
@@ -1348,7 +1350,7 @@ fn of_node_on_a_done_task_shows_the_current_own_and_the_frozen_learned() {
     ];
     let history = History::build(&tree, &sessions, at(16, 0));
 
-    let shown = of_node(tree.get(&[0, 0]).unwrap(), &history);
+    let shown = of_node(tree.get(&[0, 0]).unwrap(), &history, &Frozen::default());
 
     assert_eq!(shown.own, Some(Minutes::new(100)));
     let learned = shown.learned.unwrap();
@@ -1368,10 +1370,54 @@ fn shown_goes_by_the_same_estimate_as_pick() {
     for path in [[0, 0], [0, 1], [1, 0], [1, 1]] {
         let node = tree.get(&path).unwrap();
         let picked = pick(node.id(), &history).map(|(e, _)| e.minutes);
-        assert_eq!(of_node(node, &history).minutes(), picked, "{}", node.name());
+        assert_eq!(
+            of_node(node, &history, &Frozen::default()).minutes(),
+            picked,
+            "{}",
+            node.name()
+        );
     }
-    let e = of_node(tree.get(&[1, 1]).unwrap(), &history);
+    let e = of_node(tree.get(&[1, 1]).unwrap(), &history, &Frozen::default());
     assert_eq!(e, Shown::default());
+}
+
+#[test]
+fn each_gives_yours_and_the_learned_one() {
+    let (tree, history) = cs_with_b(Some(45));
+
+    let got: Vec<(&str, u32)> = each(id(&tree, &[0, 1]), &history)
+        .iter()
+        .map(|(e, by)| (by.method(), e.minutes.get()))
+        .collect();
+
+    assert_eq!(got, [("manual", 45), ("average", 85)]);
+}
+
+/// A done task's learned estimate is `Frozen`'s when it has an entry (its
+/// row, #60; no replay), none when the entry says nothing, and the replay
+/// only without an entry.
+#[test]
+fn a_done_task_goes_by_frozen() {
+    // compilers (2h): a (8:00 to 9:30, done 10:00): replayed, the setting
+    let tree = tree_with(vec![with_estimate(
+        container("compilers", vec![early(done_task("a", at(10, 0)))]),
+        120,
+    )]);
+    let sessions = [on(&tree, &[0, 0], at(8, 0), Some(at(9, 30)))];
+    let history = History::build(&tree, &sessions, at(16, 0));
+    let a = tree.get(&[0, 0]).unwrap();
+    let row = Estimate {
+        minutes: Minutes::new(75), // not the replay's 2h
+        ..replay(a.id(), &history).unwrap()
+    };
+    let learned = |frozen: &Frozen| of_node(a, &history, frozen).learned;
+
+    let mut frozen = Frozen::default();
+    assert_eq!(learned(&frozen).map(|e| e.minutes), Some(Minutes::new(120)));
+    frozen.insert(a.id(), Some(row));
+    assert_eq!(learned(&frozen), Some(row));
+    frozen.insert(a.id(), None);
+    assert_eq!(learned(&frozen), None);
 }
 
 // ---------- estimates and totals ----------
@@ -1389,11 +1435,14 @@ fn estimates_are_what_of_node_gives_for_every_task() {
     let sessions = [worked(&tree, &[0, 1], 60)];
     let history = History::build(&tree, &sessions, at(23, 0));
 
-    let estimates = Estimates::build(&tree, &history);
+    let estimates = Estimates::build(&tree, &history, &Frozen::default());
 
     for path in [[0, 0], [0, 1], [0, 2]] {
         let node = tree.get(&path).unwrap();
-        assert_eq!(estimates.get(node.id()), of_node(node, &history));
+        assert_eq!(
+            estimates.get(node.id()),
+            of_node(node, &history, &Frozen::default())
+        );
     }
 }
 
@@ -1402,7 +1451,7 @@ fn estimates_of_unknown_ids_and_containers_are_empty() {
     let tree = tree_with(vec![container("cs", vec![task("lab")])]);
     let history = History::build(&tree, &[], at(23, 0));
 
-    let estimates = Estimates::build(&tree, &history);
+    let estimates = Estimates::build(&tree, &history, &Frozen::default());
 
     assert_eq!(estimates.get(task("gone").id()), Shown::default());
     assert_eq!(estimates.get(id(&tree, &[0])), Shown::default());
@@ -1483,7 +1532,10 @@ fn a_task_path_is_the_task_alone_with_yours_or_the_learned_estimate() {
     assert_eq!(mine.tasks, 1);
     assert_eq!(mine.estimated, Minutes::new(45)); // yours wins
     let node = tree.get(&[0, 2]).unwrap();
-    let udo = of_node(node, &history).learned.unwrap().minutes;
+    let udo = of_node(node, &history, &Frozen::default())
+        .learned
+        .unwrap()
+        .minutes;
     assert_eq!(learned.estimated, udo);
 }
 
@@ -1504,7 +1556,7 @@ fn a_done_task_sums_its_frozen_learned_estimate() {
 
     let t = totals_of(&tree, &sessions, &[0, 1]);
 
-    let frozen = of_node(tree.get(&[0, 1]).unwrap(), &history).learned;
+    let frozen = of_node(tree.get(&[0, 1]).unwrap(), &history, &Frozen::default()).learned;
     assert!(frozen.is_some()); // learned from `first`, done by then
     assert_eq!(Some(t.done_estimated), frozen.map(|e| e.minutes));
 }
@@ -1573,7 +1625,7 @@ fn estimates_build_is_fast() {
 
     let start = std::time::Instant::now();
     let history = History::build(&tree, &sessions, at(23, 0));
-    let estimates = Estimates::build(&tree, &history);
+    let estimates = Estimates::build(&tree, &history, &Frozen::default());
     let took = start.elapsed();
 
     println!("300 tasks, 3000 sessions: {took:?}");
