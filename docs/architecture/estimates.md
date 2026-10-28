@@ -74,20 +74,25 @@ classDiagram
   into every recorded row.
 - **A done task's learned estimate is frozen** at its first session, also
   a back-dated one, else at its creation (`TaskRecord::frozen_at`):
-  computed on `history.as_of(frozen_at)`, so it can be compared with the
-  actual time. It is a replay: a changed `estimate` setting still moves it
-  (settings have no history); #60 reads the recorded row instead.
+  so it can be compared with the actual time. It is read from the task's
+  latest learned `created` / `started` row (#60; `estimate::from_rows`),
+  without sessions its latest `created` one: `Core::estimates` reads all
+  done tasks' rows with one query into `Frozen`, which `of_node` looks
+  up. So a changed `estimate` setting no longer moves it. A task without
+  a fitting row (from before #47 or #60) is replayed once on
+  `history.as_of(frozen_at)` and the result recorded, so the next build
+  reads it; one with nothing to learn from is replayed every time (#74).
   `done_at` can be back-dated too (`Core::done_at`, `udo done --at`).
 
 ## What udo shows and goes by
 
 ```mermaid
 flowchart TD
-    node["of_node(node, history)"] --> kind{task or container?}
+    node["of_node(node, history, frozen)"] --> kind{task or container?}
     kind -- container --> pooled["Shown { own: None,<br/>learned: Average.of_container }<br/>(a typical task in it)"]
     kind -- task --> both["Shown { own: Task.estimate,<br/>learned: Average.estimate }"]
     both --> done{done?}
-    done -- yes --> frozen["learned on history.as_of(frozen_at)"]
+    done -- yes --> frozen["Frozen: from its row<br/>(no entry: replayed on history.as_of(frozen_at))"]
     done -- no --> today["learned on today's history"]
     both --> minutes["Shown::minutes(): yours, else learned<br/>(used for left)"]
     pick["pick(task, history)<br/>[Manual, Average]: the first that answers"] --> row["recorded row:<br/>estimate + its estimator"]
@@ -157,9 +162,13 @@ stderr and the TUI shows as a toast.
 
 | Moment | When | The row |
 |--------|------|---------|
-| `Created` | `Core::create` of a task | `pick` as of its creation, reason `created` |
-| `Started` | its first session (`start`, `track start`, an added session) | `pick` as of that session, reason `started`; later sessions: no row |
+| `Created` | `Core::create` of a task | `each` as of its creation (yours and the learned one, a row each), reason `created` |
+| `Started` | its first session (`start`, `track start`, an added session) | `each` as of that session, reason `started`; later sessions: no row |
+| `FirstMoved` | a session edited, cut or deleted moved the task's first session (#60) | `each` as of the new first session, reason `started`; no session left: no row (the `created` row counts again) |
 | `Edited` | `Core::edit` changed the own estimate | set or changed: `Manual`, reason `manual`; removed: the learned one as shown, reason `cleared` |
 
 No row for containers, when nothing can be estimated yet, or when it would
-repeat the task's latest row.
+repeat the latest row of its chain (see
+[storage.md](storage.md#estimate-rows)). Reading a done task's estimate
+may write one more: the backfill above, never counted as a change
+(`Core::changes`), so the TUI does not rebuild because of it.
