@@ -67,6 +67,8 @@ protect_breaking_commits = false
 commit_parsers = [
     # merges (PR merges included): their commits are listed on their own
     { field = "merge_commit", pattern = "true", skip = true },
+    # what to know before upgrading (an empty `note: ...` commit), first
+    { message = "^note(\\(.*\\))?!?:", group = "<!-- 00 -->⚠️ Upgrade notes" },
     { message = "^feat", group = "<!-- 0 -->🚀 Features" },
     { message = "^fix", group = "<!-- 1 -->🐛 Bug Fixes" },
     { message = "^doc", group = "<!-- 3 -->📚 Documentation" },
