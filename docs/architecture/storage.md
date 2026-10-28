@@ -104,11 +104,16 @@ classDiagram
   its version and what it learned from (`NewEstimate`). Rows stay when the
   task is deleted.
 - `record` skips a row that repeats the latest row of its chain (same
-  minutes, method and prior source). A chain: yours (`manual`) or learned,
-  times `created` / `started` or not, so a `manual` row never hides a
-  learned repeat and a `cleared` one never a `started` one (#60). When rows
-  are written: [estimates.md](estimates.md#recording).
+  minutes, method, prior source and moment). The chains: all of yours
+  (`manual`, whatever the reason: never frozen); learned `created` /
+  `started` rows; the other learned ones (`cleared`). So a `manual` row
+  never hides a learned repeat, a `cleared` one never a `started` one, and
+  your unchanged estimate is one row (#60). When rows are written:
+  [estimates.md](estimates.md#recording).
 - Since migration 003 a row also says where its prior came from
   (`prior_source`: `none`, `setting`, `parent`; `prior_container`,
-  `prior_tasks`). NULL: written before; such rows are never changed, a
-  newer row supersedes them.
+  `prior_tasks`) and, a learned `created` / `started` row, the moment it
+  was computed for (`frozen_at`, `frozen_at_offset`: the task's first
+  session, else its creation, to the millisecond). A done task's estimate
+  is read from the row for its current moment. NULL: written before (or
+  not a moment); such rows are never changed, a newer row supersedes them.

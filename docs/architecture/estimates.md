@@ -75,11 +75,12 @@ classDiagram
 - **A done task's learned estimate is frozen** at its first session, also
   a back-dated one, else at its creation (`TaskRecord::frozen_at`):
   so it can be compared with the actual time. It is read from the task's
-  latest learned `created` / `started` row (#60; `estimate::from_rows`),
-  without sessions its latest `created` one: `Core::estimates` reads all
+  latest learned `created` / `started` row computed for its current
+  `frozen_at` (#60; `estimate::from_rows`): `Core::estimates` reads all
   done tasks' rows with one query into `Frozen`, which `of_node` looks
   up. So a changed `estimate` setting no longer moves it. A task without
-  a fitting row (from before #47 or #60) is replayed once on
+  a row for that moment (from before #47 or #60, its first session moved
+  and the row not written) is replayed once on
   `history.as_of(frozen_at)` and the result recorded, so the next build
   reads it; one with nothing to learn from is replayed every time (#74).
   `done_at` can be back-dated too (`Core::done_at`, `udo done --at`).
@@ -167,6 +168,8 @@ stderr and the TUI shows as a toast.
 | `FirstMoved` | a session edited, cut or deleted moved the task's first session (#60) | `each` as of the new first session, reason `started`; no session left: no row (the `created` row counts again) |
 | `Edited` | `Core::edit` changed the own estimate | set or changed: `Manual`, reason `manual`; removed: the learned one as shown, reason `cleared` |
 
+`created` / `started` rows keep the moment they were computed for
+(`frozen_at`), so the same estimate at another moment is a new row.
 No row for containers, when nothing can be estimated yet, or when it would
 repeat the latest row of its chain (see
 [storage.md](storage.md#estimate-rows)). Reading a done task's estimate

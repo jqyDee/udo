@@ -87,6 +87,7 @@ mod tests {
             open_tasks: 0,
             prior: Some(Minutes::new(90)),
             prior_source: None,
+            frozen_at: None,
             reason: Reason::Created,
         };
         {

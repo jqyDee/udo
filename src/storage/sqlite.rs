@@ -280,7 +280,7 @@ mod tests {
 
         conn.execute(
             "INSERT INTO estimates VALUES
-             ('e1', 't1', 185, 'average', 1, 0, 1, 180, 'started', 0, 120, 'setting', 'c1', NULL)",
+             ('e1', 't1', 185, 'average', 1, 0, 1, 180, 'started', 0, 120, 'setting', 'c1', NULL, 0, 120)",
             (),
         )
         .unwrap();

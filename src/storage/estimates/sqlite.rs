@@ -13,7 +13,7 @@ use crate::{
     },
     storage::{
         sqlite::write_tx,
-        time::{time_from_row, time_to_sql, to_ms},
+        time::{opt_time_from_row, time_from_row, time_to_sql, to_ms},
     },
 };
 
@@ -128,12 +128,13 @@ fn insert(conn: &Connection, r: &Recorded) -> Result<(), EstimateError> {
     let e = &r.estimate;
     let (at, at_offset) = time_to_sql(r.at);
     let (source, container, tasks) = source_to_sql(e.prior_source);
+    let (frozen_at, frozen_at_offset) = e.frozen_at.map(time_to_sql).unzip();
     conn.execute(
         "INSERT INTO estimates (
              id, task_id, minutes, method, version, done_tasks, open_tasks,
              prior_minutes, reason, at, at_offset,
-             prior_source, prior_container, prior_tasks
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+             prior_source, prior_container, prior_tasks, frozen_at, frozen_at_offset
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
         params![
             r.id.to_string(), // `Uuid` has no `ToSql` (orphan rule); text like sessions
             e.task,
@@ -149,6 +150,8 @@ fn insert(conn: &Connection, r: &Recorded) -> Result<(), EstimateError> {
             source,
             container,
             tasks,
+            frozen_at,
+            frozen_at_offset,
         ],
     )?;
     Ok(())
@@ -173,6 +176,7 @@ fn recorded_from_row(row: &Row) -> rusqlite::Result<Recorded> {
                 .get::<_, Option<u32>>("prior_minutes")?
                 .map(Minutes::new),
             prior_source: source_from_row(row)?,
+            frozen_at: opt_time_from_row(row, "frozen_at", "frozen_at_offset")?,
             reason: row.get("reason")?,
         },
         at: time_from_row(row, "at", "at_offset")?,
@@ -251,6 +255,7 @@ mod tests {
             open_tasks: 1,
             prior: None,
             prior_source: Some(PriorSource::Setting { container: task }),
+            frozen_at: Some(parse_time("2026-10-15T12:00:00-04:00")), // another offset than `at`
             reason: Reason::Started,
         }
     }
@@ -348,11 +353,35 @@ mod tests {
             )
             .unwrap();
         assert_eq!(source, ("setting".into(), task.to_string(), None));
+        let moment: (i64, i32) = conn
+            .query_row(
+                "SELECT frozen_at, frozen_at_offset FROM estimates",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        let frozen_at = parse_time("2026-10-15T12:00:00-04:00");
+        assert_eq!(moment, (frozen_at.timestamp_millis(), -240)); // UTC ms, minutes
     }
 
-    /// A row from before migration 003 has no source: read as `None`.
+    /// The moment keeps its offset through a write and a read.
     #[tokio::test]
-    async fn a_row_from_before_003_has_no_prior_source() {
+    async fn the_moment_keeps_its_offset() {
+        let s = store();
+        let task = NodeId::new();
+        s.record(row(task)).await.unwrap();
+
+        let read = s.last_of(task).await.unwrap().unwrap().estimate.frozen_at;
+
+        let written = row(task).frozen_at.unwrap();
+        assert_eq!(read, Some(written));
+        assert_eq!(read.unwrap().offset(), written.offset()); // `==` alone ignores it
+    }
+
+    /// A row from before migration 003 has no source and no moment: read
+    /// as `None`.
+    #[tokio::test]
+    async fn a_row_from_before_003_has_no_prior_source_or_moment() {
         let s = store();
         let task = NodeId::new();
         s.record(row(task)).await.unwrap();
@@ -360,7 +389,8 @@ mod tests {
             .lock()
             .unwrap()
             .execute(
-                "UPDATE estimates SET prior_source = NULL, prior_container = NULL",
+                "UPDATE estimates SET prior_source = NULL, prior_container = NULL,
+                 frozen_at = NULL, frozen_at_offset = NULL",
                 [],
             )
             .unwrap();
@@ -368,6 +398,7 @@ mod tests {
         let read = s.last_of(task).await.unwrap().unwrap();
 
         assert_eq!(read.estimate.prior_source, None);
+        assert_eq!(read.estimate.frozen_at, None);
     }
 
     /// A broken row (edited by hand, or a bug) is an error when read, never
@@ -382,6 +413,7 @@ mod tests {
             ("prior_minutes", "-5"),      // does not fit `u32`
             ("prior_source", "'pooled'"), // no such source
             ("prior_container", "NULL"),  // a setting without its container
+            ("frozen_at_offset", "NULL"), // a moment without its offset
         ] {
             let s = store();
             s.record(row(NodeId::new())).await.unwrap().unwrap();

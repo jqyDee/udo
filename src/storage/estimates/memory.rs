@@ -26,10 +26,7 @@ impl MemoryEstimates {
 impl EstimateStore for MemoryEstimates {
     async fn record(&self, row: NewEstimate) -> Result<Option<Recorded>, EstimateError> {
         let mut rows = self.rows.lock().unwrap(); // held until the push: one step
-        let last = rows
-            .iter()
-            .filter(|r| r.estimate.task == row.task && row.same_chain(&r.estimate))
-            .max_by_key(|r| (r.at, r.id));
+        let last = latest(&rows, row.task, |e| row.same_chain(e));
         if last.is_some_and(|last| row.repeats(&last.estimate)) {
             return Ok(None);
         }
@@ -43,7 +40,7 @@ impl EstimateStore for MemoryEstimates {
     }
 
     async fn last_of(&self, task: NodeId) -> Result<Option<Recorded>, EstimateError> {
-        Ok(latest(&self.rows.lock().unwrap(), task).cloned())
+        Ok(latest(&self.rows.lock().unwrap(), task, |_| true).cloned())
     }
 
     async fn of_tasks(&self, tasks: &[NodeId]) -> Result<Vec<Recorded>, EstimateError> {
@@ -60,9 +57,13 @@ impl EstimateStore for MemoryEstimates {
     }
 }
 
-/// The latest row of `task` in `rows` (by time, then id).
-fn latest(rows: &[Recorded], task: NodeId) -> Option<&Recorded> {
+/// The latest row of `task` in `rows` (by time, then id) that `keep` takes.
+fn latest(
+    rows: &[Recorded],
+    task: NodeId,
+    keep: impl Fn(&NewEstimate) -> bool,
+) -> Option<&Recorded> {
     rows.iter()
-        .filter(|r| r.estimate.task == task)
+        .filter(|r| r.estimate.task == task && keep(&r.estimate))
         .max_by_key(|r| (r.at, r.id))
 }

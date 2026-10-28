@@ -9,7 +9,7 @@ use crate::{
     estimate::{Basis, Estimate, Prior},
     model::{
         id::NodeId,
-        time::{Minutes, Time},
+        time::{Minutes, Time, to_ms},
     },
 };
 
@@ -73,17 +73,26 @@ pub struct NewEstimate {
     pub prior: Option<Minutes>,
     /// `None`: written before #60 (migration 003), unknown.
     pub prior_source: Option<PriorSource>,
+    /// The moment a learned row was computed for (#60): the task's
+    /// `frozen_at` then, to the millisecond (`to_ms`). A done task's
+    /// estimate is read from the row for its current `frozen_at`. `None`:
+    /// yours (never frozen), not a moment (`manual`, `cleared`), or
+    /// written before #60.
+    pub frozen_at: Option<Time>,
     pub reason: Reason,
 }
 
 impl NewEstimate {
-    /// `estimate` of `task` by the estimator `method` / `version`.
+    /// `estimate` of `task` by the estimator `method` / `version`, computed
+    /// for the moment `frozen_at` (`None` for `manual` / `cleared`; yours
+    /// never keeps one).
     pub fn of(
         task: NodeId,
         estimate: &Estimate,
         method: &str,
         version: u32,
         reason: Reason,
+        frozen_at: Option<Time>,
     ) -> Self {
         let (method, done_tasks, open_tasks, prior) = match estimate.basis {
             Basis::Own => (method, 0, 0, None),
@@ -104,29 +113,43 @@ impl NewEstimate {
             open_tasks,
             prior: prior.map(|p| p.minutes()),
             prior_source: Some(PriorSource::of(prior)),
+            frozen_at: match estimate.basis {
+                Basis::Own => None,        // yours: the current value, never frozen
+                _ => frozen_at.map(to_ms), // as the database keeps it
+            },
             reason,
         }
     }
 
+    /// A learned row for a moment a done task is read from (`created`,
+    /// `started`; #60), not one of yours.
+    fn is_moment(&self) -> bool {
+        self.method != "manual" && self.reason.freezes()
+    }
+
     /// Do this row and `other` belong to one chain, the rows `repeats`
-    /// compares within (#60): both yours (`manual`) or both learned, and
-    /// both a moment a done task is read from (`created`, `started`) or
-    /// both not. So a `manual` row never hides a learned repeat, nor a
-    /// `cleared` one a `started` one.
+    /// compares within (#60): two chains, the learned moments (`created`,
+    /// `started`), and the rest: all of yours (whatever the reason: never
+    /// frozen) with the `cleared` ones between them, what udo goes by after
+    /// an edit. So a `manual` row never hides a learned moment, a `cleared`
+    /// one never a `started` one, your estimate set again after removing
+    /// it is a new row, and a task started with your unchanged estimate
+    /// is one.
     pub fn same_chain(&self, other: &NewEstimate) -> bool {
-        (self.method == "manual") == (other.method == "manual")
-            && self.reason.freezes() == other.reason.freezes()
+        self.is_moment() == other.is_moment()
     }
 
     /// Would this row repeat `last` (the latest of its chain): same
-    /// minutes, method and prior source? Then it says nothing new (the
-    /// reason alone does not count: a task started with the estimate it was
-    /// created with gets no second row). A row without a source (before
-    /// #60) is never repeated by one with it.
+    /// minutes, method, prior source and moment? Then it says nothing new
+    /// (the reason alone does not count). A row without a source or a
+    /// moment (before #60) is never repeated by one with it; nor is a row
+    /// for another moment (a task started with the estimate it was created
+    /// with: a row for each, #60).
     pub fn repeats(&self, last: &NewEstimate) -> bool {
         self.minutes == last.minutes
             && self.method == last.method
             && self.prior_source == last.prior_source
+            && self.frozen_at == last.frozen_at
     }
 }
 
@@ -159,7 +182,8 @@ pub trait EstimateStore {
     /// written. Check and write are one step, also across processes, so
     /// two at once write it once.
     async fn record(&self, row: NewEstimate) -> Result<Option<Recorded>, EstimateError>;
-    /// The task's latest row (#9: what udo estimated last).
+    /// The task's latest row written. Not necessarily what udo goes by:
+    /// yours and the learned one are written side by side (#60).
     async fn last_of(&self, task: NodeId) -> Result<Option<Recorded>, EstimateError>;
     /// The rows of `tasks`, oldest first (#9, #12).
     async fn of_tasks(&self, tasks: &[NodeId]) -> Result<Vec<Recorded>, EstimateError>;
@@ -195,7 +219,10 @@ impl std::error::Error for EstimateError {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::estimate::Prior;
+    use crate::{
+        estimate::Prior,
+        test_util::{at, parse_time},
+    };
 
     fn learned(done_tasks: usize, open_tasks: usize, prior: Option<Prior>) -> Estimate {
         Estimate {
@@ -227,6 +254,7 @@ mod tests {
             "average",
             1,
             Reason::Started,
+            Some(at(12, 0)),
         );
 
         assert_eq!(
@@ -240,9 +268,71 @@ mod tests {
                 open_tasks: 1,
                 prior: Some(Minutes::new(180)),
                 prior_source: Some(PriorSource::Setting { container: uni }),
+                frozen_at: Some(at(12, 0)),
                 reason: Reason::Started,
             }
         );
+    }
+
+    /// The moment is kept as the database keeps it (to the millisecond:
+    /// equal to itself read back); yours keeps none, never frozen.
+    #[test]
+    fn a_row_keeps_its_moment_to_the_millisecond_yours_none() {
+        let moment = parse_time("2026-10-03T23:53:37.843188+02:00"); // as in a `.udo.toml`
+        let own = Estimate {
+            minutes: Minutes::new(45),
+            basis: Basis::Own,
+            as_of: None,
+        };
+        let of = |e: &Estimate| {
+            NewEstimate::of(NodeId::new(), e, "x", 1, Reason::Created, Some(moment)).frozen_at
+        };
+
+        assert_eq!(
+            of(&learned(2, 0, None)),
+            Some(parse_time("2026-10-03T23:53:37.843+02:00"))
+        );
+        assert_eq!(of(&own), None);
+    }
+
+    /// Two chains: the learned moments (`created`, `started`), and the
+    /// rest: yours whatever the reason, with the `cleared` ones.
+    #[test]
+    fn chains_the_learned_moments_and_the_rest() {
+        let row = |method: &str, reason| NewEstimate {
+            method: method.into(),
+            reason,
+            ..NewEstimate::of(
+                NodeId::new(),
+                &learned(2, 0, None),
+                "average",
+                1,
+                reason,
+                None,
+            )
+        };
+        let chain = |a: &NewEstimate, b: &NewEstimate| a.same_chain(b);
+
+        assert!(chain(
+            &row("manual", Reason::Manual),
+            &row("manual", Reason::Started)
+        ));
+        assert!(chain(
+            &row("average", Reason::Created),
+            &row("prior", Reason::Started)
+        ));
+        assert!(!chain(
+            &row("average", Reason::Started),
+            &row("average", Reason::Cleared)
+        ));
+        assert!(!chain(
+            &row("manual", Reason::Started),
+            &row("average", Reason::Started)
+        ));
+        assert!(chain(
+            &row("manual", Reason::Manual),
+            &row("average", Reason::Cleared)
+        ));
     }
 
     #[test]
@@ -268,7 +358,7 @@ mod tests {
             as_of: None,
         };
         let source = |e: &Estimate| {
-            NewEstimate::of(NodeId::new(), e, "average", 1, Reason::Created).prior_source
+            NewEstimate::of(NodeId::new(), e, "average", 1, Reason::Created, None).prior_source
         };
 
         assert_eq!(
@@ -300,6 +390,7 @@ mod tests {
             "average",
             1,
             Reason::Created,
+            None,
         );
 
         assert_eq!((row.done_tasks, row.open_tasks, row.prior), (2, 0, None));
@@ -319,7 +410,14 @@ mod tests {
             as_of: None,
         };
 
-        let row = NewEstimate::of(NodeId::new(), &estimate, "average", 1, Reason::Created);
+        let row = NewEstimate::of(
+            NodeId::new(),
+            &estimate,
+            "average",
+            1,
+            Reason::Created,
+            None,
+        );
 
         assert_eq!(row.method, "prior");
         assert_eq!((row.done_tasks, row.open_tasks), (0, 0));

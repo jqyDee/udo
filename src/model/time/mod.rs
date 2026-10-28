@@ -8,7 +8,7 @@
 mod deadline;
 mod duration;
 
-use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone};
+use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, SubsecRound, TimeZone};
 pub use deadline::DeadlineRule;
 pub use duration::Left;
 pub use duration::Minutes;
@@ -25,6 +25,13 @@ pub type Clock = fn() -> Time;
 /// Now, with the local offset. The one way udo gets the current time.
 pub fn now() -> Time {
     Local::now().fixed_offset()
+}
+
+/// Rounded to what the database keeps (ms), so what a method returns is
+/// what reading returns later. The one definition: the stores round with
+/// it, estimate rows compare moments with it (#60).
+pub fn to_ms(t: Time) -> Time {
+    t.trunc_subsecs(3)
 }
 
 /// Local form time -> `Time` for storing. None if that time doesn't exist

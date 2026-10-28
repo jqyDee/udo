@@ -6,9 +6,9 @@ use std::collections::HashMap;
 
 use super::{
     Average, Basis, Estimate, Estimator, History, Prior, TaskRecord,
-    store::{NewEstimate, PriorSource, Reason, Recorded},
+    store::{NewEstimate, PriorSource, Recorded},
 };
-use crate::model::id::NodeId;
+use crate::model::{id::NodeId, time::to_ms};
 
 /// Done tasks' learned estimates, as `Core` read them (#60).
 #[derive(Debug, Clone, Default)]
@@ -40,18 +40,14 @@ pub fn replay(task: NodeId, history: &History) -> Option<Estimate> {
 
 /// `task`'s frozen learned estimate from its rows (oldest first; other
 /// tasks' rows are skipped): the latest learned (not `manual`) `created` /
-/// `started` row, without sessions the latest `created` one. `None`: no
-/// such row, or it says no source (before #60): replay it.
+/// `started` row computed for its current `frozen_at`. `None`: no such row
+/// (from before #60, the first session moved and the row was not
+/// written, ...), or it says no source: replay it.
 pub fn from_rows(rows: &[Recorded], task: &TaskRecord) -> Option<Estimate> {
-    let counts = |reason: Reason| match task.first_session {
-        Some(_) => reason.freezes(),
-        None => reason == Reason::Created, // no session left: as created
-    };
-    let row = rows
-        .iter()
-        .rev()
-        .map(|r| &r.estimate)
-        .find(|e| e.task == task.id && e.method != "manual" && counts(e.reason))?;
+    let moment = Some(to_ms(task.frozen_at())); // as rows keep it
+    let row = rows.iter().rev().map(|r| &r.estimate).find(|e| {
+        e.task == task.id && e.method != "manual" && e.reason.freezes() && e.frozen_at == moment
+    })?;
     learned_from(row, task)
 }
 
@@ -91,8 +87,9 @@ mod tests {
 
     use super::*;
     use crate::{
+        estimate::store::Reason,
         model::time::{Minutes, Time},
-        test_util::at,
+        test_util::{at, parse_time},
     };
 
     /// A done task, created at 8:00, first worked on at `first`.
@@ -108,9 +105,15 @@ mod tests {
         }
     }
 
-    /// A row of `task`: `minutes` by `method` for `reason`, learned from 2
-    /// done and 1 open task, no prior.
-    fn rec(task: &TaskRecord, reason: Reason, method: &str, minutes: u32) -> Recorded {
+    /// A row of `task`: `minutes` by `method` for `reason`, computed for
+    /// `moment`, learned from 2 done and 1 open task, no prior.
+    fn rec(
+        task: &TaskRecord,
+        reason: Reason,
+        method: &str,
+        minutes: u32,
+        moment: Option<Time>,
+    ) -> Recorded {
         Recorded {
             id: Uuid::now_v7(),
             estimate: NewEstimate {
@@ -122,6 +125,7 @@ mod tests {
                 open_tasks: 1,
                 prior: None,
                 prior_source: Some(PriorSource::NoPrior),
+                frozen_at: moment,
                 reason,
             },
             at: at(20, 0),
@@ -140,7 +144,7 @@ mod tests {
         // sheet-3: 3h05 from 2 done, 1 open, starting from the 3h set on uni
         let task = done(Some(at(12, 0)));
         let uni = NodeId::new();
-        let row = rec(&task, Reason::Started, "average", 185);
+        let row = rec(&task, Reason::Started, "average", 185, Some(at(12, 0)));
         let row = with_prior(row, 180, PriorSource::Setting { container: uni });
 
         assert_eq!(
@@ -165,7 +169,7 @@ mod tests {
     fn a_prior_row_gives_the_prior_alone() {
         let task = done(None);
         let uni = NodeId::new();
-        let row = rec(&task, Reason::Created, "prior", 96);
+        let row = rec(&task, Reason::Created, "prior", 96, Some(at(8, 0)));
         let source = PriorSource::Parent {
             container: uni,
             tasks: 5,
@@ -185,44 +189,67 @@ mod tests {
         assert_eq!(estimate.as_of, Some(at(8, 0))); // no session: its creation
     }
 
-    /// The latest learned `created` / `started` row; without sessions the
-    /// latest `created` one. `manual` and `cleared` rows never count.
+    /// The latest learned `created` / `started` row for the task's current
+    /// `frozen_at` (its first session, else its creation); `manual` and
+    /// `cleared` rows never count, even for that moment. No row for it
+    /// (the first session moved, its row not written): none, replay it.
     #[test]
-    fn the_latest_created_or_started_learned_row_counts() {
-        let worked = done(Some(at(12, 0)));
-        let never = done(None);
+    fn the_latest_learned_row_for_its_moment_counts() {
         let rows = |t: &TaskRecord| {
+            let m = |h| Some(at(h, 0));
             [
-                rec(t, Reason::Created, "average", 60),
-                rec(t, Reason::Created, "manual", 45),
-                rec(t, Reason::Started, "average", 70),
-                rec(t, Reason::Cleared, "average", 75),
+                rec(t, Reason::Created, "average", 60, m(8)),
+                rec(t, Reason::Created, "manual", 45, m(8)),
+                rec(t, Reason::Started, "average", 70, m(12)),
+                rec(t, Reason::Started, "average", 65, m(11)), // moved to 11:00
+                rec(t, Reason::Started, "average", 72, m(12)), // back, later rows
+                rec(t, Reason::Cleared, "average", 75, m(12)),
             ]
         };
+        let minutes = |first: Option<Time>| {
+            let t = done(first);
+            from_rows(&rows(&t), &t).map(|e| e.minutes.get())
+        };
 
-        let minutes = |t: &TaskRecord| from_rows(&rows(t), t).map(|e| e.minutes.get());
+        assert_eq!(minutes(Some(at(12, 0))), Some(72));
+        assert_eq!(minutes(Some(at(11, 0))), Some(65));
+        assert_eq!(minutes(None), Some(60)); // no session: its creation
+        assert_eq!(minutes(Some(at(10, 0))), None);
+    }
 
-        assert_eq!(minutes(&worked), Some(70));
-        assert_eq!(minutes(&never), Some(60));
+    /// The task's `frozen_at` may carry microseconds (a `created_at` in a
+    /// `.udo.toml`); the row keeps milliseconds. They still match.
+    #[test]
+    fn a_moment_matches_to_the_millisecond() {
+        let mut task = done(None);
+        task.created_at = parse_time("2026-10-03T23:53:37.843188+02:00");
+        let moment = Some(parse_time("2026-10-03T23:53:37.843+02:00"));
+
+        let row = rec(&task, Reason::Created, "average", 60, moment);
+
+        assert!(from_rows(&[row], &task).is_some());
     }
 
     #[test]
     fn no_fitting_row_is_none() {
         let task = done(None);
-        let mut old = rec(&task, Reason::Created, "average", 60);
-        old.estimate.prior_source = None; // written before #60
-        let manual = rec(&task, Reason::Created, "manual", 45);
+        let mut old = rec(&task, Reason::Created, "average", 60, None); // before #60
+        old.estimate.prior_source = None;
+        let mut no_source = rec(&task, Reason::Created, "average", 60, Some(at(8, 0)));
+        no_source.estimate.prior_source = None;
+        let manual = rec(&task, Reason::Created, "manual", 45, Some(at(8, 0)));
 
         assert_eq!(from_rows(&[], &task), None);
         assert_eq!(from_rows(&[manual], &task), None);
         assert_eq!(from_rows(&[old], &task), None);
+        assert_eq!(from_rows(&[no_source], &task), None);
     }
 
     #[test]
     fn rows_of_other_tasks_do_not_count() {
         let (task, other) = (done(None), done(None));
 
-        let rows = [rec(&other, Reason::Created, "average", 60)];
+        let rows = [rec(&other, Reason::Created, "average", 60, Some(at(8, 0)))];
 
         assert_eq!(from_rows(&rows, &task), None);
     }
