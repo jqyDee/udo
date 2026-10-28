@@ -43,7 +43,7 @@ use crate::{
             view::{ROOT_SETTINGS, SETTINGS, SettingInfo},
         },
         task::{Task, TaskPatch},
-        time::{Time, local_to_fixed, now},
+        time::{Minutes, Time, local_to_fixed, now},
     },
     naming::normalize_name,
 };
@@ -60,6 +60,8 @@ pub struct FormField {
 pub enum FieldId {
     Name,
     Due,
+    /// A task's own estimate (#6); blank: none.
+    Estimate,
     Dir,
     Folder,
     Kind,
@@ -84,6 +86,7 @@ impl FieldId {
         match self {
             Self::Name => "name",
             Self::Due => "due",
+            Self::Estimate => "estimate",
             Self::Dir => "dir",
             Self::Folder => "folder",
             Self::Kind => "kind",
@@ -99,12 +102,14 @@ impl FieldId {
         }
     }
 
-    /// How a setting's values are written (`SettingInfo::format`), for the
-    /// help below the form. None for every other field.
+    /// How a setting's values are written (`SettingInfo::format`), and the
+    /// estimate's (like the `estimate` setting), for the help below the
+    /// form. None for every other field.
     pub fn format_hint(self) -> Option<&'static str> {
         match self {
             Self::Setting(idx) => SETTINGS[idx].format,
             Self::RootSetting(idx) => ROOT_SETTINGS[idx].format,
+            Self::Estimate => Some(Minutes::EXAMPLES),
             _ => None,
         }
     }
@@ -270,6 +275,7 @@ impl Form {
             &template,
             parent_dir,
             Some(defaults.folder),
+            None, // not created yet: nothing learned for it
         )
     }
 
@@ -290,12 +296,14 @@ impl Form {
             &template,
             parent_dir,
             Some(FolderMode::Auto),
+            None,
         )
     }
 
     /// Edit form for an existing node, prefilled with its values. No folder
-    /// rows: dirs can't be changed yet.
-    pub fn edit_node(path: NodePath, node: &Node) -> Self {
+    /// rows: dirs can't be changed yet. `learned`: udo's estimate for a
+    /// task, the placeholder of its `estimate` (what applies when empty).
+    pub fn edit_node(path: NodePath, node: &Node, learned: Option<Minutes>) -> Self {
         let kind = match node.body {
             NodeBody::Container(_) => "container",
             NodeBody::Task(_) => "task",
@@ -306,6 +314,7 @@ impl Form {
             node,
             None,
             None,
+            learned,
         )
     }
 
@@ -451,15 +460,17 @@ impl Form {
 
     /// Fields for `node`, prefilled with its values. Same fields in the same
     /// order for creating and editing: task = name, description, [folder,
-    /// dir], due; container = name, description, kind, [folder, dir].
-    /// `folder`: `Some(mode)` adds the folder + dir rows (create), `None`
-    /// leaves them out (edit).
+    /// dir], due, estimate; container = name, description, kind, [folder,
+    /// dir]. `folder`: `Some(mode)` adds the folder + dir rows (create),
+    /// `None` leaves them out (edit). `learned`: udo's estimate for the
+    /// task, the placeholder of `estimate`; None: `optional`.
     fn for_node(
         title: String,
         action: FormAction,
         node: &Node,
         parent_dir: Option<PathBuf>,
         folder: Option<FolderMode>,
+        learned: Option<Minutes>,
     ) -> Self {
         let description = node.header.description.clone().unwrap_or_default();
         let mut fields = vec![
@@ -477,6 +488,13 @@ impl Form {
                 // stored with its offset, edited as current local time
                 let due = t.due_date.with_timezone(&Local).naive_local();
                 fields.push(FormField::date(FieldId::Due, due));
+                // yours; empty: udo's learned one applies (the placeholder says which)
+                let own = t.estimate.map(|m| m.to_string()).unwrap_or_default();
+                let hint = learned.map_or_else(|| "optional".into(), |m| format!("udo: {m}"));
+                fields.push(FormField {
+                    id: FieldId::Estimate,
+                    input: FieldInput::Text(TextInput::new(own).with_placeholder(hint)),
+                });
             }
             NodeBody::Container(c) => {
                 fields.push(FormField {
@@ -502,12 +520,16 @@ impl Form {
 
     /// Checked input of a task create form, as the task to create. Name
     /// rules are checked by the tree. Err: DST gap in the due date, custom
-    /// dir not absolute.
+    /// dir not absolute, estimate not a duration.
     pub fn new_task_node(&self) -> Result<Node, String> {
         let due = self.due()?.expect("task forms have a due field");
         // by folder mode; clashes are checked by the tree
         let dir = self.chosen_dir()?;
-        Ok(Node::task(self.name(), Task::new(dir, due)).with_description(Some(self.description())))
+        let task = Task {
+            estimate: self.estimate()?,
+            ..Task::new(dir, due)
+        };
+        Ok(Node::task(self.name(), task).with_description(Some(self.description())))
     }
 
     /// Checked input of a container create form, as the container to
@@ -524,12 +546,15 @@ impl Form {
 
     /// Checked input of an edit form, as a patch. Always every field: an
     /// unchanged name passes the checks, an emptied description is removed
-    /// by the tree. Err: DST gap in the due date.
+    /// by the tree, the estimate sent as is (`Core::edit` records only a
+    /// change). Err: DST gap in the due date, estimate not a duration.
     pub fn node_edit(&self) -> Result<NodePatch, String> {
+        let estimate = self.estimate()?;
         // only task forms have a due date, only container forms a kind
         let body = match (self.due()?, self.container_kind()) {
             (Some(due), _) => Some(BodyPatch::Task(TaskPatch {
                 due_date: Some(due),
+                estimate: Some(estimate),
                 ..Default::default()
             })),
             (_, Some(kind)) => Some(BodyPatch::Container(ContainerPatch {
@@ -568,6 +593,16 @@ impl Form {
         self.text_value(FieldId::Description)
             .unwrap_or("")
             .to_string()
+    }
+
+    /// Your own estimate (task forms only, else None); blank: none. Err: not
+    /// a duration, as `"estimate: <why>"` for the toast (like settings).
+    fn estimate(&self) -> Result<Option<Minutes>, String> {
+        let text = self.text_value(FieldId::Estimate).unwrap_or("");
+        if text.trim().is_empty() {
+            return Ok(None);
+        }
+        text.parse().map(Some).map_err(|e| format!("estimate: {e}"))
     }
 
     /// The due date as a `Time` (task forms only, else None). Err: DST gap.

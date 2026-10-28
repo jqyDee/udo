@@ -1,3 +1,45 @@
+## [0.4.0] - 2026-10-28
+
+### ⚠️ Upgrade notes
+
+- Older udo can't open the upgraded udo.db; old copy: udo.db.v2.*.bak
+
+### 🚀 Features
+
+- Manual estimate added, overrides learned/averaged values
+- Basic tree sorting by default
+- *(estimate)* History lookup
+- *(estimates)* Totals calculation
+- *(estimates)* Tui estimate text using estimates::text, estimates are built bundled with history
+- *(cli)* Estimates totals in cli, speed test for estimate calculation
+- *(core)* Count writes, so the TUI can tell when data changed
+- *(estimates)* Freeze at the first session, also back-dated; udo done --at
+- *(estimates)* Rows remember the prior's source; repeats per chain (#60)
+- *(estimates)* Frozen, done tasks' learned estimate from their rows (#60)
+- *(estimates)* Record yours and the learned one; a row when the first session moves (#60)
+- *(estimates)* Done tasks read their estimate from their rows, backfilled once (#60)
+- *(storage)* Back up udo.db before a migration (#78)
+
+### 🐛 Bug Fixes
+
+- README and CONTRIBUTING changed to state that cargo run defaults to /tmp/
+- *(estimates)* Rows keep their moment; chains, one to_ms (#60 review)
+
+### 📚 Documentation
+
+- Moved fully to github issues
+- Update docs and moved to mermaid
+- Estimate explanations
+
+### ⚡ Performance
+
+- *(tui)* Rebuild history and estimates only when data changed
+
+### ⚙️ Miscellaneous Tasks
+
+- Update cliff.toml to include long commits
+- Update dry run cargo release
+- *(changelog)* Upgrade notes group for note: commits
 ## [0.3.0] - 2026-10-07
 
 ### 🚀 Features
@@ -13,6 +55,7 @@
 
 - Update TODO.md
 - Update CONTRIBUTING.md
+- Release 0.3.0
 ## [0.2.0] - 2026-10-06
 
 ### 🚀 Features
@@ -151,6 +194,7 @@
 - *(model)* Missed error msg change
 - *(tui)* Readability
 - *(sessions)* Shared rules
+- *(sessions)* Refuse backdated start over recorded sessions and 0-minute-stop
 - *(storage)* Deadlock prevention because of WAL on sqlite
 - *(test)* Moved common test utils, TODO.md
 - Check times before now moved into core

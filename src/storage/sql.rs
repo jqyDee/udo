@@ -102,10 +102,14 @@ mod tests {
     fn reason_round_trips_as_its_name() {
         assert_eq!(round_trip(Reason::Created), Reason::Created);
         assert_eq!(round_trip(Reason::Started), Reason::Started);
+        assert_eq!(round_trip(Reason::Manual), Reason::Manual);
+        assert_eq!(round_trip(Reason::Cleared), Reason::Cleared);
         assert_eq!(sql_type(Reason::Created), "text");
-        // the names in `002_estimates.sql`: stored rows depend on them
+        // the names in `002_estimates.sql` (and #6's): stored rows depend on them
         assert_eq!(read::<Reason>("'created'").unwrap(), Reason::Created);
         assert_eq!(read::<Reason>("'started'").unwrap(), Reason::Started);
+        assert_eq!(read::<Reason>("'manual'").unwrap(), Reason::Manual);
+        assert_eq!(read::<Reason>("'cleared'").unwrap(), Reason::Cleared);
     }
 
     #[test]

@@ -2,4 +2,5 @@ publish = false
 tag-name = "v{{version}}"
 allow-branch = ["dev"]
 pre-release-commit-message = "chore: release {{version}}"
-pre-release-hook = ["sh", "-c", "[ \"$DRY_RUN\" = true ] || git cliff -o CHANGELOG.md --tag v{{version}}"]
+# dry run: print the new section; `--execute`: write CHANGELOG.md
+pre-release-hook = ["sh", "-c", "if [ \"$DRY_RUN\" = true ]; then git cliff --unreleased --tag v{{version}}; else git cliff -o CHANGELOG.md --tag v{{version}}; fi"]

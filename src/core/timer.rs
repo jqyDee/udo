@@ -66,6 +66,7 @@ impl Core {
         owner: Owner,
         at: Time,
     ) -> Res<Session> {
+        self.changed();
         let task = self.task_ref(path)?;
         if self
             .tree
@@ -98,6 +99,7 @@ impl Core {
     /// Stop the running session at `at`, if any, whoever owns it (by hand
     /// always wins). Callers pass `time::now()`.
     pub async fn stop(&self, at: Time) -> Res<Option<Session>> {
+        self.changed();
         Ok(self.storage.sessions.stop(None, at).await?)
     }
 
@@ -107,6 +109,7 @@ impl Core {
     /// `manual` is refused, like in `track_start`. Callers pass
     /// `time::now()`.
     pub async fn track_stop(&self, owner: &Owner, at: Time) -> Res<Option<Session>> {
+        self.changed();
         refuse_manual(owner)?;
         Ok(self.storage.sessions.stop(Some(owner), at).await?)
     }

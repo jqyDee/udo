@@ -43,7 +43,7 @@ pub use crate::run::RunRequest;
 
 use crate::{
     core::Core,
-    estimate::History,
+    estimate::{self, History},
     model::{
         id::NodeId,
         node::Node,
@@ -55,6 +55,7 @@ use crate::{
         app::details::DetailsTab,
         keys::{self, Action},
         session_list::SessionList,
+        tick,
         toast::Toast,
         tree_state::TreeState,
     },
@@ -87,21 +88,30 @@ pub struct App<'a> {
     /// How a full delete moves folders away: `system_trash`; tests swap in
     /// a fake so they never touch the real Trash.
     pub trash: TrashFn,
-    /// Tasks with sessions ("started" when not done), reloaded after every
-    /// key (`reload`).
+    /// Tasks with sessions ("started" when not done), rebuilt with
+    /// `history` (`rebuild`).
     pub with_sessions: HashSet<NodeId>,
-    /// The running session, if any; reloaded after every key and on every
-    /// tick (`reload`).
+    /// The running session, if any; read again after every key and on
+    /// every tick (`read_cursor`).
     pub running: Option<Session>,
     /// Sessions of the node at the cursor (a container: of every task below
     /// it), oldest first; for the details time rows and the sessions tab.
-    /// Reloaded with the rest.
+    /// Read again after every key, with `running`.
     pub sessions: Vec<Session>,
     /// Page of the sessions tab; `page_len` is set by every draw.
     pub session_list: SessionList,
-    /// What the estimates are computed from; reloaded with the rest
-    /// (`reload`), so moving the cursor costs nothing.
+    /// What the estimates are computed from. Rebuilt only when the data
+    /// changed (`rebuild`, #61), so moving the cursor costs nothing.
     pub history: History,
+    /// Every task's `Shown`, built with `history` (`rebuild`): the details
+    /// look up, they do not estimate per frame.
+    pub estimates: estimate::Estimates,
+    /// `Core::changes` as the last successful `rebuild` saw it; `None`
+    /// before the first one.
+    seen_changes: Option<u64>,
+    /// When `rebuild` last ran: a key `tick::IDLE` later rebuilds anyway,
+    /// as steady keys keep pushing the tick back.
+    rebuilt_at: Instant,
 }
 
 impl<'a> App<'a> {
@@ -122,41 +132,86 @@ impl<'a> App<'a> {
             sessions: Vec::new(),
             session_list: SessionList::default(),
             history: History::default(),
+            estimates: estimate::Estimates::default(),
+            seen_changes: None,
+            rebuilt_at: Instant::now(),
         }
     }
 
-    /// Read again what the views need from the stores. A failed read keeps
-    /// the old values and says so.
+    /// Read again everything the views need from the stores: on startup,
+    /// on every tick and after a run config, so changes from elsewhere (the
+    /// CLI, hooks) show up. A failed read keeps the old values and says so.
     pub async fn reload(&mut self) {
+        self.read_cursor().await;
+        self.rebuild().await;
+    }
+
+    /// After a key: the cheap reads always, the history only if the data
+    /// changed: written through `Core`, or the timer started / stopped
+    /// elsewhere (a tmux hook; `toggle_timer` goes by `running`). Or if
+    /// the last rebuild is a tick old: steady keys keep the tick away.
+    async fn reload_after_key(&mut self) {
+        let running = self.running.clone();
+        self.read_cursor().await;
+        if self.seen_changes != Some(self.core.changes())
+            || self.running != running
+            || self.rebuilt_at.elapsed() >= tick::IDLE
+        {
+            self.rebuild().await;
+        }
+    }
+
+    /// The sessions at the cursor and the running session.
+    async fn read_cursor(&mut self) {
         let old = self.newest_ids();
         match self.core.sessions_of(&self.tree_state.cursor).await {
             Ok(sessions) => self.sessions = sessions,
             Err(e) => self.error(e.to_string()),
         }
         self.follow_sessions(&old);
-        match self.core.tasks_with_sessions().await {
-            Ok(with_sessions) => self.with_sessions = with_sessions,
-            Err(e) => self.error(e.to_string()),
-        };
         match self.core.running_session().await {
             Ok(running) => self.running = running,
             Err(e) => self.error(e.to_string()),
         }
-        match self.core.history((self.clock)()).await {
-            Ok(history) => self.history = history,
-            Err(e) => self.error(e.to_string()),
+    }
+
+    /// What every task needs: `with_sessions`, `history`, `estimates`. A
+    /// failed read leaves `seen_changes`, so the next key tries again.
+    async fn rebuild(&mut self) {
+        let changes = self.core.changes();
+        self.rebuilt_at = Instant::now();
+        let mut ok = true;
+        match self.core.tasks_with_sessions().await {
+            Ok(with_sessions) => self.with_sessions = with_sessions,
+            Err(e) => {
+                ok = false;
+                self.error(e.to_string());
+            }
+        };
+        match self.core.estimates((self.clock)()).await {
+            Ok((history, estimates)) => {
+                self.history = history;
+                self.estimates = estimates;
+            }
+            Err(e) => {
+                ok = false;
+                self.error(e.to_string());
+            }
+        }
+        if ok {
+            self.seen_changes = Some(changes);
         }
     }
 
     /// Handle one key according to the current mode, show `Core`'s
-    /// warnings, then `reload`.
+    /// warnings, then `reload_after_key`.
     pub async fn handle_key(&mut self, key: KeyEvent) -> Flow {
         if key.kind != KeyEventKind::Press {
             return Flow::Continue;
         }
         let flow = self.dispatch(key).await;
         self.show_warnings();
-        self.reload().await;
+        self.reload_after_key().await;
         flow
     }
 

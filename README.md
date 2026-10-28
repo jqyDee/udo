@@ -50,13 +50,24 @@ udo ls                      # the tree, due dates, status
 udo start "lab 3"           # NODE: a path, any unique end of one, or
 udo stop                    # nothing for the node of the current folder
 udo session list            # recorded time, last 7 days
-udo estimate "lab 3"        # how long it should take, and why
+udo edit "lab 3" --estimate 2h
+udo estimate "lab 3"        # yours (if set), what udo learned, and why
+udo show uni                # estimated, tracked and left over its tasks
+udo ls -t                   # the tree with tracked/estimate per row
 udo settings set uni open_with=nvim-tmux
 udo run "lab 3"             # open it with its run config
 ```
 
 `--json` on any command prints the result as JSON; `udo help <command>`
 explains the rest.
+
+## Estimates
+
+udo learns how long a task takes from the time you tracked on similar
+tasks, or goes by your own estimate, and shows it next to the tracked
+time: `left` on open tasks, `result` on done ones, and sums per container.
+What every row means and how it is computed:
+[docs/estimates.md](docs/estimates.md).
 
 ## Run configs
 
@@ -71,15 +82,21 @@ the examples in [examples/run/](examples/run/).
 ```sh
 cargo test                  # unit + integration tests (real binary, PTY, tmux)
 scripts/seed-testdata.sh    # throwaway dataset in /tmp/udo-test
-UDO_ROOT=/tmp/udo-test cargo run
+cargo run                   # this always runs in /tmp/udo-test to keep personal data safe
 ```
 
-`TODO.md` has the plan and what is next.
+How the code fits together: [docs/architecture/](docs/architecture/).
+
+Planned work and known bugs are tracked as
+[GitHub issues](https://github.com/jqyDee/udo/issues), grouped by
+[milestones](https://github.com/jqyDee/udo/milestones).
 
 ## Contributing
 
 Contributions are welcome: bug reports, ideas, fixes, and run configs for
-more tools. Before a pull request:
+more tools. Bug reports and ideas go into a
+[GitHub issue](https://github.com/jqyDee/udo/issues). Before a pull
+request:
 
 - `cargo fmt`, `cargo clippy --all-targets` without warnings, `cargo test`
   green

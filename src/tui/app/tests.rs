@@ -12,7 +12,7 @@ use crate::{
     model::{
         container::ContainerKind,
         node::{Node, NodeBody},
-        sessions::{Session, SessionError, SessionId},
+        sessions::{Owner, Session, SessionError, SessionId, SessionSource, SessionStore, TaskRef},
         settings::{ContainerSettings, TaskFolderSetting, view::SETTINGS},
         task::TaskStatus,
         time::{DeadlineRule, Minutes, Time},
@@ -27,6 +27,7 @@ use crate::{
         form::{FieldId, FieldInput, FolderMode, Form, FormAction, TextInput},
         keys::PICKER_KEYMAP,
         pick::{PickAction, PickItem, PickValue, Picker},
+        tick::IDLE,
         toast::ToastKind,
     },
 };
@@ -352,6 +353,131 @@ async fn a_timer_started_elsewhere_shows_after_reload() {
     app.reload().await;
 
     assert_eq!(timed(&app).as_deref(), Some("b"));
+}
+
+/// `reload` builds the estimates with the history: a draw only looks up.
+#[tokio::test]
+async fn reload_rebuilds_the_estimates() {
+    // ws sets 1h: b learns it
+    let mut tree = tree();
+    let ws = tree.get_mut(&[1]).and_then(Node::as_container_mut).unwrap();
+    ws.settings.estimate = Some(Minutes::new(60));
+    let mut app = test_app(tree, state_at(&[1, 0]));
+    let b = app.core.tree().get(&[1, 0]).unwrap().id();
+    assert_eq!(app.estimates.get(b).minutes(), None); // not built yet
+
+    app.reload().await;
+
+    assert_eq!(app.estimates.get(b).minutes(), Some(Minutes::new(60)));
+}
+
+// ---------- what a key rebuilds (#61) ----------
+
+/// What a session on the task at `path` remembers of it.
+fn task_ref(app: &App, path: &[usize]) -> TaskRef {
+    let tree = app.core.tree();
+    let parent = tree.get(&path[..path.len() - 1]).unwrap();
+    TaskRef::of(tree.get(path).unwrap(), parent).unwrap()
+}
+
+/// A finished session on `path`, straight into the store, as another udo
+/// would write it: `Core::changes` does not see it.
+async fn add_behind_core(app: &App<'_>, path: &[usize], start: Time, end: Time) {
+    let task = task_ref(app, path);
+    app.core.sessions().add(task, start, end).await.unwrap();
+}
+
+/// A timer on `path`, started like `add_behind_core` (a tmux hook).
+async fn start_behind_core(app: &App<'_>, path: &[usize], at: Time) {
+    let task = task_ref(app, path);
+    let store = app.core.sessions();
+    store
+        .start(task, SessionSource::Manual, Owner::manual(), at)
+        .await
+        .unwrap();
+}
+
+/// Tracked time of the task at `path`, as the last rebuild saw it.
+fn actual(app: &App, path: &[usize]) -> Minutes {
+    let id = app.core.tree().get(path).unwrap().id();
+    app.history.task(id).unwrap().actual
+}
+
+/// Cursor keys read no data: a change from elsewhere waits for the tick.
+#[tokio::test]
+async fn moving_the_cursor_keeps_the_history() {
+    let mut app = test_app(tree(), state_at(&[0]));
+    app.reload().await;
+    add_behind_core(&app, &[1, 0], at(9, 0), at(10, 0)).await;
+
+    app.handle_key(key('j')).await;
+    assert_eq!(actual(&app, &[1, 0]), Minutes::new(0));
+
+    app.reload().await; // the tick
+    assert_eq!(actual(&app, &[1, 0]), Minutes::new(60));
+}
+
+/// Every TUI action writes through `Core`: the next key rebuilds.
+#[tokio::test]
+async fn a_change_through_core_shows_at_the_next_key() {
+    let mut app = test_app(tree(), state_at(&[0]));
+    app.reload().await;
+    app.core
+        .add_session(&[1, 0], at(9, 0), at(10, 0), at(12, 0))
+        .await
+        .unwrap();
+
+    app.handle_key(key('j')).await;
+
+    assert_eq!(actual(&app, &[1, 0]), Minutes::new(60));
+    let b = app.core.tree().get(&[1, 0]).unwrap().id();
+    assert!(app.with_sessions.contains(&b));
+}
+
+/// A tmux hook / the CLI started a timer: the running session is read per
+/// key, and a new one rebuilds the rest too.
+#[tokio::test]
+async fn a_timer_started_elsewhere_shows_at_the_next_key() {
+    let mut app = test_app(tree(), state_at(&[0]));
+    app.reload().await;
+    start_behind_core(&app, &[1, 0], at(9, 0)).await;
+
+    app.handle_key(key('j')).await;
+
+    assert_eq!(timed(&app).as_deref(), Some("b"));
+    let b = app.core.tree().get(&[1, 0]).unwrap().id();
+    assert_eq!(app.history.task(b).unwrap().first_session, Some(at(9, 0)));
+}
+
+/// Keys pressed steadily keep pushing the tick back (the loop counts it
+/// from the last wake): a key a tick's length after the last rebuild
+/// rebuilds anyway, so changes from elsewhere still show.
+#[tokio::test]
+async fn a_key_a_tick_after_the_last_rebuild_rebuilds() {
+    let mut app = test_app(tree(), state_at(&[0]));
+    app.reload().await;
+    add_behind_core(&app, &[1, 0], at(9, 0), at(10, 0)).await;
+    app.rebuilt_at -= IDLE;
+
+    app.handle_key(key('j')).await;
+
+    assert_eq!(actual(&app, &[1, 0]), Minutes::new(60));
+}
+
+/// Each typed char is a key; a form writes nothing until it is saved.
+#[tokio::test]
+async fn typing_in_a_form_keeps_the_history() {
+    let mut app = test_app(tree(), state_at(&[0]));
+    app.reload().await;
+    add_behind_core(&app, &[1, 0], at(9, 0), at(10, 0)).await;
+
+    app.handle_key(key('t')).await;
+    app.handle_key(key('x')).await;
+    assert!(matches!(app.mode, Mode::Form(_)));
+    assert_eq!(actual(&app, &[1, 0]), Minutes::new(0));
+
+    app.handle_key(press(KeyCode::Esc)).await; // cancelled: still nothing written
+    assert_eq!(actual(&app, &[1, 0]), Minutes::new(0));
 }
 
 #[tokio::test]
@@ -857,6 +983,51 @@ async fn clearing_the_description_removes_it() {
     app.handle_key(press(KeyCode::Enter)).await;
 
     assert_eq!(app.core.tree().get(&[0]).unwrap().header.description, None);
+}
+
+/// `e` on the task at the cursor, Tab to `estimate` (name, description,
+/// due, estimate), type `text`, Enter.
+async fn edit_estimate(app: &mut App<'_>, text: &str) {
+    app.handle_key(key('e')).await;
+    for _ in 0..3 {
+        app.handle_key(press(KeyCode::Tab)).await;
+    }
+    app.handle_key(clear()).await;
+    type_into(app, text).await;
+    app.handle_key(press(KeyCode::Enter)).await;
+}
+
+#[tokio::test]
+async fn edit_sets_and_removes_the_own_estimate_on_disk() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = disk_tree(tmp.path()).await;
+    let mut app = test_app(t, state_at(&[0]));
+    let own = |tree: &Tree| tree.get(&[0]).and_then(Node::as_task).unwrap().estimate;
+
+    edit_estimate(&mut app, "1h30").await;
+    let reloaded = Tree::load_from(tmp.path()).await.unwrap();
+    assert_eq!(own(&reloaded), Some(Minutes::new(90)));
+    edit_estimate(&mut app, "").await;
+
+    let reloaded = Tree::load_from(tmp.path()).await.unwrap();
+    assert_eq!(own(&reloaded), None);
+    assert!(matches!(app.mode, Mode::Normal), "form closed");
+}
+
+#[tokio::test]
+async fn an_estimate_that_is_no_duration_keeps_the_form_open() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = disk_tree(tmp.path()).await;
+    let mut app = test_app(t, state_at(&[0]));
+
+    edit_estimate(&mut app, "90").await;
+
+    assert!(matches!(app.mode, Mode::Form(_)), "form closed on error");
+    let toast = app.toast.as_ref().unwrap();
+    assert_eq!(toast.kind, ToastKind::Error);
+    assert!(toast.msg.starts_with("estimate: "), "{}", toast.msg);
+    let task = app.core.tree().get(&[0]).and_then(Node::as_task).unwrap();
+    assert_eq!(task.estimate, None);
 }
 
 #[tokio::test]
@@ -2280,7 +2451,7 @@ async fn o_on_a_container_with_more_open_tasks_opens_the_task_picker() {
     assert_eq!(p.title, "open ws for");
     assert_eq!(
         labels(p),
-        ["ws", "b", "wk / c", "d"],
+        ["ws", "b", "d", "wk / c"],
         "ws itself, then paths below it in tree order"
     );
     assert_eq!(p.cursor, 0, "no task preselected, not the one due first");
@@ -2312,8 +2483,8 @@ async fn enter_in_the_task_picker_runs_for_the_picked_task() {
     let (ws, d) = (t.get(&[1]).unwrap().id(), t.get(&[1, 2]).unwrap().id());
     let mut app = test_app(t, state_at(&[1]));
     app.handle_key(key('o')).await;
-    for _ in 0..3 {
-        app.handle_key(key('j')).await; // ws -> b -> c -> d
+    for _ in 0..2 {
+        app.handle_key(key('j')).await; // ws -> b -> d (tasks before wk)
     }
 
     let Flow::Run(request) = app.handle_key(press(KeyCode::Enter)).await else {

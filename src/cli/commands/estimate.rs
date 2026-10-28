@@ -1,6 +1,7 @@
 //! `udo estimate [NODE]`: what udo estimates for a task (or a typical task
 //! in a container), and where that comes from: how many tasks it learned
-//! from, and the prior it started from.
+//! from, and the prior it started from. A task with its own estimate shows
+//! that first, udo's learned one below it (#6).
 
 use std::{fmt, path::Path};
 
@@ -28,7 +29,9 @@ pub struct EstimateArgs {
     pub node: Option<String>,
 }
 
-/// One node's estimate. `minutes` `None`: nothing to estimate from.
+/// One node's estimate: your own (tasks only) and udo's learned one.
+/// `minutes`, `done`, `open`, `prior` and `as_of` are always the learned
+/// one, also when `own` is set (scripts keep working).
 #[derive(Serialize)]
 pub struct Estimated {
     pub id: NodeId,
@@ -36,6 +39,10 @@ pub struct Estimated {
     /// A container: "a typical task in it"; a task: its container's
     /// estimate, without its own time.
     pub container: bool,
+    /// The task's own estimate (`udo edit --estimate`); wins over
+    /// `minutes`. `None`: not set, or a container.
+    pub own: Option<u32>,
+    /// The learned estimate; `None`: nothing to learn from.
     pub minutes: Option<u32>,
     /// Done tasks learned from, at full weight.
     pub done: usize,
@@ -67,7 +74,8 @@ pub async fn run(core: &Core, cwd: &Path, now: Time, args: &EstimateArgs) -> Res
     let tree = core.tree();
     let path = resolve(tree, args.node.as_deref(), cwd)?;
     let node = tree.get(&path).ok_or("no such node")?;
-    let estimate = core.estimate(&path, now).await?;
+    let shown = core.estimate(&path, now).await?;
+    let estimate = shown.learned;
 
     let (done, open, prior) = match estimate.map(|e| e.basis) {
         Some(Basis::Learned {
@@ -77,12 +85,13 @@ pub async fn run(core: &Core, cwd: &Path, now: Time, args: &EstimateArgs) -> Res
             ..
         }) => (done_tasks, open_tasks, prior),
         Some(Basis::Prior(p)) => (0, 0, Some(p)),
-        None => (0, 0, None),
+        Some(Basis::Own) | None => (0, 0, None), // `learned` is never `Own`
     };
     Ok(Estimated {
         id: node.id(),
         path: path_text(tree, &path),
         container: node.as_container().is_some(),
+        own: shown.own.map(Minutes::get),
         minutes: estimate.map(|e| e.minutes.get()),
         done,
         open,
@@ -122,9 +131,19 @@ fn count(n: usize, what: &str) -> String {
 
 /// Three lines: the estimate, what it learned from, the prior; a done task
 /// gets a line after the first saying when it was estimated. Nothing to
-/// estimate from: one line that says how to set a starting value.
+/// estimate from: one line that says how to set a starting value. Your own
+/// estimate: it first, `udo: <learned>` next, then the same lines (none
+/// when there is nothing to learn from).
 impl fmt::Display for Estimated {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(own) = self.own {
+            write!(f, "{} for {} (yours)", Minutes::new(own), self.path)?;
+            let Some(minutes) = self.minutes else {
+                return write!(f, "\n  udo: nothing to learn from yet");
+            };
+            write!(f, "\n  udo: {}", Minutes::new(minutes))?;
+            return self.fmt_learned(f);
+        }
         let Some(minutes) = self.minutes else {
             return write!(
                 f,
@@ -138,6 +157,14 @@ impl fmt::Display for Estimated {
             format!("{} for {}", Minutes::new(minutes), self.path)
         };
         write!(f, "{head}")?;
+        self.fmt_learned(f)
+    }
+}
+
+impl Estimated {
+    /// The lines after the head: when a done task was estimated, what it
+    /// learned from, the prior. Each starts with a newline.
+    fn fmt_learned(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(at) = self.as_of {
             let at = at.with_timezone(&Local).format(DATE_FMT);
             write!(f, "\n  done: as estimated on {at}")?;
@@ -177,7 +204,11 @@ mod tests {
     use super::*;
     use crate::{
         cli::report::render,
-        model::settings::ContainerSettings,
+        model::{
+            node::{BodyPatch, NodePatch},
+            settings::ContainerSettings,
+            task::TaskPatch,
+        },
         test_util::{at, core, task}, // core: disk_tree, root: [a, ws: [b]]
     };
 
@@ -205,6 +236,18 @@ mod tests {
         core.set_settings(&[1], settings, None).await.unwrap();
     }
 
+    /// b's own estimate.
+    async fn set_b_estimate(core: &mut Core, minutes: u32) {
+        let patch = NodePatch {
+            body: Some(BodyPatch::Task(TaskPatch {
+                estimate: Some(Some(Minutes::new(minutes))),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        core.edit(&[1, 0], patch).await.unwrap();
+    }
+
     /// An `Estimated` for the text tests: 1h20 from `done` and `open`
     /// tasks, `prior`.
     fn estimated(done: usize, open: usize, prior: Option<PriorOut>) -> Estimated {
@@ -212,6 +255,7 @@ mod tests {
             id: NodeId::new(),
             path: "uni/cs".into(),
             container: true,
+            own: None,
             minutes: Some(80),
             done,
             open,
@@ -368,6 +412,73 @@ mod tests {
         assert_eq!(json["prior"]["source"], "setting");
         assert_eq!(json["prior"]["from"], "ws");
         assert_eq!(json["prior"]["minutes"], 90);
+        assert!(json["own"].is_null());
+    }
+
+    // ---------- a task's own estimate (#6) ----------
+
+    #[tokio::test]
+    async fn own_estimate_first_then_udos() {
+        let (tmp, mut core) = core().await;
+        set_ws_estimate(&mut core, 90).await;
+        set_b_estimate(&mut core, 45).await;
+
+        let shown = run(&core, tmp.path(), at(12, 0), &named("b"))
+            .await
+            .unwrap();
+
+        assert_eq!((shown.own, shown.minutes), (Some(45), Some(90)));
+        assert_eq!(
+            render(&shown, false).unwrap(),
+            "45m for ws/b (yours)\n  udo: 1h30\n  no tasks with tracked time here yet\n  \
+             prior: 1h30, set on ws"
+        );
+    }
+
+    #[tokio::test]
+    async fn own_estimate_with_nothing_learned() {
+        let (tmp, mut core) = core().await;
+        set_b_estimate(&mut core, 45).await;
+
+        let shown = run(&core, tmp.path(), at(12, 0), &named("b"))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            render(&shown, false).unwrap(),
+            "45m for ws/b (yours)\n  udo: nothing to learn from yet"
+        );
+    }
+
+    #[tokio::test]
+    async fn json_has_own_next_to_the_learned_fields() {
+        let (tmp, mut core) = core().await;
+        set_ws_estimate(&mut core, 90).await;
+        set_b_estimate(&mut core, 45).await;
+
+        let shown = run(&core, tmp.path(), at(12, 0), &named("b"))
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_str(&render(&shown, true).unwrap()).unwrap();
+
+        assert_eq!(json["own"], 45);
+        assert_eq!(json["minutes"], 90); // still the learned one
+        assert_eq!(json["prior"]["source"], "setting");
+    }
+
+    #[test]
+    fn text_puts_the_moment_after_udos_line() {
+        let mut shown = estimated(1, 0, None);
+        shown.container = false;
+        shown.path = "uni/cs/lab".into();
+        shown.own = Some(60);
+        shown.as_of = Some(crate::test_util::local(14, 0));
+
+        assert_eq!(
+            shown.to_string(),
+            "1h for uni/cs/lab (yours)\n  udo: 1h20\n  done: as estimated on 2026-10-15 14:00\n  \
+             learned from 1 done task\n  no prior: nothing set above"
+        );
     }
 
     #[tokio::test]

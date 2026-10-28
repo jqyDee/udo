@@ -1,6 +1,6 @@
 //! The rules every `EstimateStore` must keep, checked against each backend
 //! (`estimate_store_contract!`): append-only, a repeat of the task's latest
-//! row skipped, timed by the store's clock, `last_of` the latest row of a
+//! row in its chain skipped, timed by the store's clock, `last_of` the latest row of a
 //! task, `of_tasks` filtered and oldest first, every field back as written.
 
 use std::{
@@ -11,13 +11,64 @@ use std::{
 use chrono::{FixedOffset, TimeDelta};
 
 use crate::{
-    estimate::store::{EstimateStore, NewEstimate, Reason, Recorded},
+    estimate::store::{EstimateStore, NewEstimate, PriorSource, Reason, Recorded},
     model::{
         id::NodeId,
         time::{Minutes, Time},
     },
     test_util::{at, parse_time},
 };
+
+/// The rules every EstimateStore must keep, one `#[tokio::test]` per check,
+/// so a failing check does not hide the others. `$make` takes a `Clock` and
+/// gives a fresh, empty store using it (most checks with `ticking`, the
+/// one about equal times with `standing`, the one about the DST switch with
+/// `switching`). Use inside a test module, on the `Estimates` enum:
+///
+/// ```ignore
+/// contract::estimate_store_contract!(|clock: Clock| Estimates::Memory(MemoryEstimates::new(clock)));
+/// ```
+macro_rules! estimate_store_contract {
+    ($make:expr) => {
+        $crate::storage::estimates::contract::estimate_store_contract!(@each $make, ticking;
+            check_record_gives_an_id_and_the_clocks_time,
+            check_record_skips_a_repeat,
+            check_record_ignores_the_reason,
+            check_record_writes_a_change,
+            check_record_writes_another_moment,
+            check_record_compares_with_the_latest_only,
+            check_record_compares_within_its_chain,
+            check_a_cleared_row_does_not_hide_a_started_one,
+            check_yours_set_again_after_a_removal_is_written,
+            check_record_writes_a_known_source,
+            check_last_of_is_the_latest_row,
+            check_last_of_ignores_other_tasks,
+            check_last_of_without_rows_is_none,
+            check_of_tasks_filters_and_sorts_oldest_first,
+            check_of_tasks_asked_twice_gives_each_row_once,
+            check_of_no_tasks_is_empty,
+            check_rows_keep_every_field,
+        );
+        $crate::storage::estimates::contract::estimate_store_contract!(@each $make, standing;
+            check_equal_times_order_by_id,
+        );
+        $crate::storage::estimates::contract::estimate_store_contract!(@each $make, switching;
+            check_order_follows_the_instant_not_the_wall_clock,
+        );
+    };
+    (@each $make:expr, $clock:ident; $($check:ident),* $(,)?) => {
+        $(
+            #[tokio::test]
+            async fn $check() {
+                $crate::storage::estimates::contract::$check(
+                    ($make)($crate::storage::estimates::contract::$clock),
+                )
+                .await;
+            }
+        )*
+    };
+}
+pub(super) use estimate_store_contract;
 
 /// The stores' clock in the contract: 20:00, one second later on every
 /// call, so rows written one after the other have different times (a
@@ -52,7 +103,7 @@ pub(super) fn switching() -> Time {
 }
 
 /// A learned estimate of `task`: `minutes`, 1 done task, prior 1h30,
-/// written when the task got its first session.
+/// written when the task got its first session, at 12:00.
 fn row(task: NodeId, minutes: u32) -> NewEstimate {
     NewEstimate {
         task,
@@ -62,7 +113,22 @@ fn row(task: NodeId, minutes: u32) -> NewEstimate {
         done_tasks: 1,
         open_tasks: 0,
         prior: Some(Minutes::new(90)),
+        prior_source: Some(PriorSource::Setting { container: task }), // any id, the same in every call
+        frozen_at: Some(at(12, 0)),
         reason: Reason::Started,
+    }
+}
+
+/// Your own estimate of `task`: `minutes`, set by hand (never frozen).
+fn manual(task: NodeId, minutes: u32) -> NewEstimate {
+    NewEstimate {
+        method: "manual".into(),
+        done_tasks: 0,
+        prior: None,
+        prior_source: Some(PriorSource::NoPrior),
+        frozen_at: None,
+        reason: Reason::Manual,
+        ..row(task, minutes)
     }
 }
 
@@ -73,52 +139,6 @@ async fn write(s: &impl EstimateStore, row: NewEstimate) -> Recorded {
         .unwrap()
         .expect("written, not skipped as a repeat")
 }
-
-/// The rules every EstimateStore must keep, one `#[tokio::test]` per check,
-/// so a failing check does not hide the others. `$make` takes a `Clock` and
-/// gives a fresh, empty store using it (most checks with `ticking`, the
-/// one about equal times with `standing`, the one about the DST switch with
-/// `switching`). Use inside a test module, on the `Estimates` enum:
-///
-/// ```ignore
-/// contract::estimate_store_contract!(|clock: Clock| Estimates::Memory(MemoryEstimates::new(clock)));
-/// ```
-macro_rules! estimate_store_contract {
-    ($make:expr) => {
-        $crate::storage::estimates::contract::estimate_store_contract!(@each $make, ticking;
-            check_record_gives_an_id_and_the_clocks_time,
-            check_record_skips_a_repeat,
-            check_record_ignores_the_reason,
-            check_record_writes_a_change,
-            check_record_compares_with_the_latest_only,
-            check_last_of_is_the_latest_row,
-            check_last_of_ignores_other_tasks,
-            check_last_of_without_rows_is_none,
-            check_of_tasks_filters_and_sorts_oldest_first,
-            check_of_tasks_asked_twice_gives_each_row_once,
-            check_of_no_tasks_is_empty,
-            check_rows_keep_every_field,
-        );
-        $crate::storage::estimates::contract::estimate_store_contract!(@each $make, standing;
-            check_equal_times_order_by_id,
-        );
-        $crate::storage::estimates::contract::estimate_store_contract!(@each $make, switching;
-            check_order_follows_the_instant_not_the_wall_clock,
-        );
-    };
-    (@each $make:expr, $clock:ident; $($check:ident),* $(,)?) => {
-        $(
-            #[tokio::test]
-            async fn $check() {
-                $crate::storage::estimates::contract::$check(
-                    ($make)($crate::storage::estimates::contract::$clock),
-                )
-                .await;
-            }
-        )*
-    };
-}
-pub(super) use estimate_store_contract;
 
 // --------------- record ---------------
 
@@ -149,8 +169,8 @@ pub(super) async fn check_record_skips_a_repeat(s: impl EstimateStore) {
     assert_eq!(s.of_tasks(&[task]).await.unwrap(), vec![first]);
 }
 
-/// A task started with the estimate it was created with: the `started`
-/// row would only repeat the `created` one, so it is skipped.
+/// The reason alone is nothing new: a `started` row for the same moment,
+/// minutes, method and source as the `created` one is skipped.
 pub(super) async fn check_record_ignores_the_reason(s: impl EstimateStore) {
     let task = NodeId::new();
     let created = NewEstimate {
@@ -182,6 +202,23 @@ pub(super) async fn check_record_writes_a_change(s: impl EstimateStore) {
     assert_eq!(s.of_tasks(&[task]).await.unwrap().len(), 3);
 }
 
+/// The same estimate for another moment (a task started with the estimate
+/// it was created with, a first session moved) is written: each moment
+/// gets its row, the one a done task's estimate is read from (#60).
+pub(super) async fn check_record_writes_another_moment(s: impl EstimateStore) {
+    let task = NodeId::new();
+    let created = NewEstimate {
+        reason: Reason::Created,
+        frozen_at: Some(at(8, 0)),
+        ..row(task, 185)
+    };
+    write(&s, created).await;
+
+    let started = s.record(row(task, 185)).await.unwrap(); // 12:00
+
+    assert!(started.is_some());
+}
+
 /// Only the task's latest row counts: back to an older value is a change,
 /// and another task's row does not stop a task's first one.
 pub(super) async fn check_record_compares_with_the_latest_only(s: impl EstimateStore) {
@@ -194,6 +231,70 @@ pub(super) async fn check_record_compares_with_the_latest_only(s: impl EstimateS
 
     assert!(back.is_some(), "180 repeats an older row, not the latest");
     assert!(other.is_some(), "a's rows do not count for b");
+}
+
+/// Yours and the learned rows are two chains: one between two equal rows of
+/// the other does not make the second one new. Yours are one chain
+/// whatever the reason: your estimate set (`manual`), then the task
+/// started with it, is one row.
+pub(super) async fn check_record_compares_within_its_chain(s: impl EstimateStore) {
+    let task = NodeId::new();
+    write(&s, row(task, 60)).await;
+    write(&s, manual(task, 45)).await;
+    let started_with_yours = NewEstimate {
+        reason: Reason::Started,
+        ..manual(task, 45)
+    };
+
+    assert_eq!(s.record(row(task, 60)).await.unwrap(), None);
+    assert_eq!(s.record(manual(task, 45)).await.unwrap(), None);
+    assert_eq!(s.record(started_with_yours).await.unwrap(), None);
+}
+
+/// `started` compares with the latest `created` / `started` row only: a
+/// `cleared` one with the same minutes does not hide it (#60 reads a done
+/// task's estimate from those rows).
+pub(super) async fn check_a_cleared_row_does_not_hide_a_started_one(s: impl EstimateStore) {
+    let task = NodeId::new();
+    write(&s, row(task, 60)).await; // started
+    let cleared = NewEstimate {
+        reason: Reason::Cleared,
+        frozen_at: None, // not a moment
+        ..row(task, 75)
+    };
+    write(&s, cleared).await;
+
+    assert!(s.record(row(task, 75)).await.unwrap().is_some());
+}
+
+/// Yours removed (`cleared`, the learned one) and set again to the same
+/// value: a new row, so the history does not end on `cleared` while udo
+/// goes by yours.
+pub(super) async fn check_yours_set_again_after_a_removal_is_written(s: impl EstimateStore) {
+    let task = NodeId::new();
+    write(&s, manual(task, 60)).await;
+    let cleared = NewEstimate {
+        reason: Reason::Cleared,
+        frozen_at: None, // not a moment
+        ..row(task, 75)
+    };
+    write(&s, cleared).await;
+
+    assert!(s.record(manual(task, 60)).await.unwrap().is_some());
+}
+
+/// A row without a source and a moment (written before #60) is superseded
+/// by the same one with them: the backfill relies on that.
+pub(super) async fn check_record_writes_a_known_source(s: impl EstimateStore) {
+    let task = NodeId::new();
+    let old = NewEstimate {
+        prior_source: None,
+        frozen_at: None,
+        ..row(task, 60)
+    };
+    write(&s, old).await;
+
+    assert!(s.record(row(task, 60)).await.unwrap().is_some());
 }
 
 // --------------- last_of ---------------
@@ -308,6 +409,11 @@ pub(super) async fn check_rows_keep_every_field(s: impl EstimateStore) {
         done_tasks: 0,
         open_tasks: 0,
         prior: Some(Minutes::new(96)),
+        prior_source: Some(PriorSource::Parent {
+            container: task,
+            tasks: 5,
+        }),
+        frozen_at: None,
         reason: Reason::Created,
     };
     let learned_without_prior = NewEstimate {
@@ -318,6 +424,8 @@ pub(super) async fn check_rows_keep_every_field(s: impl EstimateStore) {
         done_tasks: 1,
         open_tasks: 1,
         prior: None,
+        prior_source: Some(PriorSource::NoPrior),
+        frozen_at: Some(parse_time("2026-10-15T08:30:00-04:00")),
         reason: Reason::Started,
     };
 
