@@ -85,6 +85,19 @@ classDiagram
   (`001_sessions.sql`, `002_estimates.sql`, ...), run in order;
   `PRAGMA user_version` counts how many have run. Released migrations are
   never edited, new ones are additive.
+- **Before a migration** an existing database is copied next to it,
+  named after its version and the time (`udo.db.v2.20261028-014000.bak`,
+  #78): migrations are one-way, an older udo refuses the result. Each
+  upgrade gets its own copy, also after a roll back and a later upgrade.
+  `VACUUM INTO` a file of its own, synced, then hard-linked into place,
+  never over an existing file: two processes upgrading in the same second
+  leave one whole copy. Where links are not supported (exFAT, some network
+  drives) a rename instead, which in that race may replace the other
+  copy, one of the same data. A copy is checked before it is placed: if
+  another process migrated in between, it holds the new schema and is
+  dropped, so a `v2` copy always holds schema 2. A failed copy refuses the
+  migration (the database stays as it was); a path that is not UTF-8 gets
+  no copy and is migrated as before. udo never deletes the copies.
 
 ## Sessions
 
