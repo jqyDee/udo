@@ -19,6 +19,7 @@ pub const DB_FILE_NAME: &str = "udo.db";
 const MIGRATIONS: &[&str] = &[
     include_str!("sqlite_migrations/001_sessions.sql"),
     include_str!("sqlite_migrations/002_estimates.sql"),
+    include_str!("sqlite_migrations/003_estimate_prior_source.sql"),
 ];
 const BUSY_TIMEOUT_SECS: u64 = 5;
 
@@ -245,13 +246,41 @@ mod tests {
         assert_eq!(estimates, 0); // the table exists, empty
     }
 
+    /// A `udo.db` from 0.2.x (migrations 001 and 002) opens with the newer udo:
+    /// the estimate rows stay, without a prior source (#60).
+    #[test]
+    fn an_estimates_database_from_0_2_is_upgraded() {
+        let (_dir, path) = db_path();
+        {
+            // what 0.2.x left behind: migrations 001 and 002, user_version 2
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(MIGRATIONS[0]).unwrap();
+            conn.execute_batch(MIGRATIONS[1]).unwrap();
+            conn.pragma_update(None, "user_version", 2).unwrap();
+            conn.execute(
+                "INSERT INTO estimates VALUES
+                 ('e1', 't1', 90, 'prior', 1, 0, 0, 90, 'created', 0, 120)",
+                (),
+            )
+            .unwrap();
+        }
+
+        let conn = open(&path).unwrap();
+
+        assert_eq!(user_version(&conn), MIGRATIONS.len());
+        let source: Option<String> = conn
+            .query_row("SELECT prior_source FROM estimates", (), |r| r.get(0))
+            .unwrap();
+        assert_eq!(source, None);
+    }
+
     #[test]
     fn estimates_take_a_full_row() {
         let conn = open_in_memory().unwrap();
 
         conn.execute(
             "INSERT INTO estimates VALUES
-             ('e1', 't1', 185, 'average', 1, 0, 1, 180, 'started', 0, 120)",
+             ('e1', 't1', 185, 'average', 1, 0, 1, 180, 'started', 0, 120, 'setting', 'c1', NULL, 0, 120)",
             (),
         )
         .unwrap();

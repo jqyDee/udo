@@ -75,10 +75,13 @@ impl App<'_> {
         match self.tree_state.selected(self.core.tree()) {
             Some(node) => {
                 let path = self.tree_state.cursor.clone();
-                // what applies when the estimate is empty: its placeholder
-                let learned = estimate::of_node(node, &self.history)
-                    .learned
-                    .map(|e| e.minutes);
+                // what applies when the estimate is empty: its placeholder. A
+                // task's is built already (a done one's from its row, #60)
+                let shown = match node.as_task() {
+                    Some(_) => self.estimates.get(node.id()),
+                    None => estimate::of_node(node, &self.history, &estimate::Frozen::default()),
+                };
+                let learned = shown.learned.map(|e| e.minutes);
                 self.mode = Mode::Form(Box::new(Form::edit_node(path, node, learned)));
             }
             None => self.error("nothing selected"),

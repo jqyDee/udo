@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    estimate::{History, Shown, of_node},
+    estimate::{Frozen, History, Shown, of_node},
     model::{
         id::NodeId,
         time::{Left, Minutes},
@@ -20,12 +20,13 @@ pub struct Estimates(HashMap<NodeId, Shown>);
 
 impl Estimates {
     /// Tasks only: containers get no entry (their numbers are `Totals`).
-    pub fn build(tree: &Tree, history: &History) -> Self {
+    /// Done tasks' learned estimates from `frozen` (#60).
+    pub fn build(tree: &Tree, history: &History, frozen: &Frozen) -> Self {
         Self(
             tree.rows()
                 .into_iter()
                 .filter(|r| r.node.as_task().is_some())
-                .map(|r| (r.node.id(), of_node(r.node, history)))
+                .map(|r| (r.node.id(), of_node(r.node, history, frozen)))
                 .collect(),
         )
     }

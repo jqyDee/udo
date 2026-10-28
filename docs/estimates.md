@@ -46,11 +46,16 @@ open, with 3h55: more than 3h, so it counts at half weight.
 
 A done task's learned estimate is **frozen at its first session** (no
 session: at its creation): it is what udo estimated when you started the
-task, computed on what was known then. Tasks done later do not change it.
+task, computed on what was known then. Tasks done later do not change it,
+and neither does changing the container's `estimate` setting afterwards.
 So `result` compares the estimate you started with to the time it really
 took. A task finished before udo had anything to learn from has no
 estimate (`-`) and no `result`. Your own estimate is never frozen: it is
 always the current value.
+
+Correcting the task's own sessions moves it: editing, cutting or
+deleting its first session freezes the estimate anew at the session that
+is first now. With no session left, the estimate at its creation counts.
 
 Work logged afterwards counts as of when it happened. A session added
 back-dated is a task's first session even if it lies before the task was
