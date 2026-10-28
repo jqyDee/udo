@@ -49,6 +49,10 @@ require_conventional = false
 split_commits = false
 # An array of regex based parsers to modify commit messages prior to further processing.
 commit_preprocessors = [
+    # A subject wrapped onto the next line (no blank line after it, e.g. by
+    # an editor at 72 columns): join it back, else the commit is dropped as
+    # `Incorrect body syntax`.
+    { pattern = '^([^\n]+)\n([^\n]+)', replace = '${1} ${2}' },
     # Replace issue numbers with link templates to be updated in `changelog.postprocessors`.
     #{ pattern = '\((\w+\s)?#([0-9]+)\)', replace = "([#${2}](<REPO>/issues/${2}))"},
     # Check spelling of the commit message using https://github.com/crate-ci/typos.
@@ -61,6 +65,8 @@ protect_breaking_commits = false
 # Assigns commits to groups.
 # Optionally sets the commit's scope and can decide to exclude commits from further processing.
 commit_parsers = [
+    # merges (PR merges included): their commits are listed on their own
+    { field = "merge_commit", pattern = "true", skip = true },
     { message = "^feat", group = "<!-- 0 -->🚀 Features" },
     { message = "^fix", group = "<!-- 1 -->🐛 Bug Fixes" },
     { message = "^doc", group = "<!-- 3 -->📚 Documentation" },
