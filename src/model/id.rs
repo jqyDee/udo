@@ -15,6 +15,10 @@ impl NodeId {
     pub fn new() -> Self {
         Self(Uuid::now_v7())
     }
+
+    /// The all-zero id, which no node has. A placeholder where no node is
+    /// read (the engine never reads the clock for it).
+    pub const NIL: Self = Self(Uuid::nil());
 }
 
 impl fmt::Display for NodeId {
