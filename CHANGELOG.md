@@ -1,3 +1,8 @@
+## [0.5.0] - 2026-11-01
+
+### 🚀 Features
+
+- *(stats)* Daily pace and time reports
 ## [0.4.0] - 2026-10-28
 
 ### ⚠️ Upgrade notes
@@ -40,6 +45,7 @@
 - Update cliff.toml to include long commits
 - Update dry run cargo release
 - *(changelog)* Upgrade notes group for note: commits
+- Release 0.4.0
 ## [0.3.0] - 2026-10-07
 
 ### 🚀 Features
