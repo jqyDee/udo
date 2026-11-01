@@ -80,6 +80,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn removed_task_counts_only_with_deleted() {
+        let (_tmp, mut core) = core().await;
+        core.add_session(&[0], local(9, 0), local(10, 0), local(23, 0))
+            .await
+            .unwrap(); // a, removed below: 60
+        let deleted = core
+            .add_session(&[0], local(11, 0), local(12, 0), local(23, 0))
+            .await
+            .unwrap(); // a, deleted: never
+        core.delete_session(deleted.id).await.unwrap();
+        core.add_session(&[1, 0], local(13, 0), local(14, 0), local(23, 0))
+            .await
+            .unwrap(); // b, kept: 60
+        core.delete(&[0], local(23, 0)).await.unwrap(); // a is gone from the tree
+
+        let without = core.stats(&query(false), &[], local(23, 0)).await.unwrap();
+        let with = core.stats(&query(true), &[], local(23, 0)).await.unwrap();
+
+        assert_eq!(without.total.values["minutes"], json!(60));
+        assert_eq!(without.total.values["sessions"], json!(1));
+        assert_eq!(with.total.values["minutes"], json!(120));
+        assert_eq!(with.total.values["sessions"], json!(2));
+    }
+
+    #[tokio::test]
     async fn deleted_sessions_never_count() {
         let (_tmp, core) = core().await;
         core.add_session(&[0], local(9, 0), local(10, 0), local(23, 0))

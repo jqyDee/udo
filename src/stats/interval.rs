@@ -1,7 +1,7 @@
 //! Intervals: the engine's input, one stretch of time from one source, and
 //! the pieces they are cut into.
 
-use chrono::SubsecRound;
+use chrono::{SubsecRound, Timelike};
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
@@ -49,6 +49,10 @@ impl Piece<'_> {
 /// Endpoints are truncated to whole seconds first (the cuts are whole
 /// seconds too), so the pieces add up to the uncut length exactly.
 pub fn cut<'a>(intervals: &'a [Interval], from: Time, to: Time, cuts: &[Time]) -> Vec<Piece<'a>> {
+    debug_assert!(
+        cuts.iter().all(|cut| cut.nanosecond() == 0),
+        "cuts must be whole seconds: exact totals rely on it"
+    );
     let from = from.trunc_subsecs(0);
     let to = to.trunc_subsecs(0);
     let mut pieces = Vec::new();
@@ -76,4 +80,22 @@ pub fn cut<'a>(intervals: &'a [Interval], from: Time, to: Time, cuts: &[Time]) -
         });
     }
     pieces
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_util::parse_time;
+
+    #[test]
+    #[should_panic(expected = "whole seconds")]
+    fn sub_second_cut_is_refused() {
+        let cut_at = parse_time("2026-10-15T10:00:00.500+02:00");
+        cut(
+            &[],
+            parse_time("2026-10-15T00:00:00+02:00"),
+            cut_at,
+            &[cut_at],
+        );
+    }
 }

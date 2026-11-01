@@ -234,10 +234,24 @@ mod tests {
             texts(&rows(Level::Project, &tree, &[], &interval)),
             vec!["outer/inner"]
         );
-        // No workspace above the task: the root.
+        // The root is a workspace too, and the only one above the task: the
+        // root.
         assert_eq!(
             texts(&rows(Level::Workspace, &tree, &[], &interval)),
             vec![""]
+        );
+    }
+
+    #[test]
+    fn workspace_is_the_nearest_one() {
+        // uni (a workspace) holds cs (a workspace) holds lab: the nearest
+        // workspace above lab is cs, not the root.
+        let tree = uni_tree();
+        let interval = [on(&tree, &[0, 0, 0])];
+
+        assert_eq!(
+            texts(&rows(Level::Workspace, &tree, &[], &interval)),
+            vec!["uni/cs"]
         );
     }
 
@@ -306,6 +320,29 @@ mod tests {
         let by_project = rows(Level::Project, &tree, &[], &intervals);
         assert_eq!(texts(&by_project), vec!["(removed)"]);
         assert_eq!(by_project.rows[0].values["minutes"], json!(120));
+    }
+
+    #[test]
+    fn removed_tasks_are_keyed_by_id() {
+        let tree = uni_tree();
+
+        // Two removed tasks with one name are two tasks: two rows.
+        let two_ids = [removed("lab"), removed("lab")];
+        let by_task = rows(Level::Task, &tree, &[], &two_ids);
+        assert_eq!(texts(&by_task), vec!["lab (removed)", "lab (removed)"]);
+
+        // Two intervals of one removed task are one row.
+        let task = TaskRef {
+            id: NodeId::new(),
+            name: "lab 9".into(),
+            description: String::new(),
+            container_dir: PathBuf::from("/uni"),
+            container_id: NodeId::new(),
+        };
+        let one_id = [iv(task.clone()), iv(task)];
+        let by_task = rows(Level::Task, &tree, &[], &one_id);
+        assert_eq!(texts(&by_task), vec!["lab 9 (removed)"]);
+        assert_eq!(by_task.rows[0].values["minutes"], json!(120));
     }
 
     #[test]
