@@ -25,6 +25,7 @@ flowchart TD
     core["Core<br/>every change goes through it"] --> tree["Tree<br/>(model)"]
     core --> storage["Storage<br/>SessionStore, EstimateStore"]
     core --> estimate["estimate<br/>pure: History, estimators"]
+    core --> stats["stats<br/>pure: Query, dims, measures"]
     tree --> persist["persist<br/>.udo.toml, one per container"]
     storage --> db[("udo.db<br/>SQLite")]
     run["run<br/>run configs: find + launch scripts"] --> scripts[["scripts in run_dir"]]
@@ -41,6 +42,9 @@ flowchart TD
 - **`estimate`** (`src/estimate/`) computes estimates from a snapshot
   (`History`), the totals per container and the texts shared by the TUI
   and `udo show` ([what they mean](../estimates.md)); no I/O, no async.
+- **`stats`** (`src/stats/`) groups the time of a span by dimensions and
+  counts it with measures (`udo stats`); pure, the zone and `now` come in
+  ([how it works](stats.md)).
 - **`run`** (`src/run/`) finds and starts run configs. udo starts no timer
   for a run: the scripts call `udo track` themselves
   ([run configs](../run-configs.md)).
@@ -51,3 +55,4 @@ flowchart TD
 2. [storage.md](storage.md): sessions and estimate rows in `udo.db`
 3. [estimates.md](estimates.md): how an estimate is computed, summed (totals) and recorded
 4. [flows.md](flows.md): load, create, edit, delete, save, the timer
+5. [stats.md](stats.md): the stats engine, its extension points, the invariant

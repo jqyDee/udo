@@ -16,6 +16,7 @@ mod run;
 mod session;
 mod settings;
 mod show;
+mod stats;
 mod timer;
 mod track;
 
@@ -66,6 +67,8 @@ pub enum Command {
     /// List and correct recorded time
     #[command(subcommand)]
     Session(session::SessionCommand),
+    /// Where your time went: per day, week, project, weekday, hour
+    Stats(stats::StatsArgs),
     /// The timer for programs: tmux hooks, editor wrappers (quiet)
     #[command(subcommand)]
     Track(track::TrackCommand),
@@ -96,6 +99,7 @@ pub async fn run(command: &Command, core: &mut Core, cwd: &Path, json: bool) -> 
         Command::Stop => emit(&timer::stop(core, time::now()).await?, json),
         Command::Status(a) => emit(&timer::status(core, time::now(), a).await?, json),
         Command::Session(c) => session::run(c, core, cwd, json).await,
+        Command::Stats(a) => emit(&stats::run(core, cwd, time::now(), a).await?, json),
         Command::Track(c) => track::run(c, core, cwd, json).await,
         Command::Run(a) if a.list => emit(&run::list(core, cwd, a)?, json),
         Command::Run(a) => {

@@ -18,6 +18,7 @@ pub mod model;
 pub mod naming;
 pub mod persist;
 pub mod run;
+pub mod stats;
 pub mod storage;
 pub mod tui;
 

@@ -93,6 +93,15 @@ fn track_run_json_keeps_the_programs_output_off_stdout() {
     assert!(stderr(&out).contains(SAYS), "{out:?}");
 }
 
+#[test]
+fn stats_json_has_sections() {
+    let root = tempfile::tempdir().unwrap();
+
+    let out = ok(root.path(), &["stats", "--json"]);
+
+    assert!(json(&out)["sections"].is_array(), "{out:?}");
+}
+
 /// Without `--json` nothing is moved: the script writes to stdout, as on
 /// a terminal.
 #[test]

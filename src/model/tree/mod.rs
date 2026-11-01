@@ -141,6 +141,21 @@ impl Tree {
             .find(|r| r.node.id() == id)
             .map(|r| r.path)
     }
+
+    /// `uni/cs/lab 3`: the names from below the root; the root itself is `/`.
+    pub fn path_text(&self, path: &[usize]) -> String {
+        if path.is_empty() {
+            return "/".into();
+        }
+        self.names_of(path).join("/")
+    }
+
+    /// The names from below the root down to the node at `path`.
+    pub fn names_of(&self, path: &[usize]) -> Vec<String> {
+        (1..=path.len())
+            .filter_map(|i| self.get(&path[..i]).map(|n| n.name().to_string()))
+            .collect()
+    }
 }
 
 #[cfg(test)]

@@ -20,6 +20,7 @@ mod estimates;
 mod nodes;
 mod sessions;
 mod settings;
+mod stats;
 mod status;
 #[cfg(test)]
 mod tests;
