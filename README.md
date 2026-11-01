@@ -50,6 +50,7 @@ udo ls                      # the tree, due dates, status
 udo start "lab 3"           # NODE: a path, any unique end of one, or
 udo stop                    # nothing for the node of the current folder
 udo session list            # recorded time, last 7 days
+udo stats                   # today and the last 7 days
 udo edit "lab 3" --estimate 2h
 udo estimate "lab 3"        # yours (if set), what udo learned, and why
 udo show uni                # estimated, tracked and left over its tasks

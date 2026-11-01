@@ -6,14 +6,15 @@ use crate::model::{
 mod error;
 mod id;
 mod owner;
+mod scope;
 mod source;
 mod store;
 mod summary;
 mod task_ref;
 
 pub use crate::model::sessions::{
-    error::SessionError, id::SessionId, owner::Owner, source::SessionSource, store::SessionStore,
-    summary::TimeSummary, task_ref::TaskRef,
+    error::SessionError, id::SessionId, owner::Owner, scope::in_scope, source::SessionSource,
+    store::SessionStore, summary::TimeSummary, task_ref::TaskRef,
 };
 
 #[derive(Debug, Clone, PartialEq)]

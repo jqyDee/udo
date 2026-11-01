@@ -8,7 +8,8 @@ use serde::Serialize;
 use crate::Res;
 
 /// A command's result: `Display` is the text form (plain ASCII, no
-/// trailing newline), `Serialize` the `--json` form.
+/// trailing newline; `udo stats` also draws its bars and grids with
+/// `█░▒▓·` and `–`), `Serialize` the `--json` form.
 pub trait Report: Serialize + fmt::Display {}
 
 /// The text (`json = false`) or JSON form of `report`.
