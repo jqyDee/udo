@@ -8,7 +8,7 @@ machine's.
 
 ```mermaid
 flowchart TD
-    cli["cli/commands/stats.rs<br/>flags -> Query, Rows -> text / JSON"] --> core_stats["Core::stats<br/>sessions of the span, scope filter"]
+    cli["cli/commands/stats/mod.rs<br/>flags -> Query, Rows -> text / JSON"] --> core_stats["Core::stats<br/>sessions of the span, scope filter"]
     core_stats --> source["Source<br/>sessions -> Interval"]
     source --> run["stats::run<br/>pure"]
     run --> dims["Dim: cuts, key, keys_in"]
@@ -30,7 +30,7 @@ running session ends at `now`. Then `stats::run`:
    dimension, so 23:30 to 00:30 is 30 minutes on each of two days.
 3. Keys every piece by every dimension (`Dim::key`, with the span) and adds
    it to the accumulators of its key. The total gets every piece too.
-4. Fills in the keys a dimension enumerates (`keys_in`): all days of the
+4. Fills in the keys a dimension enumerates (`keys_in`): all buckets of the
    span, all 24 hours, all weekdays, also the empty ones (0). Node
    dimensions only show the keys that occur.
 5. Sets `occurrences` per row: how often its key occurs in the span. One
@@ -40,10 +40,13 @@ running session ends at `now`. Then `stats::run`:
 6. Returns the rows in display order, and the `total`: one row over the
    whole span, with the same measures.
 
-`stats::layout` turns the rows into a list (1 dimension), a grid (2) or one
-grid per value of the outer dimensions (3 or more). It has no strings: the
-CLI renders it as text, and the TUI (#84) will draw the same layout. Labels
-come from one function per `KeyPart`.
+`stats::layout` turns the rows into a `Layout`: `Total` (0 dimensions: the
+total is the only number), `List` (1 dimension), `Grid` (2) or `Grids` (3 or
+more: one grid per value of the outer dimensions). It holds the numbers and
+the keys, never the text. The text comes from `stats::layout::label`, one arm
+per `KeyPart`; `label_in_span` adds the span: a day label names its month
+across months, and a bucket of `every > 1` is a range (`Jan – Jun 2026`).
+The CLI renders the text, and the TUI (#84) will draw the same layout.
 
 ## Types
 
@@ -54,7 +57,7 @@ come from one function per `KeyPart`.
 | `Piece` | `stats/interval.rs` | an interval cut to the span and to every boundary |
 | `Key`, `KeyPart` | `stats/mod.rs` | one part per dimension, in query order |
 | `Row`, `Rows` | `stats/mod.rs` | a key, its values by measure name, `occurrences`; `Rows` adds the total |
-| `DimSpec`, `MeasureSpec`, `SourceKind` | `stats/spec.rs`, `stats/interval.rs` | the serde enums a query is written in |
+| `DimSpec`, `MeasureSpec`, `Unit`, `Level` | `stats/spec.rs`, `stats/dims/calendar.rs` | the serde enums a query is written in |
 
 The three traits, one file per implementation:
 
@@ -81,7 +84,8 @@ example, `{"dim": "calendar", "unit": "day", "every": 1}`.
 - **Weekday**: Monday to Sunday, local. Cuts at every local midnight.
 - **Node** `{ level: task | project | workspace | child }`. `task` is the
   task; `project` and `workspace` are its nearest ancestor of that kind;
-  `child` is the child of the scope the task lies under. A node without an
+  `child` is the child of the scope the task lies under, or the task itself
+  when it lies directly in the scope. A node without an
   ancestor of the kind is the root, shown `(root)`, never a "none" key.
   Removed tasks (only with `--deleted`) are one key per task at level
   `task`, and one `(removed)` key for the coarser levels.
@@ -109,7 +113,7 @@ more (see the last step below).
    keys come only from the data.
 2. One `DimSpec` variant in `src/stats/spec.rs`, and its arm in `build`.
    `DimSpec::name` builds the dimension and asks it, so it needs no arm.
-3. One CLI name in `ByDim` (`src/cli/commands/stats.rs`), and its `From`
+3. One CLI name in `ByDim` (`src/cli/commands/stats/mod.rs`), and its `From`
    arm.
 4. Its tests, next to the file (as `hour.rs` and `calendar.rs` do) and the
    DST case if the zone matters.
@@ -119,7 +123,7 @@ more (see the last step below).
    `Node`): a `KeyPart` variant in `src/stats/mod.rs`, with its place in
    `KeyPart::rank`, a same-kind arm in `Ord for KeyPart`, an arm in
    `layout::label` (`src/stats/layout.rs`) and in `key_json`
-   (`src/cli/commands/stats.rs`). The compiler finds the matches that need
+   (`src/cli/commands/stats/mod.rs`). The compiler finds the matches that need
    one. Careful with `Ord`: the cross-kind arm lists every variant, so a new
    variant does not compile until it is listed, but the same-kind arm is
    still yours to add. Two values of a kind with no same-kind arm compare as
@@ -141,10 +145,12 @@ there (there is no `SourceSpec` yet).
 ## Invariant
 
 `invariant_total_unchanged` (proptest, `src/stats/tests.rs`): random
-sessions (across midnight, around the DST days, running, some on a removed
-task), a random span and a random list of up to three dimensions from
-`any_dim()`. Grouping never changes the total: the sum of the rows, in
+intervals with fixed ends (across midnight, around the DST days, some on a
+removed task), a random span and a random list of up to three dimensions
+from `any_dim()`. Grouping never changes the total: the sum of the rows, in
 seconds, equals the clipped length of the input, and so does `total`.
+Running sessions, which end at `now`, are covered by
+`running_session_counts_to_now`.
 
 ## Rounding
 
@@ -157,7 +163,7 @@ One rounding rule for all of udo is #85: swapping it means changing
 
 ## JSON
 
-`udo stats --json` is the `StatsReport` (`src/cli/commands/stats.rs`):
+`udo stats --json` is the `StatsReport` (`src/cli/commands/stats/mod.rs`):
 
 ```
 sections[] -> { title, parts[] -> { query, total, rows[] } }
