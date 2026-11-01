@@ -25,3 +25,6 @@ plan-jobs = ["./test"]
 # Release workflow on tags only: pull requests are tested by test.yml (with
 # the plan check on PRs too, they would run the tests twice)
 pr-run-mode = "skip"
+
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
