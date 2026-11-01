@@ -335,7 +335,11 @@ pub async fn run(core: &Core, cwd: &Path, now: Time, args: &StatsArgs) -> Res<St
         };
         let to = to_arg.unwrap_or(tomorrow);
         if from >= to {
-            return Err("--from must be before --to".into());
+            return Err(match from_arg {
+                Some(_) => "--from must be before --to",
+                None => "--to must be after --from (default: 00:00 six days ago)",
+            }
+            .into());
         }
 
         // --every first, then --by in order: the key's order
@@ -488,6 +492,47 @@ mod tests {
 
         let Err(err) = run(&core, tmp.path(), now(), &args).await else {
             panic!("--from after --to was accepted");
+        };
+
+        assert!(
+            err.to_string().contains("--from must be before --to"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn to_before_defaulted_from_is_error() {
+        let (tmp, core) = core().await;
+        // The default from is 00:00 six days ago: 9 October at `now`.
+        for to in [dt(2026, 10, 1, 0, 0), dt(2026, 10, 9, 0, 0)] {
+            let args = StatsArgs {
+                to: Some(SessionTime::At(to)),
+                ..args()
+            };
+
+            let Err(err) = run(&core, tmp.path(), now(), &args).await else {
+                panic!("--to {to} was accepted");
+            };
+
+            assert!(
+                err.to_string()
+                    .contains("--to must be after --from (default: 00:00 six days ago)"),
+                "{err}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn equal_from_and_to_is_error() {
+        let (tmp, core) = core().await;
+        let args = StatsArgs {
+            from: Some(SessionTime::At(dt(2026, 10, 15, 0, 0))),
+            to: Some(SessionTime::At(dt(2026, 10, 15, 0, 0))),
+            ..args()
+        };
+
+        let Err(err) = run(&core, tmp.path(), now(), &args).await else {
+            panic!("--from equal to --to was accepted");
         };
 
         assert!(

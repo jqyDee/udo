@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use chrono::{Datelike, TimeDelta, TimeZone};
+use chrono::{Datelike, NaiveDate, TimeDelta, TimeZone};
 
 use crate::{
     model::time::Time,
@@ -28,7 +28,7 @@ pub enum Layout {
 /// A table of minutes. `cells[r][c]` is row `rows[r]` crossed with column
 /// `cols[c]`, `0` where the data has no such pair. Totals are minutes of the
 /// exact seconds, so they can differ from the sum of the rounded cells by up
-/// to one minute per row.
+/// to one minute per cell.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Grid {
     pub rows: Vec<KeyPart>,
@@ -156,12 +156,14 @@ pub fn label<Tz: TimeZone>(part: &KeyPart, unit: Option<Unit>, tz: &Tz) -> Strin
     }
 }
 
-/// `label`, but a day label of a span over two months names the month too:
-/// `Sun 1 Mar` in a Feb–Mar span, `Sun 1` in a span inside one month. The
-/// months of `from` and of `to` minus a second (`to` is excluded).
+/// `label`, for a span. A day label of a span over two months names the month
+/// too: `Sun 1 Mar` in a Feb–Mar span, `Sun 1` in a span inside one month. The
+/// months of `from` and of `to` minus a second (`to` is excluded). A bucket
+/// of `every > 1` units is a range: `Jan – Jun 2026`, `Mon 19 Oct – Sun 1 Nov`.
 pub fn label_in_span<Tz: TimeZone>(
     part: &KeyPart,
     unit: Option<Unit>,
+    every: u32,
     from: Time,
     to: Time,
     tz: &Tz,
@@ -170,12 +172,48 @@ pub fn label_in_span<Tz: TimeZone>(
     let last = (to - TimeDelta::seconds(1)).with_timezone(tz).date_naive();
     let months_differ = (first.year(), first.month()) != (last.year(), last.month());
     match part {
+        KeyPart::Calendar { start, end } if every > 1 => {
+            let start = start.with_timezone(tz).date_naive();
+            let end = (*end - TimeDelta::seconds(1))
+                .with_timezone(tz)
+                .date_naive();
+            range(unit.unwrap_or(Unit::Day), start, end, months_differ)
+        }
         KeyPart::Calendar { start, .. } if unit == Some(Unit::Day) && months_differ => start
             .with_timezone(tz)
             .date_naive()
             .format(DAY_MONTH)
             .to_string(),
         _ => label(part, unit, tz),
+    }
+}
+
+/// The label of a bucket from its first day to its last. One label when both
+/// days fall in one unit (the bucket was cut to the span's edge).
+fn range(unit: Unit, first: NaiveDate, last: NaiveDate, months_differ: bool) -> String {
+    let text = |day: NaiveDate, format: &str| day.format(format).to_string();
+    match unit {
+        Unit::Day | Unit::Week => {
+            let format = if unit == Unit::Day && !months_differ {
+                "%a %-d"
+            } else {
+                DAY_MONTH
+            };
+            if first == last {
+                text(first, format)
+            } else {
+                format!("{} – {}", text(first, format), text(last, format))
+            }
+        }
+        Unit::Month if (first.year(), first.month()) == (last.year(), last.month()) => {
+            text(first, "%b %Y")
+        }
+        Unit::Month if first.year() == last.year() => {
+            format!("{} – {}", text(first, "%b"), text(last, "%b %Y"))
+        }
+        Unit::Month => format!("{} – {}", text(first, "%b %Y"), text(last, "%b %Y")),
+        Unit::Year if first.year() == last.year() => text(first, "%Y"),
+        Unit::Year => format!("{} – {}", text(first, "%Y"), text(last, "%Y")),
     }
 }
 
@@ -384,7 +422,7 @@ mod tests {
     #[test]
     fn span_labels_name_the_month_across_months() {
         let text = |part: KeyPart, unit: Option<Unit>, from: &str, to: &str| {
-            label_in_span(&part, unit, parse_time(from), parse_time(to), &Berlin)
+            label_in_span(&part, unit, 1, parse_time(from), parse_time(to), &Berlin)
         };
 
         // Inside one month: the day alone.
@@ -449,6 +487,155 @@ mod tests {
                 "2026-03-02T00:00:00+01:00",
             ),
             "9"
+        );
+    }
+
+    #[test]
+    fn range_labels_of_every() {
+        // A bucket from `start` to `end` (exclusive), labelled in `every`
+        // units of `unit`, in a span `from`..`to`.
+        let text = |unit: Unit, every: u32, start: &str, end: &str, from: &str, to: &str| {
+            let part = KeyPart::Calendar {
+                start: parse_time(start),
+                end: parse_time(end),
+            };
+            label_in_span(
+                &part,
+                Some(unit),
+                every,
+                parse_time(from),
+                parse_time(to),
+                &Berlin,
+            )
+        };
+
+        // Months, one year: `Jan – Jun 2026`; across years: both years.
+        assert_eq!(
+            text(
+                Unit::Month,
+                6,
+                "2026-01-01T00:00:00+01:00",
+                "2026-07-01T00:00:00+02:00",
+                "2026-01-01T00:00:00+01:00",
+                "2027-01-01T00:00:00+01:00",
+            ),
+            "Jan – Jun 2026"
+        );
+        assert_eq!(
+            text(
+                Unit::Month,
+                12,
+                "2026-07-01T00:00:00+02:00",
+                "2027-07-01T00:00:00+02:00",
+                "2026-07-01T00:00:00+02:00",
+                "2027-07-01T00:00:00+02:00",
+            ),
+            "Jul 2026 – Jun 2027"
+        );
+        // Years.
+        assert_eq!(
+            text(
+                Unit::Year,
+                2,
+                "2026-01-01T00:00:00+01:00",
+                "2028-01-01T00:00:00+01:00",
+                "2026-01-01T00:00:00+01:00",
+                "2028-01-01T00:00:00+01:00",
+            ),
+            "2026 – 2027"
+        );
+        // Weeks: the last day is the Sunday before `end`.
+        assert_eq!(
+            text(
+                Unit::Week,
+                2,
+                "2026-10-19T00:00:00+02:00",
+                "2026-11-02T00:00:00+01:00",
+                "2026-10-19T00:00:00+02:00",
+                "2026-11-02T00:00:00+01:00",
+            ),
+            "Mon 19 Oct – Sun 1 Nov"
+        );
+        // Days inside one month, and across two (the span names the months).
+        assert_eq!(
+            text(
+                Unit::Day,
+                2,
+                "2026-10-24T00:00:00+02:00",
+                "2026-10-26T00:00:00+01:00",
+                "2026-10-20T00:00:00+02:00",
+                "2026-10-30T00:00:00+01:00",
+            ),
+            "Sat 24 – Sun 25"
+        );
+        assert_eq!(
+            text(
+                Unit::Day,
+                2,
+                "2026-10-31T00:00:00+01:00",
+                "2026-11-02T00:00:00+01:00",
+                "2026-10-30T00:00:00+01:00",
+                "2026-11-03T00:00:00+01:00",
+            ),
+            "Sat 31 Oct – Sun 1 Nov"
+        );
+        // A bucket cut by the span's edge to two months is still a range.
+        assert_eq!(
+            text(
+                Unit::Month,
+                6,
+                "2026-01-01T00:00:00+01:00",
+                "2026-03-01T00:00:00+01:00",
+                "2026-01-01T00:00:00+01:00",
+                "2026-03-01T00:00:00+01:00",
+            ),
+            "Jan – Feb 2026"
+        );
+        // One label when the span's edge cuts the bucket to one unit.
+        assert_eq!(
+            text(
+                Unit::Month,
+                6,
+                "2026-06-01T00:00:00+02:00",
+                "2026-07-01T00:00:00+02:00",
+                "2026-06-01T00:00:00+02:00",
+                "2026-07-01T00:00:00+02:00",
+            ),
+            "Jun 2026"
+        );
+        assert_eq!(
+            text(
+                Unit::Year,
+                2,
+                "2027-01-01T00:00:00+01:00",
+                "2028-01-01T00:00:00+01:00",
+                "2027-01-01T00:00:00+01:00",
+                "2027-12-31T00:00:00+01:00",
+            ),
+            "2027"
+        );
+        assert_eq!(
+            text(
+                Unit::Day,
+                2,
+                "2026-10-24T00:00:00+02:00",
+                "2026-10-25T00:00:00+02:00",
+                "2026-10-24T00:00:00+02:00",
+                "2026-10-25T00:00:00+02:00",
+            ),
+            "Sat 24"
+        );
+        // Every 1: exactly the single label.
+        assert_eq!(
+            text(
+                Unit::Month,
+                1,
+                "2026-06-01T00:00:00+02:00",
+                "2026-07-01T00:00:00+02:00",
+                "2026-06-01T00:00:00+02:00",
+                "2026-07-01T00:00:00+02:00",
+            ),
+            "Jun 2026"
         );
     }
 }
