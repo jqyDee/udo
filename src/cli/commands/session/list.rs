@@ -1,6 +1,6 @@
 //! `udo session list [NODE] [--from T] [--to T] [--all] [--deleted]`.
 
-use std::{collections::HashMap, fmt, path::Path};
+use std::{fmt, path::Path};
 
 use chrono::TimeDelta;
 use serde::Serialize;
@@ -15,8 +15,7 @@ use crate::{
     },
     core::Core,
     model::{
-        id::NodeId,
-        sessions::{SessionQuery, SessionStore},
+        sessions::{SessionQuery, SessionStore, in_scope},
         time::{Minutes, Time},
     },
 };
@@ -71,26 +70,10 @@ pub async fn run(core: &Core, cwd: &Path, now: Time, args: &ListArgs) -> Res<Ses
     };
     let sessions = core.sessions().query(&query).await?;
 
-    // live tasks at / below the node, and its containers (for removed tasks)
-    let mut live: HashMap<NodeId, bool> = HashMap::new(); // task id -> below the node
-    let mut containers: Vec<NodeId> = vec![];
-    for r in tree.rows() {
-        let below = r.path.starts_with(&start);
-        if r.node.as_task().is_some() {
-            live.insert(r.node.id(), below);
-        } else if below {
-            containers.push(r.node.id());
-        }
-    }
-
+    let keep = in_scope(tree, &start, args.deleted);
     let rows: Vec<SessionRow> = sessions
         .iter()
-        .filter(|s| match live.get(&s.task.id) {
-            Some(below) => *below,
-            // removed task: below the node if its container is; from the
-            // root, all of them (their container may be gone too)
-            None => args.deleted && (start.is_empty() || containers.contains(&s.task.container_id)),
-        })
+        .filter(|s| keep(s))
         .map(|s| SessionRow::of(s, tree, now))
         .collect();
     let total_minutes = rows.iter().map(|r| r.minutes).sum();

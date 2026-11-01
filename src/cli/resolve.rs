@@ -39,7 +39,7 @@ pub fn resolve(tree: &Tree, arg: Option<&str>, cwd: &Path) -> Res<NodePath> {
         .rows()
         .into_iter()
         .map(|r| r.path)
-        .filter(|p| names_of(tree, p).ends_with(&names))
+        .filter(|p| tree.names_of(p).ends_with(&names))
         .collect();
     match found.as_slice() {
         [] => Err(format!("not found: {arg:?}").into()),
@@ -90,10 +90,7 @@ pub fn resolve_parent(tree: &Tree, arg: &str, cwd: &Path) -> Res<(NodePath, Stri
 
 /// `uni/cs/lab 3`: the names from below the root; the root itself is `/`.
 pub fn path_text(tree: &Tree, path: &[usize]) -> String {
-    if path.is_empty() {
-        return "/".into();
-    }
-    names_of(tree, path).join("/")
+    tree.path_text(path)
 }
 
 /// The node whose folder contains `cwd`; the deepest folder wins.
@@ -130,13 +127,6 @@ fn parts(arg: &str) -> Res<Vec<String>> {
 fn exact(tree: &Tree, names: &[String]) -> Option<NodePath> {
     let names: Vec<&str> = names.iter().map(String::as_str).collect();
     tree.resolve(&names)
-}
-
-/// The names from below the root down to the node at `path`.
-fn names_of(tree: &Tree, path: &[usize]) -> Vec<String> {
-    (1..=path.len())
-        .filter_map(|i| tree.get(&path[..i]).map(|n| n.name().to_string()))
-        .collect()
 }
 
 /// `id:<uuid>` -> the ID. Anything else (`id:` + not an ID, a plain name):
