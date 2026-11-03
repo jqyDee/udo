@@ -78,6 +78,12 @@ track time through `udo track`, so a tmux session or an editor window can
 time a task by itself. See [docs/run-configs.md](docs/run-configs.md) and
 the examples in [examples/run/](examples/run/).
 
+## Showcase
+
+[udo-dash](https://github.com/jqyDee/udo-dash) is a small local browser
+dashboard for your tracked time, built on `--json` alone. It was created by
+Claude Opus 5.5 in about 1 hour.
+
 ## Develop
 
 ```sh
