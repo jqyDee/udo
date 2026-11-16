@@ -16,7 +16,7 @@ use crate::{
     Res,
     cli::report::{Report, emit},
     core::Core,
-    model::{container::ContainerKind, tree::Tree},
+    model::container::ContainerKind,
     run::{RunRequest, Stdout, exit_code, launch},
 };
 
@@ -90,7 +90,7 @@ async fn add(command: &AddCommand, core: &mut Core, cwd: &Path, stdout: Stdout) 
         AddCommand::Workspace(a) => container::run(core, cwd, a, ContainerKind::Workspace).await?,
     };
     if !command.no_run() {
-        added.ran = on_create(core.tree(), &path, stdout).await;
+        added.ran = on_create(core, &path, stdout).await;
     }
     Ok(added)
 }
@@ -99,7 +99,8 @@ async fn add(command: &AddCommand, core: &mut Core, cwd: &Path, stdout: Stdout) 
 /// (its stdout where `stdout` says). None: nothing set (or `none`). Never
 /// `Err`: the node is there whatever the script does, so a problem is only
 /// reported (`Ran::error`).
-async fn on_create(tree: &Tree, path: &[usize], stdout: Stdout) -> Option<Ran> {
+async fn on_create(core: &Core, path: &[usize], stdout: Stdout) -> Option<Ran> {
+    let tree = core.tree();
     // first: the name is known even if the request fails (unknown script)
     let script = tree.on_create(path)?.to_string();
     let failed = |script, error: String| Ran {
@@ -112,7 +113,7 @@ async fn on_create(tree: &Tree, path: &[usize], stdout: Stdout) -> Option<Ran> {
         Ok(None) => return None, // not reached: on_create is set
         Err(e) => return Some(failed(script, e.to_string())),
     };
-    match launch(&request.script, &request.ctx, stdout).await {
+    match launch(&request.script, &request.ctx, core.data_dir(), stdout).await {
         Ok(status) => {
             let code = exit_code(status);
             let error = (code != 0).then(|| format!("exited with {code}"));

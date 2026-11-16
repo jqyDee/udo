@@ -70,6 +70,7 @@ impl Setup {
     fn open(&self, task: &str) -> Output {
         let out = Command::new(UDO)
             .env("UDO_ROOT", self.root.path())
+            .env_remove("UDO_DATA") // see tests/common
             .env("PATH", path_with(&self.bin))
             .args(["run", task])
             .output()

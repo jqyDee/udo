@@ -28,8 +28,8 @@ owner=tmux:$session
 dir=${UDO_TASK_DIR:-${UDO_NODE_DIR:-$UDO_CONTAINER_DIR}}
 
 # hooks run in the tmux server: neither its PATH nor its environment need
-# to know this udo, so name the binary and the root
-udo="UDO_ROOT='$UDO_ROOT' '$UDO_BIN'"
+# to know this udo, so name the binary, the root and the data dir
+udo="UDO_ROOT='$UDO_ROOT' UDO_DATA='$UDO_DATA' '$UDO_BIN'"
 
 # `=`: the exact name, not a prefix. set-option / set-hook take a pane
 # target, so theirs ends in `:` (`=name` alone: "no such session")
