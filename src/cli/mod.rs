@@ -24,7 +24,10 @@ use commands::Command;
     after_help = "NODE: a path like \"uni/cs/lab 3\", any unique end of one (\"lab 3\"), \
                   \"/\" for the root, id:<uuid> for a node by its ID (scripts), \
                   or nothing for the node of the current folder.\n\n\
-                  environment:\n  UDO_ROOT=<dir>  use <dir> as data root instead of ~/.config/udo"
+                  environment:\n  \
+                  UDO_ROOT=<dir>  config root instead of ~/.config/udo\n  \
+                  UDO_DATA=<dir>  keep udo.db in <dir> (default: the platform data dir; \
+                  UDO_ROOT if that is set to another dir)"
 )]
 pub struct Cli {
     /// Print results as JSON

@@ -22,7 +22,14 @@ cargo doc --document-private-items --open  # API docs
 How it fits together (layers, data, flows): [docs/architecture/](docs/architecture/).
 
 Never point a test or a try-out at your real data, as this could break your
-installed personal version going forward.
+installed personal version going forward. The real data is two dirs: the
+config root `~/.config/udo` (the tree) and the data dir with `udo.db`
+(`~/Library/Application Support/udo`, `~/.local/share/udo`). A debug build
+refuses both, however spelled. `cargo run` uses `UDO_ROOT=/tmp/udo-test`
+from `.cargo/config.toml`, but only if `UDO_ROOT` is not already set in
+your shell: with one exported, run `UDO_ROOT=/tmp/udo-test cargo run`. A
+custom root keeps its `udo.db` too, so don't set `UDO_DATA` for try-outs;
+the integration tests drop it from the env of every udo they start.
 
 ## Issues
 
