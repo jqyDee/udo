@@ -26,7 +26,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("sqlite_migrations/002_estimates.sql"),
     include_str!("sqlite_migrations/003_estimate_prior_source.sql"),
 ];
-const BUSY_TIMEOUT_SECS: u64 = 5;
+pub(super) const BUSY_TIMEOUT_SECS: u64 = 5;
 
 /// Open (or create) the database file, set it up, migrate. Before a
 /// migration an existing database is copied next to it (`backup_path`,
@@ -114,7 +114,11 @@ fn copied_version(copy: &Path) -> Res<usize> {
 /// links are not supported (exFAT, some network drives), a rename if `to`
 /// is not there yet: check and rename are two steps, so a process copying
 /// in the same second may replace the other's copy, one of the same data.
-fn place(tmp: &Path, to: &Path, link: impl Fn(&Path, &Path) -> io::Result<()>) -> io::Result<()> {
+pub(super) fn place(
+    tmp: &Path,
+    to: &Path,
+    link: impl Fn(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
     match link(tmp, to) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
@@ -125,14 +129,14 @@ fn place(tmp: &Path, to: &Path, link: impl Fn(&Path, &Path) -> io::Result<()>) -
 
 /// Sync the directory of `file`, so its new name survives a power cut.
 /// Best effort: not every system can open a directory for that.
-fn sync_dir(file: &Path) {
+pub(super) fn sync_dir(file: &Path) {
     if let Some(dir) = file.parent() {
         let _ = fs::File::open(dir).and_then(|d| d.sync_all());
     }
 }
 
 /// The schema version (`PRAGMA user_version`): how many migrations ran.
-fn user_version(conn: &Connection) -> Res<usize> {
+pub(super) fn user_version(conn: &Connection) -> Res<usize> {
     let v: u32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
     Ok(v as usize)
 }

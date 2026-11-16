@@ -12,6 +12,7 @@ use crate::{
 mod dispatch;
 mod edit_kind;
 pub mod estimates;
+pub mod relocate;
 pub mod sessions;
 mod sql;
 pub mod sqlite;
