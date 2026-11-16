@@ -3,7 +3,7 @@ use udo::{
     Res,
     cli::Cli,
     core::Core,
-    dir::{is_same_root, root_dir, root_dir_from},
+    dir::{default_root, dirs, is_same_root},
 };
 
 #[tokio::main]
@@ -11,9 +11,9 @@ async fn main() {
     let cli = Cli::parse();
 
     let result = async {
-        let root = root_dir()?;
-        refuse_real_data_in_debug(&root)?;
-        let mut core = Core::open(&root).await?;
+        let dirs = dirs()?;
+        refuse_real_data_in_debug(&dirs.root)?;
+        let mut core = Core::open(&dirs.root).await?;
         cli.execute(&mut core, &std::env::current_dir()?).await
     }
     .await;
@@ -30,7 +30,7 @@ async fn main() {
 /// started by hand or by a hook must set it too. Release builds (the
 /// installed udo) skip the check.
 fn refuse_real_data_in_debug(root: &std::path::Path) -> Res<()> {
-    if cfg!(debug_assertions) && is_same_root(root, &root_dir_from(None)?) {
+    if cfg!(debug_assertions) && is_same_root(root, &default_root()?) {
         return Err(format!(
             "a debug build refuses the real data at {}: point {} at a test root \
              (scripts/seed-testdata.sh makes /tmp/udo-test)",

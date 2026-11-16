@@ -3,6 +3,8 @@ pub const UDO_FILE_NAME: &str = ".udo.toml";
 
 /// Env var that overrides the root dir (test data, throwaway setups).
 pub const ROOT_ENV: &str = "UDO_ROOT";
+/// Env var that overrides the data dir (where `udo.db` lives).
+pub const DATA_ENV: &str = "UDO_DATA";
 
 /// How due dates are typed and shown (CLI `--due`, TUI). Fixed width and
 /// ASCII only, so byte ranges == char ranges (see `tui::form::Segment`).
