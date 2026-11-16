@@ -13,7 +13,7 @@ async fn main() {
     let result = async {
         let dirs = dirs()?;
         refuse_real_data_in_debug(&dirs.root)?;
-        let mut core = Core::open(&dirs.root).await?;
+        let mut core = Core::open(&dirs).await?;
         cli.execute(&mut core, &std::env::current_dir()?).await
     }
     .await;
