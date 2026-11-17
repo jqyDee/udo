@@ -37,8 +37,9 @@ pub struct Moved {
 pub struct InUse {
     pub old: PathBuf,
     /// A plain connection to `old`, opened under the move lock: while it
-    /// lives no udo moves the file. None when a second database sits in
-    /// the data dir (using `old` in place would split the sessions).
+    /// lives no udo moves the file. None when a copy of it already sits in
+    /// the data dir (a move cut short: using `old` in place would split the
+    /// sessions; it is finished once `old` is closed).
     hold: Option<Connection>,
 }
 
@@ -131,12 +132,20 @@ fn move_old_db_at(dirs: &Dirs, at: Time, busy: Duration) -> Res<Option<Moved>> {
     let new = dirs.data.join(DB_FILE_NAME);
     let Some(conn) = open_exclusive(&old, busy)? else {
         // still under the lock: the hold keeps every other udo from moving
-        let hold = if new.exists() {
-            None
-        } else {
-            Some(hold_open(&old)?)
-        };
-        return Err(Box::new(InUse { old, hold }));
+        let hold = hold_open(&old)?;
+        if !new.exists() {
+            return Err(Box::new(InUse {
+                old,
+                hold: Some(hold),
+            }));
+        }
+        // closing the holder would not help with a different one there:
+        // say so now, not on the next run
+        if !same_content(&hold, &open_existing(&new)?)? {
+            return Err(both(&old, &new, &dirs.root));
+        }
+        // a move cut short (same data there): finished once it is closed
+        return Err(Box::new(InUse { old, hold: None }));
     };
     // everything into the main file: it becomes the `.bak`, its WAL goes
     checkpoint(&conn)?;
@@ -528,7 +537,8 @@ mod tests {
     }
 
     /// An older udo made a fresh one in the root after the move and holds
-    /// it: using it in place would split the sessions, so stop.
+    /// it: using it in place would split the sessions, and closing it would
+    /// not help either, so name the real conflict right away.
     #[tokio::test]
     async fn settle_refuses_in_use_next_to_a_second_database() {
         let (_tmp, dirs) = setup();
@@ -538,11 +548,35 @@ mod tests {
 
         let err = settle_now(&dirs).unwrap_err().to_string();
 
-        assert!(err.contains("is in use by another udo"), "{err}");
-        assert!(err.contains("close it and run again"), "{err}");
+        assert!(err.starts_with("two databases: "), "{err}");
         drop(old_tui);
         assert_eq!(sessions(&dirs.root.join(DB_FILE_NAME)), 1);
         assert_eq!(sessions(&dirs.data.join(DB_FILE_NAME)), 4);
+    }
+
+    /// A move cut short before the rename, and the old file in use: closing
+    /// it is the fix, and the next run finishes the move.
+    #[tokio::test]
+    async fn settle_refuses_in_use_next_to_its_own_copy() {
+        let (_tmp, dirs) = setup();
+        seed(&dirs.root, 2).await;
+        fs::create_dir_all(&dirs.data).unwrap();
+        let old = dirs.root.join(DB_FILE_NAME);
+        let new = dirs.data.join(DB_FILE_NAME);
+        Connection::open(&old)
+            .unwrap()
+            .execute("VACUUM INTO ?1", [new.to_str().unwrap()])
+            .unwrap();
+        let tui = sqlite::open(&old).unwrap();
+
+        let err = settle_now(&dirs).unwrap_err().to_string();
+
+        assert!(err.contains("close it and run again"), "{err}");
+        drop(tui);
+        let settled = settle_now(&dirs).unwrap();
+        assert_eq!(settled.db_dir, dirs.data);
+        assert_eq!(sessions(&new), 2);
+        assert!(!old.exists());
     }
 
     /// A holder never lets go while it runs: every udo meanwhile (hooks

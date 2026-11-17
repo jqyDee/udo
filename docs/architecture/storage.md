@@ -127,7 +127,9 @@ given a `$UDO_DATA`, goes to the data dir once.
   opens the old file where it is (startup's `settle_old_db`), keeping a
   connection to it opened under the lock so no other udo moves it
   meanwhile; the move happens on a later start. With a `udo.db` in the
-  data dir too, in use stops udo instead, as does every other refusal.
+  data dir too, udo stops instead, as on every other refusal: "two
+  databases" if it holds other data (closing the holder would not help),
+  else "in use" (a move cut short, finished once the holder is closed).
 - WAL checkpoint, `integrity_check`, `VACUUM INTO` a temp file, the copy
   checked (`integrity_check`, same schema version, same row count per
   table), synced, placed with `place` as above, checked again.
