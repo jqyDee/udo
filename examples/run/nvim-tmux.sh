@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# nvim-tmux: one tmux session per task (udo-<task id>) with nvim in the
-# task's folder. The timer runs while a client is in that session:
+# nvim-tmux: one tmux session per task (udo-<container>/<task>) with nvim
+# in the task's folder. The timer runs while a client is in that session:
 # attaching or switching in starts it; detaching, switching away or
 # quitting nvim stops it. A container opened without a task gets a session
-# of its own (udo-<container id>), untimed.
+# of its own (udo-<container>), untimed.
 #
 #   cp examples/run/nvim-tmux.sh ~/.config/udo/run/
 #   udo settings set uni open_with=nvim-tmux
@@ -24,24 +24,48 @@
 #   this again overwrites only ours
 # - targets: `=name` is the exact name; commands that take a pane
 #   (set-option, set-hook, send-keys) need `=name:`
+# - names: found by id (@udo_key), named once when made: a rename keeps
+#   the session and its name (the timer's owner is that name), and opening
+#   a task directly or through its container is the same session. Only
+#   letters, digits, `_`, `-` and `/`: `.` and `:` split tmux targets,
+#   `#` is a tmux format, quotes and `$` would break the hook commands
+#   and `--owner` takes no spaces
 set -euo pipefail
 
 editor="nvim ." # what runs in the session (it ends: the session ends)
 # a task: its session, timed. No task (a container on its own): the
 # container's session, untimed
 task=${UDO_TASK_ID:-}
-session=udo-${task:-$UDO_NODE_ID}
-owner=tmux:$session
+key=${task:-$UDO_NODE_ID}
+if [[ -n $task ]]; then
+    # an older udo has no UDO_CONTAINER_NAME: the folder's name
+    container=${UDO_CONTAINER_NAME:-$(basename "$UDO_CONTAINER_DIR")}
+    label="udo-$container/$UDO_TASK_NAME"
+else
+    label="udo-$UDO_NODE_NAME"
+fi
+label=${label//[^[:alnum:]_\/-]/_}
 dir=${UDO_TASK_DIR:-${UDO_NODE_DIR:-$UDO_CONTAINER_DIR}}
 
 # hooks run in the tmux server: neither its PATH nor its environment need
 # to know this udo, so name the binary, the root and the data dir
 udo="UDO_ROOT='$UDO_ROOT' UDO_DATA='$UDO_DATA' '$UDO_BIN'"
 
+# this node's session, if there is one (no server yet: none)
+session=$(tmux list-sessions -F '#{@udo_key}|#{session_name}' 2>/dev/null |
+    awk -F'|' -v k="$key" '$1 == k { print $2; exit }')
+
 # `=`: the exact name, not a prefix. set-option / set-hook take a pane
 # target, so theirs ends in `:` (`=name` alone: "no such session")
-if ! tmux has-session -t "=$session" 2>/dev/null; then
+if [[ -z $session ]]; then
+    session=$label
+    # the name taken (the same names in another container): add the id
+    if tmux has-session -t "=$session" 2>/dev/null; then
+        session=$label-$key
+    fi
+    owner=tmux:$session
     tmux new-session -d -s "$session" -c "$dir" "$editor"
+    tmux set-option -t "=$session:" @udo_key "$key"
     if [[ -n $task ]]; then
         tmux set-option -t "=$session:" @udo_task "$task"
         start="run-shell -b \"$udo track start --task id:$task --source tmux --owner $owner\""

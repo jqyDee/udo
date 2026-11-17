@@ -120,12 +120,31 @@ impl Setup {
         assert!(out.status.success(), "{out:?}");
     }
 
-    /// The session the example makes for `node` (a task, or a container
-    /// opened without one).
+    /// The session the example made for `node` (a task, or a container
+    /// opened without one): found by id (`@udo_key`), as the example does.
+    /// Waits until there is one.
     fn session(&self, node: &str) -> String {
         let out = ok(self.root(), &["show", node, "--json"]);
         let shown: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-        format!("udo-{}", shown["id"].as_str().unwrap())
+        let id = shown["id"].as_str().unwrap().to_string();
+        let find = || {
+            let out = self.tmux(&["list-sessions", "-F", "#{@udo_key}|#{session_name}"]);
+            String::from_utf8(out.stdout)
+                .unwrap()
+                .lines()
+                .find_map(|l| l.strip_prefix(&format!("{id}|")).map(str::to_string))
+        };
+        wait_until(
+            &format!("a session for {node}"),
+            || find().is_some(),
+            || String::from_utf8(self.tmux(&["list-sessions"]).stdout).unwrap(),
+        );
+        find().unwrap()
+    }
+
+    /// `udo ARGS` in this test's root; must succeed.
+    fn udo(&self, args: &[&str]) {
+        ok(self.root(), args);
     }
 
     /// What `udo status` should say while `task`'s session is timed.
@@ -338,6 +357,74 @@ fn tmux_opening_again_reuses_the_session() {
     let sessions = s.tmux_ok(&["list-sessions", "-F", "#{session_name}"]);
     let ours = sessions.lines().filter(|l| l.starts_with("udo-")).count();
     assert_eq!(ours, 1, "{sessions}");
+}
+
+/// Sessions are named `udo-<container>/<task>` (a container on its own:
+/// `udo-<container>`); what tmux targets, hooks or `--owner` cannot take
+/// becomes `_`.
+#[test]
+fn tmux_sessions_are_named_after_container_and_task() {
+    let Some(s) = Setup::new("tmux") else { return };
+    s.udo(&["add", "task", "cs/lab 3.x:y"]);
+    let _client = s.attach("a");
+    s.wait_running(s.timed("a"));
+
+    s.switch_to("cs");
+    s.switch_to("lab 3.x:y");
+
+    s.wait_running(s.timed("lab 3.x:y"));
+    assert_eq!(s.session("a"), "udo-root/a");
+    assert_eq!(s.session("cs"), "udo-cs");
+    assert_eq!(s.session("lab 3.x:y"), "udo-cs/lab_3_x_y");
+}
+
+/// A renamed task keeps its session, and with it its name: the timer's
+/// owner is that name.
+#[test]
+fn tmux_a_renamed_task_keeps_its_session() {
+    let Some(s) = Setup::new("tmux") else { return };
+    let mut client = s.attach("a");
+    s.wait_running(s.timed("a"));
+    s.tmux_ok(&["detach-client", "-s", "=udo-root/a"]);
+    client.wait_exit();
+    s.wait_running(None);
+    s.udo(&["edit", "a", "--name", "renamed"]);
+
+    let _client = s.attach("renamed");
+
+    s.wait_running(s.timed("renamed"));
+    assert_eq!(s.session("renamed"), "udo-root/a");
+    let sessions = s.tmux_ok(&["list-sessions", "-F", "#{session_name}"]);
+    let ours = sessions.lines().filter(|l| l.starts_with("udo-")).count();
+    assert_eq!(ours, 1, "{sessions}");
+}
+
+/// The same container and task names elsewhere: the second session gets
+/// the task's id on its name, and both are timed apart.
+#[test]
+fn tmux_the_same_names_twice_get_the_id() {
+    let Some(s) = Setup::new("tmux") else { return };
+    for project in ["uni", "uni/cs", "work", "work/cs"] {
+        s.udo(&["add", "project", project]);
+    }
+    s.udo(&["add", "task", "uni/cs/lab"]);
+    s.udo(&["add", "task", "work/cs/lab"]);
+    // `udo status` names the task `lab`, not its path
+    let timed = |path| {
+        let owner = format!("tmux:{}", s.session(path));
+        Some(("lab".to_string(), "tmux".to_string(), owner))
+    };
+    let _client = s.attach("uni/cs/lab");
+    s.wait_running(timed("uni/cs/lab"));
+
+    s.switch_to("work/cs/lab");
+
+    s.wait_running(timed("work/cs/lab"));
+    let out = ok(s.root(), &["show", "work/cs/lab", "--json"]);
+    let shown: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let id = shown["id"].as_str().unwrap();
+    assert_eq!(s.session("uni/cs/lab"), "udo-cs/lab");
+    assert_eq!(s.session("work/cs/lab"), format!("udo-cs/lab-{id}"));
 }
 
 #[test]

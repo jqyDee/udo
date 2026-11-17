@@ -98,7 +98,7 @@ these variables on top of udo's own environment:
 | `UDO_NODE_KIND` | `task` or `container` |
 | `UDO_NODE_DIR` | its folder; empty without one |
 | `UDO_TASK_ID`, `UDO_TASK_NAME`, `UDO_TASK_DIR` | the task the time goes to: the node itself, or the task picked for a container. Unset without one (creating a container, opening one without a task) |
-| `UDO_CONTAINER_DIR` | the nearest container folder |
+| `UDO_CONTAINER_NAME`, `UDO_CONTAINER_DIR` | the nearest container (a task: the one it is in; a container: itself) |
 | `UDO_ROOT` | the config root (the tree, `run/`, `templates/`) |
 | `UDO_DATA` | the data dir of the running `udo` (where `udo.db` lives) |
 | `UDO_BIN` | the running `udo`: call this, not `udo` from `PATH` |
@@ -198,6 +198,13 @@ Found by trying (tmux 3.6a) and kept by `tests/example_nvim_tmux.rs`:
   name; an array index (`client-detached[77]`) adds one next to it.
 - `=name` targets the exact session; commands that take a pane
   (`set-option`, `set-hook`, `send-keys`) need `=name:`.
+- A session name that becomes an owner (`tmux:#{session_name}`) takes
+  only letters, digits, `_`, `-` and `/`: `.` and `:` split targets, `#`
+  is a tmux format, quotes and `$` break the hook command, and `--owner`
+  refuses spaces. The examples turn anything else into `_`.
+- Find a session by a tmux option (`@udo_key`), not by a name built from
+  node names: a renamed task would get a second session, and its timer's
+  owner would no longer match.
 
 ## Examples
 
@@ -205,11 +212,19 @@ Copy them into your run folder and set them where they apply. The
 `open_with` ones also open a container without a task (lecture notes):
 the same program on the container's folder, untimed.
 
-**`nvim-tmux`** (`open_with`): one tmux session per task (`udo-<task
-id>`) with nvim in the task's folder. Attaching or switching in starts the
-timer; detaching, switching away or quitting nvim stops it. Outside tmux
-it attaches, inside it switches. A container without a task gets a
-session of its own (`udo-<container id>`), untimed.
+**`nvim-tmux`** (`open_with`): one tmux session per task with nvim in
+the task's folder. Attaching or switching in starts the timer; detaching,
+switching away or quitting nvim stops it. Outside tmux it attaches,
+inside it switches. A container without a task gets a session of its
+own, untimed.
+
+Sessions are named `udo-<container>/<task>` (`udo-cs/lab_3`), a container
+on its own `udo-<container>`, so `tmux ls` shows what is what and
+`prefix s` (`x` kills one) cleans up. The name is given once, when the
+session is made: a renamed task keeps its session and its old name until
+you end it. Two tasks that would get the same name (`cs/lab` in two
+workspaces): the second gets its id appended. Opening a task through a
+container names the session after that container (`udo-uni/lab_3`).
 
 ```sh
 cp examples/run/nvim-tmux.sh ~/.config/udo/run/
@@ -218,8 +233,8 @@ udo settings set uni open_with=nvim-tmux
 
 **`tmux`** (`open_with`): as `nvim-tmux`, with a shell in the session
 instead of nvim. The session stays when an editor in it quits, until you
-end the shell (`exit`) or the session. Both set the same global hooks, so
-they can be used side by side.
+end the shell (`exit`) or the session. Both set the same global hooks and
+name sessions the same way, so they can be used side by side.
 
 ```sh
 cp examples/run/tmux.sh ~/.config/udo/run/

@@ -68,7 +68,8 @@ pub struct RunContext {
     pub node: NodeInfo,
     /// None: no task (e.g. `create` of a container).
     pub task: Option<TaskInfo>,
-    /// The nearest container folder (a container: its own).
+    /// The nearest container (a container: itself): its name and folder.
+    pub container_name: String,
     pub container_dir: PathBuf,
     pub root: PathBuf,
 }
@@ -82,7 +83,7 @@ impl RunContext {
     /// (`Some(node)` when opening a task). None: a path is missing or
     /// `task` is no task.
     pub fn new(tree: &Tree, event: Event, node: &[usize], task: Option<&[usize]>) -> Option<Self> {
-        let container = tree.nearest_file_owner(node)?;
+        let container = tree.get(&tree.nearest_file_owner(node)?)?;
         let task = match task {
             Some(path) => Some(task_info(tree.get(path)?)?),
             None => None,
@@ -91,7 +92,8 @@ impl RunContext {
             event,
             node: node_info(tree.get(node)?),
             task,
-            container_dir: tree.get(&container)?.dir()?.to_path_buf(),
+            container_name: container.name().into(),
+            container_dir: container.dir()?.to_path_buf(),
             root: tree.root.dir()?.to_path_buf(),
         })
     }
@@ -122,6 +124,7 @@ impl RunContext {
             vars.push((name, task.name.clone().into()));
             vars.push((task_dir, dir(&task.dir)));
         }
+        vars.push(("UDO_CONTAINER_NAME", self.container_name.clone().into()));
         vars.push(("UDO_CONTAINER_DIR", self.container_dir.clone().into()));
         vars.push(("UDO_ROOT", self.root.clone().into()));
         vars.push(("UDO_DATA", data.into()));
@@ -196,6 +199,7 @@ mod tests {
                 ("UDO_TASK_ID", id),
                 ("UDO_TASK_NAME", "lab 3".into()),
                 ("UDO_TASK_DIR", "/tmp/uni/lab_3".into()),
+                ("UDO_CONTAINER_NAME", "uni".into()),
                 ("UDO_CONTAINER_DIR", "/tmp/uni".into()),
                 ("UDO_ROOT", "/tmp/root".into()),
                 ("UDO_DATA", "/tmp/data".into()),
@@ -215,6 +219,7 @@ mod tests {
         assert_eq!(var(&vars, "UDO_NODE_DIR"), Some("/tmp/uni"));
         assert_eq!(var(&vars, "UDO_TASK_NAME"), Some("sheet"));
         assert_eq!(var(&vars, "UDO_TASK_DIR"), Some("")); // no folder
+        assert_eq!(var(&vars, "UDO_CONTAINER_NAME"), Some("uni")); // itself
         assert_eq!(var(&vars, "UDO_CONTAINER_DIR"), Some("/tmp/uni")); // its own
         assert_eq!(ctx.working_dir(), Path::new("/tmp/uni"));
     }
@@ -236,7 +241,10 @@ mod tests {
     fn a_task_without_a_folder_runs_in_its_containers() {
         let ctx = RunContext::new(&tree(), Event::Open, &[0], Some(&[0])).unwrap();
 
-        assert_eq!(var(&vars(&ctx), "UDO_NODE_DIR"), Some(""));
+        let vars = vars(&ctx);
+
+        assert_eq!(var(&vars, "UDO_NODE_DIR"), Some(""));
+        assert_eq!(var(&vars, "UDO_CONTAINER_NAME"), Some("root"));
         assert_eq!(ctx.working_dir(), Path::new("/tmp/root")); // the root's
     }
 
