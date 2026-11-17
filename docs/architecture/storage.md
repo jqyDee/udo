@@ -113,7 +113,7 @@ classDiagram
 The data dir is created `0700`. A debug build refuses the real root and
 the real data dir.
 
-**Moving an old database** (`storage::relocate`, case 2 only, at startup
+**Moving an old database** (`storage::relocate`, cases 1 and 2 with the default root, at startup
 before anything opens a database): `<root>/udo.db` from 0.5 or older goes
 to the data dir once.
 
@@ -121,7 +121,11 @@ to the data dir once.
   once; the second waits, then finds nothing left to move.
 - The old file is opened exclusively (`locking_mode=EXCLUSIVE`): another
   connection that merely has it open (a running TUI, also an older one)
-  makes this fail, and udo refuses with "in use" without changing anything.
+  makes this fail at once (no busy wait), and nothing is changed: this run
+  opens the old file where it is (startup's `settle_old_db`), keeping a
+  connection to it opened under the lock so no other udo moves it
+  meanwhile; the move happens on a later start. With a `udo.db` in the
+  data dir too, in use stops udo instead, as does every other refusal.
 - WAL checkpoint, `integrity_check`, `VACUUM INTO` a temp file, the copy
   checked (`integrity_check`, same schema version, same row count per
   table), synced, placed with `place` as above, checked again.

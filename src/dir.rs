@@ -45,8 +45,8 @@ fn parse_abs_dir_in(input: &str, home: &Path) -> Result<PathBuf, String> {
 pub struct Dirs {
     pub root: PathBuf,
     pub data: PathBuf,
-    /// The data dir is the default one because the root is: a `udo.db`
-    /// still in the root gets moved there (`storage::relocate`).
+    /// The root is the default root: a `udo.db` still in it gets moved to
+    /// `data` (`storage::relocate`; skipped when `data` is the root itself).
     pub move_old_db: bool,
 }
 
@@ -64,7 +64,8 @@ pub fn dirs() -> Res<Dirs> {
 /// the real env nor the real home. Data dir: `UDO_DATA` if set; else the
 /// default one if the root is the default root (however spelled: hooks
 /// carry it explicitly); else the root itself (a custom root stays
-/// self-contained).
+/// self-contained). An old `udo.db` moves whenever the root is the default
+/// root, into whichever data dir that gives.
 pub fn dirs_in(
     root_env: Option<OsString>,
     data_env: Option<OsString>,
@@ -75,24 +76,16 @@ pub fn dirs_in(
         Some(dir) => absolute(dir)?,
         None => default_root.to_path_buf(),
     };
-    if let Some(dir) = set(data_env) {
-        return Ok(Dirs {
-            root,
-            data: absolute(dir)?,
-            move_old_db: false,
-        });
-    }
-    if is_same_root(&root, default_root) {
-        return Ok(Dirs {
-            root,
-            data: default_data.to_path_buf(),
-            move_old_db: true,
-        });
-    }
+    let default = is_same_root(&root, default_root);
+    let data = match set(data_env) {
+        Some(dir) => absolute(dir)?,
+        None if default => default_data.to_path_buf(),
+        None => root.clone(),
+    };
     Ok(Dirs {
-        data: root.clone(),
         root,
-        move_old_db: false,
+        data,
+        move_old_db: default,
     })
 }
 
@@ -273,8 +266,26 @@ mod tests {
         for root_env in [None, Some("/tmp/r".into())] {
             let dirs = dirs_in(root_env, Some("/tmp/d".into()), &root, &data).unwrap();
             assert_eq!(dirs.data, PathBuf::from("/tmp/d"));
-            assert!(!dirs.move_old_db);
         }
+    }
+
+    /// README: `$UDO_DATA` may name the default data dir; history must follow.
+    #[test]
+    fn data_env_moves_only_with_the_default_root() {
+        let (root, data) = defaults();
+        let dirs = dirs_in(None, Some(data.clone().into()), &root, &data).unwrap();
+        assert_eq!(
+            dirs,
+            Dirs {
+                root: root.clone(),
+                data: data.clone(),
+                move_old_db: true
+            }
+        );
+        let dirs = dirs_in(None, Some("/tmp/d".into()), &root, &data).unwrap();
+        assert!(dirs.move_old_db);
+        let dirs = dirs_in(Some("/tmp/r".into()), Some("/tmp/d".into()), &root, &data).unwrap();
+        assert!(!dirs.move_old_db);
     }
 
     #[test]
