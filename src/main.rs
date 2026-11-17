@@ -6,7 +6,7 @@ use udo::{
     cli::Cli,
     core::Core,
     dir::{Dirs, default_data, default_root, dirs, is_same_root},
-    storage::relocate::move_old_db,
+    storage::relocate::settle_old_db,
 };
 
 #[tokio::main]
@@ -19,14 +19,11 @@ async fn main() {
             refuse_real_dirs(&dirs, &default_root()?, &default_data()?)?;
         }
         // before anything opens a database (#93)
-        if let Some(moved) = move_old_db(&dirs)? {
-            eprintln!(
-                "moved udo.db to {}; old copy kept at {} (delete it once you are happy)",
-                dirs.data.display(),
-                moved.kept.display()
-            );
+        let settled = settle_old_db(&dirs)?;
+        if let Some(notice) = &settled.notice {
+            eprintln!("{notice}");
         }
-        let mut core = Core::open(&dirs).await?;
+        let mut core = Core::open_db_in(&dirs, &settled.db_dir).await?;
         cli.execute(&mut core, &std::env::current_dir()?).await
     }
     .await;

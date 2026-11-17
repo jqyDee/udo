@@ -31,8 +31,9 @@ platform data dir, `~/Library/Application Support/udo` on macOS and
 `~/.local/share/udo` on Linux (or `$UDO_DATA`), so a dotfiles repo or a
 reset of the config folder never takes them along. With `$UDO_ROOT` set to
 another dir, `udo.db` stays in that dir. Upgrading from 0.5 or older moves
-an existing `udo.db` there on the first start (quit a running udo TUI
-first); the old file is kept as `udo.db.moved.<time>.bak`. Workspaces,
+an existing `udo.db` there on the first start; the old file is kept as
+`udo.db.moved.<time>.bak`. While an older udo still has it open, udo keeps
+using it where it is and moves it on a later start. Workspaces,
 projects and tasks can have folders of their own anywhere on disk.
 
 ## Use

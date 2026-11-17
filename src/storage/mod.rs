@@ -26,7 +26,8 @@ pub struct Storage {
 }
 
 impl Storage {
-    /// Open (or create) `DB_FILE_NAME` in the root dir.
+    /// Open (or create) `DB_FILE_NAME` in `data_dir` (created `0700` if
+    /// missing).
     pub fn open_db(data_dir: &Path) -> Res<Self> {
         create_private_dir(data_dir)?;
         let path = data_dir.join(sqlite::DB_FILE_NAME);

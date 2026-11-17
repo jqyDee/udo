@@ -48,11 +48,17 @@ pub struct Core {
 }
 
 impl Core {
-    /// Load the tree at `root` (created on the first run), then open
-    /// `udo.db` inside it: the dir must exist before the database file.
+    /// `open_db_in` the data dir.
     pub async fn open(dirs: &Dirs) -> Res<Self> {
+        Self::open_db_in(dirs, &dirs.data).await
+    }
+
+    /// Load the tree at `dirs.root` (created on the first run), then open
+    /// `udo.db` in `db_dir` (normally `dirs.data`; the root while an old
+    /// one there is in use). Scripts always get `dirs.data`.
+    pub async fn open_db_in(dirs: &Dirs, db_dir: &Path) -> Res<Self> {
         let tree = Tree::load_from(&dirs.root).await?;
-        let storage = Storage::open_db(&dirs.data)?;
+        let storage = Storage::open_db(db_dir)?;
         Ok(Self::with_data_dir(tree, storage, dirs.data.clone()))
     }
 

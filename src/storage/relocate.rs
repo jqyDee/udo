@@ -17,7 +17,7 @@ use crate::{
     model::time::{self, Time},
     storage::{
         create_private_dir,
-        sqlite::{self, BUSY_TIMEOUT_SECS, DB_FILE_NAME},
+        sqlite::{self, DB_FILE_NAME},
     },
 };
 
@@ -31,17 +31,87 @@ pub struct Moved {
     pub kept: PathBuf,
 }
 
+/// The old database is open in another connection (a running TUI, also
+/// an older one): nothing was moved.
+#[derive(Debug)]
+pub struct InUse {
+    pub old: PathBuf,
+    /// A plain connection to `old`, opened under the move lock: while it
+    /// lives no udo moves the file. None when a second database sits in
+    /// the data dir (using `old` in place would split the sessions).
+    hold: Option<Connection>,
+}
+
+impl std::fmt::Display for InUse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "udo.db at {} is in use by another udo (a running TUI?): \
+             close it and run again; nothing was moved",
+            self.old.display()
+        )
+    }
+}
+
+impl Error for InUse {}
+
+/// Where this run opens `udo.db`, and what to tell the user about it.
+/// Keep it alive as long as the database is open: in place, it holds the
+/// old file so no other udo moves it meanwhile.
+#[derive(Debug)]
+pub struct Settled {
+    pub db_dir: PathBuf,
+    pub notice: Option<String>,
+    _hold: Option<Connection>,
+}
+
+/// At startup: move an old `udo.db` (`move_old_db_at`). While another udo
+/// has it open, this run uses it where it is (a later start moves it);
+/// every other refusal stays an error. No busy wait: a holder (a running
+/// TUI) never lets go meanwhile, and every udo call would wait first.
+pub fn settle_old_db(dirs: &Dirs) -> Res<Settled> {
+    settle_old_db_at(dirs, time::now(), Duration::ZERO)
+}
+
+/// `settle_old_db` at `at`, waiting up to `busy` (see `move_old_db_at`).
+fn settle_old_db_at(dirs: &Dirs, at: Time, busy: Duration) -> Res<Settled> {
+    match move_old_db_at(dirs, at, busy) {
+        Ok(moved) => Ok(Settled {
+            db_dir: dirs.data.clone(),
+            notice: moved.map(|moved| {
+                format!(
+                    "moved udo.db to {}; old copy kept at {} (delete it once you are happy)",
+                    dirs.data.display(),
+                    moved.kept.display()
+                )
+            }),
+            _hold: None,
+        }),
+        Err(e) => {
+            let in_use = *e.downcast::<InUse>()?;
+            let Some(hold) = in_use.hold else {
+                return Err(Box::new(in_use));
+            };
+            Ok(Settled {
+                db_dir: dirs.root.clone(),
+                notice: Some(format!(
+                    "udo.db at {} is in use by another udo (a running TUI?): \
+                     using it there for now; it moves to {} once no udo has it open",
+                    in_use.old.display(),
+                    dirs.data.display()
+                )),
+                _hold: Some(hold),
+            })
+        }
+    }
+}
+
 /// Move `<root>/udo.db` to `<data>/udo.db` if `dirs` asks for it
 /// (`Dirs::move_old_db`) and there is one. None: nothing to move (also when
 /// another udo just moved it). Err: nothing was moved, the old file is as
 /// it was (in use, broken, or a different database already in the data
-/// dir).
-pub fn move_old_db(dirs: &Dirs) -> Res<Option<Moved>> {
-    move_old_db_at(dirs, time::now(), Duration::from_secs(BUSY_TIMEOUT_SECS))
-}
-
-/// `move_old_db` at `at` (names the `.bak`), waiting up to `busy` for the
-/// old database to be free.
+/// dir; in use is an `InUse`). `at` names the `.bak`; waits up to `busy`
+/// for the old database to be free.
 fn move_old_db_at(dirs: &Dirs, at: Time, busy: Duration) -> Res<Option<Moved>> {
     let old = dirs.root.join(DB_FILE_NAME);
     if !dirs.move_old_db || !old.exists() || is_same_root(&dirs.root, &dirs.data) {
@@ -59,7 +129,15 @@ fn move_old_db_at(dirs: &Dirs, at: Time, busy: Duration) -> Res<Option<Moved>> {
     }
 
     let new = dirs.data.join(DB_FILE_NAME);
-    let conn = open_exclusive(&old, busy)?;
+    let Some(conn) = open_exclusive(&old, busy)? else {
+        // still under the lock: the hold keeps every other udo from moving
+        let hold = if new.exists() {
+            None
+        } else {
+            Some(hold_open(&old)?)
+        };
+        return Err(Box::new(InUse { old, hold }));
+    };
     // everything into the main file: it becomes the `.bak`, its WAL goes
     checkpoint(&conn)?;
     if new.exists() {
@@ -77,8 +155,8 @@ fn move_old_db_at(dirs: &Dirs, at: Time, busy: Duration) -> Res<Option<Moved>> {
 /// `path`, opened so no other connection may use it while this one lives
 /// (`locking_mode=EXCLUSIVE`, taken by a first `BEGIN EXCLUSIVE`). Another
 /// connection that merely has it open, idle, makes this fail: verified
-/// 2026-11-16, see `refuses_while_another_connection_is_open`.
-fn open_exclusive(path: &Path, busy: Duration) -> Res<Connection> {
+/// 2026-11-16, see `refuses_while_another_connection_is_open`. None: in use.
+fn open_exclusive(path: &Path, busy: Duration) -> Res<Option<Connection>> {
     let conn = open_existing(path)?;
     conn.busy_timeout(busy)?;
     conn.pragma_update(None, "locking_mode", "EXCLUSIVE")?;
@@ -86,15 +164,20 @@ fn open_exclusive(path: &Path, busy: Duration) -> Res<Connection> {
         Err(rusqlite::Error::SqliteFailure(e, _))
             if matches!(e.code, ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked) =>
         {
-            Err(format!(
-                "udo.db at {} is in use by another udo (a running TUI?): \
-                 close it and run again; nothing was moved",
-                path.display()
-            )
-            .into())
+            Ok(None)
         }
-        result => Ok(result.map(|()| conn)?),
+        result => Ok(result.map(|()| Some(conn))?),
     }
+}
+
+/// `path` opened and read once: like any idle reader (a TUI), it makes
+/// `open_exclusive` fail for as long as it lives.
+fn hold_open(path: &Path) -> Res<Connection> {
+    let conn = open_existing(path)?;
+    conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| {
+        r.get::<_, i64>(0)
+    })?;
+    Ok(conn)
 }
 
 /// An existing database (never creates one), read-write.
@@ -261,6 +344,10 @@ mod tests {
         move_old_db_at(dirs, parse_time(NOW), Duration::ZERO)
     }
 
+    fn settle_now(dirs: &Dirs) -> Res<Settled> {
+        settle_old_db_at(dirs, parse_time(NOW), Duration::ZERO)
+    }
+
     /// A real `udo.db` (all migrations) in `dir` with `n` sessions.
     async fn seed(dir: &Path, n: u32) {
         seed_from(dir, 8, n).await;
@@ -392,6 +479,110 @@ mod tests {
         drop(tui);
         assert_eq!(sessions(&old), 2);
         assert!(move_now(&dirs).unwrap().is_some()); // once it is closed
+    }
+
+    /// An older TUI still has it open: this run uses it where it is, a
+    /// later one moves it.
+    #[tokio::test]
+    async fn falls_back_to_the_old_db_while_in_use() {
+        let (_tmp, dirs) = setup();
+        seed(&dirs.root, 2).await;
+        let tui = sqlite::open(&dirs.root.join(DB_FILE_NAME)).unwrap();
+        let before = names(&dirs.root);
+
+        let settled = settle_now(&dirs).unwrap();
+
+        assert_eq!(settled.db_dir, dirs.root);
+        let notice = settled.notice.clone().unwrap();
+        assert!(notice.contains("is in use by another udo"), "{notice}");
+        assert!(notice.contains("using it there for now"), "{notice}");
+        assert!(
+            notice.contains(&dirs.data.display().to_string()),
+            "{notice}"
+        );
+        assert_eq!(names(&dirs.root), before);
+        drop(settled);
+        drop(tui);
+        let settled = settle_now(&dirs).unwrap();
+        assert_eq!(settled.db_dir, dirs.data);
+        let notice = settled.notice.unwrap();
+        assert!(notice.starts_with("moved udo.db to "), "{notice}");
+    }
+
+    /// The run in place keeps the old file open: a holder that quits
+    /// meanwhile must not let another udo move it away under this run
+    /// (which would then create a fresh, empty one in the root).
+    #[tokio::test]
+    async fn fallback_keeps_the_old_db_from_moving_until_dropped() {
+        let (_tmp, dirs) = setup();
+        seed(&dirs.root, 2).await;
+        let tui = sqlite::open(&dirs.root.join(DB_FILE_NAME)).unwrap();
+
+        let settled = settle_now(&dirs).unwrap();
+        drop(tui);
+
+        let err = move_now(&dirs).unwrap_err().to_string();
+        assert!(err.contains("is in use by another udo"), "{err}");
+        drop(settled);
+        assert!(move_now(&dirs).unwrap().is_some());
+    }
+
+    /// An older udo made a fresh one in the root after the move and holds
+    /// it: using it in place would split the sessions, so stop.
+    #[tokio::test]
+    async fn settle_refuses_in_use_next_to_a_second_database() {
+        let (_tmp, dirs) = setup();
+        seed(&dirs.root, 1).await;
+        seed(&dirs.data, 4).await;
+        let old_tui = sqlite::open(&dirs.root.join(DB_FILE_NAME)).unwrap();
+
+        let err = settle_now(&dirs).unwrap_err().to_string();
+
+        assert!(err.contains("is in use by another udo"), "{err}");
+        assert!(err.contains("close it and run again"), "{err}");
+        drop(old_tui);
+        assert_eq!(sessions(&dirs.root.join(DB_FILE_NAME)), 1);
+        assert_eq!(sessions(&dirs.data.join(DB_FILE_NAME)), 4);
+    }
+
+    /// A holder never lets go while it runs: every udo meanwhile (hooks
+    /// too) must not wait the busy timeout first.
+    #[tokio::test]
+    async fn settle_does_not_wait_for_a_holder() {
+        let (_tmp, dirs) = setup();
+        seed(&dirs.root, 2).await;
+        let _tui = sqlite::open(&dirs.root.join(DB_FILE_NAME)).unwrap();
+
+        let start = std::time::Instant::now();
+        let settled = settle_old_db(&dirs).unwrap();
+
+        assert_eq!(settled.db_dir, dirs.root);
+        assert!(
+            start.elapsed() < Duration::from_secs(1),
+            "{:?}",
+            start.elapsed()
+        );
+    }
+
+    #[test]
+    fn settles_on_the_data_dir_with_nothing_to_move() {
+        let (_tmp, dirs) = setup();
+
+        let settled = settle_now(&dirs).unwrap();
+
+        assert_eq!(settled.db_dir, dirs.data);
+        assert_eq!(settled.notice, None);
+    }
+
+    #[tokio::test]
+    async fn settle_still_stops_on_two_databases() {
+        let (_tmp, dirs) = setup();
+        seed(&dirs.root, 1).await;
+        seed(&dirs.data, 4).await;
+
+        let err = settle_now(&dirs).unwrap_err().to_string();
+
+        assert!(err.starts_with("two databases: "), "{err}");
     }
 
     /// An older udo after the move made a fresh one in the root.

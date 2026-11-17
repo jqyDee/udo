@@ -28,6 +28,24 @@ async fn open_creates_the_root_and_the_database_in_the_data_dir() {
     assert!(core.tree().get(&[]).is_some());
 }
 
+/// In-use fallback: the db stays in the root for this run, but scripts
+/// and hooks still learn the real data dir (`UDO_DATA`).
+#[tokio::test]
+async fn open_db_in_keeps_the_data_dir_for_scripts() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dirs = Dirs {
+        root: tmp.path().join("udo"),
+        data: tmp.path().join("data"),
+        move_old_db: true,
+    };
+
+    let core = Core::open_db_in(&dirs, &dirs.root).await.unwrap();
+
+    assert!(dirs.root.join(DB_FILE_NAME).exists());
+    assert!(!dirs.data.join(DB_FILE_NAME).exists());
+    assert_eq!(core.data_dir(), dirs.data);
+}
+
 /// A custom root keeps everything in one dir, as before #93.
 #[tokio::test]
 async fn open_with_data_in_the_root_keeps_both_there() {
