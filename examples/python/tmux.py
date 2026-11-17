@@ -46,8 +46,8 @@ owner = f"tmux:{session}"
 folder = env.get("UDO_TASK_DIR") or env.get("UDO_NODE_DIR") or env["UDO_CONTAINER_DIR"]
 
 # hooks run in the tmux server: neither its PATH nor its environment need
-# to know this udo, so name the binary and the root
-udo = f"UDO_ROOT='{env['UDO_ROOT']}' '{env['UDO_BIN']}'"
+# to know this udo, so name the binary, the root and the data dir
+udo = f"UDO_ROOT='{env['UDO_ROOT']}' UDO_DATA='{env['UDO_DATA']}' '{env['UDO_BIN']}'"
 
 # `=`: the exact name, not a prefix. set-option / set-hook take a pane
 # target, so theirs ends in `:` (`=name` alone: "no such session")
