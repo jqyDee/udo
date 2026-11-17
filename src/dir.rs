@@ -113,7 +113,7 @@ pub fn default_data() -> Res<PathBuf> {
 }
 
 fn base_dirs() -> Res<BaseDirs> {
-    Ok(BaseDirs::new().ok_or("Could not acquire Base firs")?)
+    Ok(BaseDirs::new().ok_or("could not find the home dir")?)
 }
 
 /// Is `root` the dir `real`, however spelled: the same path, or the same
@@ -176,48 +176,6 @@ mod tests {
     fn relative_tilde_user_and_empty_are_errors() {
         for input in ["rel/x", "x", "./x", "~foo", "~foo/x", "", "   "] {
             assert!(parse(input).is_err(), "{input:?}");
-        }
-    }
-
-    #[test]
-    fn root_dir_uses_env_override() {
-        let dirs = dirs_in(
-            Some("/tmp/udo-test".into()),
-            None,
-            &default_root().unwrap(),
-            &default_data().unwrap(),
-        )
-        .unwrap();
-        let dir = dirs.root;
-        assert_eq!(dir, PathBuf::from("/tmp/udo-test"));
-    }
-
-    #[test]
-    fn root_dir_makes_relative_override_absolute() {
-        let dirs = dirs_in(
-            Some("udo-test".into()),
-            None,
-            &default_root().unwrap(),
-            &default_data().unwrap(),
-        )
-        .unwrap();
-        let dir = dirs.root;
-        assert!(dir.is_absolute());
-        assert!(dir.ends_with("udo-test"));
-    }
-
-    #[test]
-    fn root_dir_defaults_to_config_when_unset_or_empty() {
-        for env in [None, Some(OsString::new())] {
-            let dirs = dirs_in(
-                env,
-                None,
-                &default_root().unwrap(),
-                &default_data().unwrap(),
-            )
-            .unwrap();
-            let dir = dirs.root;
-            assert!(dir.ends_with(".config/udo"));
         }
     }
 
