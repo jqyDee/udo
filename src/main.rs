@@ -5,7 +5,7 @@ use udo::{
     Res,
     cli::Cli,
     core::Core,
-    dir::{Dirs, default_data, default_root, dirs, is_same_root},
+    dir::{Dirs, defaults, dirs, is_same_root},
     storage::relocate::settle_old_db,
 };
 
@@ -14,9 +14,13 @@ async fn main() {
     let cli = Cli::parse();
 
     let result = async {
-        let dirs = dirs()?;
-        if cfg!(debug_assertions) {
-            refuse_real_dirs(&dirs, &default_root()?, &default_data()?)?;
+        let defaults = defaults();
+        let dirs = dirs(defaults.as_ref())?;
+        // without a home dir there is no real data to guard
+        if cfg!(debug_assertions)
+            && let Some(real) = &defaults
+        {
+            refuse_real_dirs(&dirs, &real.root, &real.data)?;
         }
         // before anything opens a database (#93)
         let settled = settle_old_db(&dirs)?;

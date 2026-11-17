@@ -30,7 +30,8 @@ settings and the run configs. The recorded sessions (`udo.db`) live in the
 platform data dir, `~/Library/Application Support/udo` on macOS and
 `~/.local/share/udo` on Linux (or `$UDO_DATA`), so a dotfiles repo or a
 reset of the config folder never takes them along. With `$UDO_ROOT` set to
-another dir, `udo.db` stays in that dir. Upgrading from 0.5 or older moves
+another dir, `udo.db` stays in that dir, unless `$UDO_DATA` is set too: then
+it moves there like below. Upgrading from 0.5 or older moves
 an existing `udo.db` there on the first start; the old file is kept as
 `udo.db.moved.<time>.bak`. While an older udo still has it open, udo keeps
 using it where it is and moves it on a later start. Workspaces,

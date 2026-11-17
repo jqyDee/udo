@@ -45,18 +45,38 @@ fn parse_abs_dir_in(input: &str, home: &Path) -> Result<PathBuf, String> {
 pub struct Dirs {
     pub root: PathBuf,
     pub data: PathBuf,
-    /// The root is the default root: a `udo.db` still in it gets moved to
-    /// `data` (`storage::relocate`; skipped when `data` is the root itself).
+    /// The root is the default root, or `UDO_DATA` names the data dir: a
+    /// `udo.db` still in the root gets moved to `data` (`storage::relocate`;
+    /// skipped when `data` is the root itself).
     pub move_old_db: bool,
 }
 
+/// The default root and data dir of this user.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Defaults {
+    /// `~/.config/udo` on every platform (as before: not `config_dir()`).
+    pub root: PathBuf,
+    /// The platform data dir: `~/Library/Application Support/udo` (macOS),
+    /// `$XDG_DATA_HOME/udo` or `~/.local/share/udo` (Linux).
+    pub data: PathBuf,
+}
+
+/// The defaults, looked up once. None without a home dir: then only the
+/// env vars give dirs.
+pub fn defaults() -> Option<Defaults> {
+    let base = BaseDirs::new()?;
+    Some(Defaults {
+        root: base.home_dir().join(".config").join("udo"),
+        data: base.data_dir().join("udo"),
+    })
+}
+
 /// The dirs for this process, from `$UDO_ROOT` / `$UDO_DATA`.
-pub fn dirs() -> Res<Dirs> {
+pub fn dirs(defaults: Option<&Defaults>) -> Res<Dirs> {
     dirs_in(
         std::env::var_os(ROOT_ENV),
         std::env::var_os(DATA_ENV),
-        &default_root()?,
-        &default_data()?,
+        defaults,
     )
 }
 
@@ -64,49 +84,39 @@ pub fn dirs() -> Res<Dirs> {
 /// the real env nor the real home. Data dir: `UDO_DATA` if set; else the
 /// default one if the root is the default root (however spelled: hooks
 /// carry it explicitly); else the root itself (a custom root stays
-/// self-contained). An old `udo.db` moves whenever the root is the default
-/// root, into whichever data dir that gives.
+/// self-contained). An old `udo.db` in the root moves into the data dir
+/// whenever that is another dir: with the default root, or `UDO_DATA` set
+/// (else its history would stay behind next to a fresh, empty one).
+/// Without defaults (no home dir) `UDO_ROOT` is needed, and no root is the
+/// default one.
 pub fn dirs_in(
     root_env: Option<OsString>,
     data_env: Option<OsString>,
-    default_root: &Path,
-    default_data: &Path,
+    defaults: Option<&Defaults>,
 ) -> Res<Dirs> {
-    let root = match set(root_env) {
-        Some(dir) => absolute(dir)?,
-        None => default_root.to_path_buf(),
+    let root = match (set(root_env), defaults) {
+        (Some(dir), _) => absolute(dir)?,
+        (None, Some(defaults)) => defaults.root.clone(),
+        (None, None) => return Err(format!("could not find the home dir: set {ROOT_ENV}").into()),
     };
-    let default = is_same_root(&root, default_root);
-    let data = match set(data_env) {
-        Some(dir) => absolute(dir)?,
-        None if default => default_data.to_path_buf(),
-        None => root.clone(),
+    let default = defaults.filter(|defaults| is_same_root(&root, &defaults.root));
+    let data_env = set(data_env);
+    let move_old_db = default.is_some() || data_env.is_some();
+    let data = match (data_env, default) {
+        (Some(dir), _) => absolute(dir)?,
+        (None, Some(defaults)) => defaults.data.clone(),
+        (None, None) => root.clone(),
     };
     Ok(Dirs {
         root,
         data,
-        move_old_db: default,
+        move_old_db,
     })
 }
 
 /// An env value, unless unset or empty.
 fn set(env: Option<OsString>) -> Option<PathBuf> {
     env.filter(|d| !d.is_empty()).map(PathBuf::from)
-}
-
-/// `~/.config/udo` on every platform (as before: not `config_dir()`).
-pub fn default_root() -> Res<PathBuf> {
-    Ok(base_dirs()?.home_dir().join(".config").join("udo"))
-}
-
-/// The platform data dir: `~/Library/Application Support/udo` (macOS),
-/// `$XDG_DATA_HOME/udo` or `~/.local/share/udo` (Linux).
-pub fn default_data() -> Res<PathBuf> {
-    Ok(base_dirs()?.data_dir().join("udo"))
-}
-
-fn base_dirs() -> Res<BaseDirs> {
-    Ok(BaseDirs::new().ok_or("could not find the home dir")?)
 }
 
 /// Is `root` the dir `real`, however spelled: the same path, or the same
@@ -226,20 +236,23 @@ mod tests {
 
     // ---------- dirs_in ----------
 
-    fn defaults() -> (PathBuf, PathBuf) {
-        ("/home/t/.config/udo".into(), "/home/t/data/udo".into())
+    fn defaults() -> Defaults {
+        Defaults {
+            root: "/home/t/.config/udo".into(),
+            data: "/home/t/data/udo".into(),
+        }
     }
 
     #[test]
     fn nothing_set_uses_both_defaults() {
-        let (root, data) = defaults();
+        let d = defaults();
         for env in [None, Some(OsString::new())] {
-            let dirs = dirs_in(env.clone(), env, &root, &data).unwrap();
+            let dirs = dirs_in(env.clone(), env, Some(&d)).unwrap();
             assert_eq!(
                 dirs,
                 Dirs {
-                    root: root.clone(),
-                    data: data.clone(),
+                    root: d.root.clone(),
+                    data: d.data.clone(),
                     move_old_db: true
                 }
             );
@@ -248,8 +261,8 @@ mod tests {
 
     #[test]
     fn custom_root_keeps_data_in_root() {
-        let (root, data) = defaults();
-        let dirs = dirs_in(Some("/tmp/r".into()), None, &root, &data).unwrap();
+        let d = defaults();
+        let dirs = dirs_in(Some("/tmp/r".into()), None, Some(&d)).unwrap();
         assert_eq!(
             dirs,
             Dirs {
@@ -262,36 +275,67 @@ mod tests {
 
     #[test]
     fn data_env_wins() {
-        let (root, data) = defaults();
+        let d = defaults();
         for root_env in [None, Some("/tmp/r".into())] {
-            let dirs = dirs_in(root_env, Some("/tmp/d".into()), &root, &data).unwrap();
+            let dirs = dirs_in(root_env, Some("/tmp/d".into()), Some(&d)).unwrap();
             assert_eq!(dirs.data, PathBuf::from("/tmp/d"));
         }
     }
 
     /// README: `$UDO_DATA` may name the default data dir; history must follow.
+    /// A custom root too: else its `udo.db` stays behind and `UDO_DATA`
+    /// gets a fresh, empty one.
     #[test]
-    fn data_env_moves_only_with_the_default_root() {
-        let (root, data) = defaults();
-        let dirs = dirs_in(None, Some(data.clone().into()), &root, &data).unwrap();
+    fn data_env_moves_with_any_root() {
+        let d = defaults();
+        let dirs = dirs_in(None, Some(d.data.clone().into()), Some(&d)).unwrap();
         assert_eq!(
             dirs,
             Dirs {
-                root: root.clone(),
-                data: data.clone(),
+                root: d.root.clone(),
+                data: d.data.clone(),
                 move_old_db: true
             }
         );
-        let dirs = dirs_in(None, Some("/tmp/d".into()), &root, &data).unwrap();
+        let dirs = dirs_in(None, Some("/tmp/d".into()), Some(&d)).unwrap();
         assert!(dirs.move_old_db);
-        let dirs = dirs_in(Some("/tmp/r".into()), Some("/tmp/d".into()), &root, &data).unwrap();
-        assert!(!dirs.move_old_db);
+        let dirs = dirs_in(Some("/tmp/r".into()), Some("/tmp/d".into()), Some(&d)).unwrap();
+        assert!(dirs.move_old_db);
+    }
+
+    /// No home dir (a container, a service): the env vars alone do.
+    #[test]
+    fn without_a_home_dir_the_envs_suffice() {
+        let dirs = dirs_in(Some("/tmp/r".into()), Some("/tmp/d".into()), None).unwrap();
+        assert_eq!(
+            dirs,
+            Dirs {
+                root: "/tmp/r".into(),
+                data: "/tmp/d".into(),
+                move_old_db: true
+            }
+        );
+        let dirs = dirs_in(Some("/tmp/r".into()), None, None).unwrap();
+        assert_eq!(
+            dirs,
+            Dirs {
+                root: "/tmp/r".into(),
+                data: "/tmp/r".into(),
+                move_old_db: false
+            }
+        );
+    }
+
+    #[test]
+    fn without_a_home_dir_the_root_env_is_needed() {
+        let err = dirs_in(None, Some("/tmp/d".into()), None).unwrap_err();
+        assert!(err.to_string().contains(ROOT_ENV), "{err}");
     }
 
     #[test]
     fn relative_envs_are_made_absolute() {
-        let (root, data) = defaults();
-        let dirs = dirs_in(Some("r".into()), Some("d".into()), &root, &data).unwrap();
+        let d = defaults();
+        let dirs = dirs_in(Some("r".into()), Some("d".into()), Some(&d)).unwrap();
         assert!(dirs.root.is_absolute() && dirs.root.ends_with("r"));
         assert!(dirs.data.is_absolute() && dirs.data.ends_with("d"));
     }
@@ -304,6 +348,10 @@ mod tests {
         let root = tmp.path().join("cfg").join("udo");
         std::fs::create_dir_all(&root).unwrap();
         let data = tmp.path().join("data");
+        let d = Defaults {
+            root: root.clone(),
+            data: data.clone(),
+        };
         let mut spellings = vec![OsString::from(format!("{}/", root.display()))];
         #[cfg(unix)]
         {
@@ -312,7 +360,7 @@ mod tests {
             spellings.push(link.into());
         }
         for env in spellings {
-            let dirs = dirs_in(Some(env.clone()), None, &root, &data).unwrap();
+            let dirs = dirs_in(Some(env.clone()), None, Some(&d)).unwrap();
             assert_eq!(dirs.data, data, "{env:?}");
             assert!(dirs.move_old_db, "{env:?}");
         }

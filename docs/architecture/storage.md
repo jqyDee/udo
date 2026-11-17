@@ -110,12 +110,14 @@ classDiagram
 3. A custom `$UDO_ROOT` → that root: tests, `cargo run` and throwaway roots
    stay self-contained and never reach the real data dir.
 
-The data dir is created `0700`. A debug build refuses the real root and
-the real data dir.
+The defaults are looked up once (`dir::defaults()`); without a home dir
+only the env vars count (`$UDO_ROOT` is then needed). The data dir is
+created `0700`. A debug build refuses the real root and the real data dir.
 
-**Moving an old database** (`storage::relocate`, cases 1 and 2 with the default root, at startup
-before anything opens a database): `<root>/udo.db` from 0.5 or older goes
-to the data dir once.
+**Moving an old database** (`storage::relocate`, cases 1 and 2: whenever
+the data dir is another dir than the root, at startup before anything
+opens a database): `<root>/udo.db` from 0.5 or older, or of a custom root
+given a `$UDO_DATA`, goes to the data dir once.
 
 - A lock file (`.udo-move.lock`) keeps two udo processes from moving at
   once; the second waits, then finds nothing left to move.

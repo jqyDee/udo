@@ -21,7 +21,7 @@ sequenceDiagram
 
     main->>main: dirs(): config root + data dir (UDO_ROOT, UDO_DATA)
     Note over main: debug build: refuse the real root / data dir
-    opt default root and udo.db still in it (0.5 or older)
+    opt default root or UDO_DATA set, and udo.db still in the root
         main->>Storage: relocate::settle_old_db: move (copy, check, place,<br/>old file → udo.db.moved.TIME.bak),<br/>or in use: keep it in the root for this run
     end
     main->>Core: open_db_in(dirs, db_dir)
