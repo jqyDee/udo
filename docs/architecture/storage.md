@@ -1,15 +1,15 @@
 # Storage
 
-What is recorded over time lives in `udo.db` (SQLite, in the root folder):
+What is recorded over time lives in `udo.db` (SQLite, in the data dir):
 the sessions and the estimate history. The tree itself is still in the
-`.udo.toml` files ([model.md](model.md)).
+`.udo.toml` files in the config root ([model.md](model.md)).
 
 ```mermaid
 classDiagram
     class Storage {
         sessions : Sessions
         estimates : Estimates
-        open_db(root_dir)
+        open_db(data_dir)
         in_memory()
     }
     class Sessions {
@@ -98,6 +98,50 @@ classDiagram
   dropped, so a `v2` copy always holds schema 2. A failed copy refuses the
   migration (the database stays as it was); a path that is not UTF-8 gets
   no copy and is migrated as before. udo never deletes the copies.
+
+## Where the database lives
+
+`dir::dirs()` resolves two dirs (#93), first match wins for the data dir:
+
+1. `$UDO_DATA` if set.
+2. The config root is the default `~/.config/udo` (however spelled: hooks
+   carry it explicitly) → the platform data dir
+   (`~/Library/Application Support/udo`, `$XDG_DATA_HOME/udo`).
+3. A custom `$UDO_ROOT` → that root: tests, `cargo run` and throwaway roots
+   stay self-contained and never reach the real data dir.
+
+The defaults are looked up once (`dir::defaults()`); without a home dir
+only the env vars count (`$UDO_ROOT` is then needed). The data dir is
+created `0700`. A debug build refuses the real root and the real data dir.
+
+**Moving an old database** (`storage::relocate`, cases 1 and 2: whenever
+the data dir is another dir than the root, at startup before anything
+opens a database): `<root>/udo.db` from 0.5 or older, or of a custom root
+given a `$UDO_DATA`, goes to the data dir once.
+
+- A lock file (`.udo-move.lock`) keeps two udo processes from moving at
+  once; the second waits, then finds nothing left to move.
+- The old file is opened exclusively (`locking_mode=EXCLUSIVE`): another
+  connection that merely has it open (a running TUI, also an older one)
+  makes this fail at once (no busy wait), and nothing is changed: this run
+  opens the old file where it is (startup's `settle_old_db`), keeping a
+  connection to it opened under the lock so no other udo moves it
+  meanwhile; the move happens on a later start. With a `udo.db` in the
+  data dir too, udo stops instead, as on every other refusal: "two
+  databases" if it holds other data (closing the holder would not help),
+  else "in use" (a move cut short, finished once the holder is closed).
+- WAL checkpoint, `integrity_check`, `VACUUM INTO` a temp file, the copy
+  checked (`integrity_check`, same schema version, same row count per
+  table), synced, placed with `place` as above, checked again.
+- The old file is renamed to `udo.db.moved.<time>.bak` next to it, still
+  under the lock; its empty `-wal` / `-shm` go only if no new `udo.db`
+  appeared in the root meanwhile.
+- A crash before the copy is placed leaves the old file untouched; after
+  it, both files hold the same data and the next start only renames. Two
+  databases with different data (an older udo made a fresh one after the
+  move) are refused, never merged or picked.
+
+Earlier `udo.db.v*.bak` copies stay in the root.
 
 ## Sessions
 

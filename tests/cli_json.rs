@@ -15,6 +15,7 @@ const SAYS: &str = "the script says hi";
 fn udo(root: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_udo"))
         .env("UDO_ROOT", root)
+        .env_remove("UDO_DATA") // see tests/common
         .args(args)
         .output()
         .unwrap()

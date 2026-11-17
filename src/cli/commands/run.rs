@@ -66,7 +66,7 @@ pub async fn run(core: &Core, cwd: &Path, args: &RunArgs, stdout: Stdout) -> Res
     let task = task_for(tree, &path, args.task.as_deref(), cwd)?;
     let request = RunRequest::new(tree, Event::Open, &path, task.as_deref(), name)?;
 
-    let status = launch(&request.script, &request.ctx, stdout).await?;
+    let status = launch(&request.script, &request.ctx, core.data_dir(), stdout).await?;
     Ok(Opened {
         node: path_text(tree, &path),
         script: request.name.to_string(),

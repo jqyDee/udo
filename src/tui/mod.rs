@@ -22,7 +22,7 @@ pub mod toast;
 pub mod tree_state;
 pub mod view;
 
-use std::{io, process::ExitStatus, time::Instant};
+use std::{io, path::Path, process::ExitStatus, time::Instant};
 
 use crossterm::{
     cursor::{Hide, Show},
@@ -81,7 +81,8 @@ async fn event_loop(terminal: &mut DefaultTerminal, app: &mut App<'_>) -> Res<()
                         Flow::Continue => {}
                         Flow::Quit => return Ok(()),
                         Flow::Run(request) => {
-                            let result = hand_over(terminal, &mut events, &request).await?;
+                            let data = app.core.data_dir().to_path_buf();
+                            let result = hand_over(terminal, &mut events, &request, &data).await?;
                             app.after_run(&request.name, result).await;
                         }
                     }
@@ -120,12 +121,13 @@ async fn hand_over(
     terminal: &mut DefaultTerminal,
     events: &mut EventStream,
     request: &RunRequest,
+    data: &Path,
 ) -> Res<Result<ExitStatus, RunError>> {
     disable_raw_mode()?;
     execute!(io::stdout(), LeaveAlternateScreen, Show)?;
 
     // no `--json` here: the script has the whole terminal
-    let result = run::launch(&request.script, &request.ctx, Stdout::Inherit).await;
+    let result = run::launch(&request.script, &request.ctx, data, Stdout::Inherit).await;
     if let Ok(status) = &result
         && !status.success()
     {
