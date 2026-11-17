@@ -1,8 +1,49 @@
+## [0.5.1] - 2026-11-17
+
+### ⚠️ Upgrade notes
+
+- Do.db moves to the platform data dir; the old copy is kept as udo.db.moved.*.bak
+
+### 🚀 Features
+
+- *(dir)* Resolve config root and data dir (#93)
+- *(storage)* Open udo.db in the data dir (#93)
+- *(storage)* Move udo.db from the root to the data dir (#93)
+- Keep udo.db in the data dir, move it once (#93)
+- *(run)* Pass UDO_DATA to scripts and hooks (#93)
+- *(storage)* Use old udo.db in place while it is in use (#93)
+
+### 🐛 Bug Fixes
+
+- *(examples)* Pass UDO_DATA to tmux hooks (#93)
+- *(dir)* Move old udo.db also when UDO_DATA is set (#93)
+- *(main)* Debug build refuses either real dir in either slot (#93)
+- *(dir)* UDO_DATA moves udo.db from any root; home dir optional (#93)
+- *(storage)* Report two databases at once while old db in use (#93)
+
+### 📚 Documentation
+
+- Added link to small dashboard running on the udo cli
+- Config root vs data dir (#93)
+
+### 🚜 Refactor
+
+- *(dir)* Drop duplicate root_dir tests, fix error text (#93)
+
+### ⚙️ Miscellaneous Tasks
+
+- Added .udo.toml to .gitignore
+- Zed debug task
 ## [0.5.0] - 2026-11-01
 
 ### 🚀 Features
 
 - *(stats)* Daily pace and time reports
+
+### ⚙️ Miscellaneous Tasks
+
+- Release 0.5.0
+- Build macOS release on macos-15
 ## [0.4.0] - 2026-10-28
 
 ### ⚠️ Upgrade notes
