@@ -1,7 +1,9 @@
 //! Shared by the integration tests: the real `udo` binary on a fresh root
 //! (`UDO_ROOT`), a pseudo-terminal for what needs one (the TUI, `tmux
 //! attach`), the example scripts, fake programs on `PATH`, and waiting
-//! for things that happen in the background.
+//! for things that happen in the background. Every udo started here drops
+//! `UDO_DATA`: a custom root keeps its database, and a developer's own
+//! `UDO_DATA` (the real data) never reaches a test.
 
 // every test file compiles this module on its own and uses only a part
 #![allow(dead_code)]
@@ -29,6 +31,7 @@ pub const UDO: &str = env!("CARGO_BIN_EXE_udo");
 pub fn udo(root: &Path, args: &[&str]) -> Output {
     Command::new(UDO)
         .env("UDO_ROOT", root)
+        .env_remove("UDO_DATA")
         .args(args)
         .output()
         .unwrap()
@@ -221,6 +224,7 @@ pub fn udo_command(root: &Path, args: &[&str]) -> CommandBuilder {
     let mut cmd = CommandBuilder::new(UDO);
     cmd.args(args.iter().map(OsStr::new));
     cmd.env("UDO_ROOT", root);
+    cmd.env_remove("UDO_DATA");
     cmd.env("TERM", "xterm-256color");
     cmd.cwd(root);
     cmd

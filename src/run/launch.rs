@@ -7,10 +7,11 @@ use crate::run::{RunContext, RunError, Stdout, child::wait, context::TASK_VARS};
 /// unchanged (no pipes; stdout to stderr for `--json`, see `Stdout`) and
 /// Ctrl+C left to the script. Returns when the script does; what its exit
 /// code means is the caller's business (the TUI asks for Enter first, the
-/// CLI passes it on).
+/// CLI passes it on). `data`: the running udo's data dir (`UDO_DATA`).
 pub async fn launch(
     script: &Path,
     ctx: &RunContext,
+    data: &Path,
     stdout: Stdout,
 ) -> Result<ExitStatus, RunError> {
     let launch_error = |error| RunError::Launch {
@@ -18,13 +19,13 @@ pub async fn launch(
         error,
     };
     let bin = std::env::current_exe().map_err(launch_error)?;
-    let mut cmd = command(script, ctx, &bin);
+    let mut cmd = command(script, ctx, &bin, data);
     stdout.apply(&mut cmd).map_err(launch_error)?;
     wait(cmd).await.map_err(launch_error)
 }
 
 /// The command `launch` runs, built apart so tests can look at it.
-fn command(script: &Path, ctx: &RunContext, bin: &Path) -> tokio::process::Command {
+fn command(script: &Path, ctx: &RunContext, bin: &Path, data: &Path) -> tokio::process::Command {
     let mut cmd = tokio::process::Command::new(script);
     cmd.current_dir(ctx.working_dir());
     if ctx.task.is_none() {
@@ -34,7 +35,7 @@ fn command(script: &Path, ctx: &RunContext, bin: &Path) -> tokio::process::Comma
             cmd.env_remove(key);
         }
     }
-    cmd.envs(ctx.env(bin));
+    cmd.envs(ctx.env(bin, data));
     cmd
 }
 
@@ -71,7 +72,9 @@ mod tests {
         );
         let ctx = RunContext::new(&tree, Event::Open, &[1, 0], Some(&[1, 0])).unwrap();
 
-        let status = launch(&path, &ctx, Stdout::Inherit).await.unwrap();
+        let status = launch(&path, &ctx, Path::new("/tmp/data"), Stdout::Inherit)
+            .await
+            .unwrap();
 
         assert!(status.success());
         let seen = fs::read_to_string(&out).unwrap();
@@ -83,6 +86,7 @@ mod tests {
         );
         assert!(seen.contains("UDO_NODE_NAME=b\n"), "{seen}");
         assert!(seen.contains("UDO_BIN=/"), "{seen}");
+        assert!(seen.contains("UDO_DATA=/tmp/data\n"), "{seen}");
         // `b` has no folder: the container's (`-P`: /tmp is /private/tmp)
         let ws = tmp.path().join("ws").canonicalize().unwrap();
         assert!(seen.ends_with(&format!("{}\n", ws.display())), "{seen}");
@@ -96,7 +100,9 @@ mod tests {
         let path = script(scripts.path(), "#!/bin/sh\nexit 3\n");
         let ctx = RunContext::new(&tree, Event::Open, &[0], Some(&[0])).unwrap();
 
-        let status = launch(&path, &ctx, Stdout::Inherit).await.unwrap();
+        let status = launch(&path, &ctx, Path::new("/tmp/data"), Stdout::Inherit)
+            .await
+            .unwrap();
 
         assert_eq!(status.code(), Some(3));
     }
@@ -109,7 +115,9 @@ mod tests {
         let path = script(scripts.path(), "#!/bin/sh\necho hi\nexit 3\n");
         let ctx = RunContext::new(&tree, Event::Open, &[0], Some(&[0])).unwrap();
 
-        let status = launch(&path, &ctx, Stdout::Stderr).await.unwrap();
+        let status = launch(&path, &ctx, Path::new("/tmp/data"), Stdout::Stderr)
+            .await
+            .unwrap();
 
         assert_eq!(status.code(), Some(3));
     }
@@ -122,7 +130,9 @@ mod tests {
         let path = script(scripts.path(), "#!/usr/bin/pyhton\n");
         let ctx = RunContext::new(&tree, Event::Open, &[0], Some(&[0])).unwrap();
 
-        let err = launch(&path, &ctx, Stdout::Inherit).await.unwrap_err();
+        let err = launch(&path, &ctx, Path::new("/tmp/data"), Stdout::Inherit)
+            .await
+            .unwrap_err();
 
         assert!(matches!(err, RunError::Launch { .. }));
         assert!(err.to_string().ends_with("(check its #! line)"), "{err}");
@@ -135,7 +145,12 @@ mod tests {
         let (_tmp, tree) = disk_tree().await;
         let ctx = RunContext::new(&tree, Event::Create, &[1], None).unwrap();
 
-        let cmd = command(Path::new("/x"), &ctx, Path::new("/bin/udo"));
+        let cmd = command(
+            Path::new("/x"),
+            &ctx,
+            Path::new("/bin/udo"),
+            Path::new("/tmp/data"),
+        );
 
         let removed: Vec<&OsStr> = cmd
             .as_std()

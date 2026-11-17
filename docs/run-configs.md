@@ -24,7 +24,7 @@ that two scripts share.
 - Two files with the same name (`idea.sh` and `idea.py`) are an error when
   that name is used, not before.
 
-The run folder is `<root>/run` (the root is `~/.config/udo`, or
+The run folder is `<root>/run` (the config root is `~/.config/udo`, or
 `$UDO_ROOT`). Elsewhere, for example in a dotfiles repository:
 
 ```sh
@@ -99,7 +99,8 @@ these variables on top of udo's own environment:
 | `UDO_NODE_DIR` | its folder; empty without one |
 | `UDO_TASK_ID`, `UDO_TASK_NAME`, `UDO_TASK_DIR` | the task the time goes to: the node itself, or the task picked for a container. Unset without one (creating a container, opening one without a task) |
 | `UDO_CONTAINER_DIR` | the nearest container folder |
-| `UDO_ROOT` | the root |
+| `UDO_ROOT` | the config root (the tree, `run/`, `templates/`) |
+| `UDO_DATA` | the data dir of the running `udo` (where `udo.db` lives) |
 | `UDO_BIN` | the running `udo`: call this, not `udo` from `PATH` |
 
 Only these are reliable. Anything else from your shell (an `export` in
@@ -188,7 +189,11 @@ Found by trying (tmux 3.6a) and kept by `tests/example_nvim_tmux.rs`:
   `#{session_name}` (`#{hook_session_name}` is empty there);
   `session-closed` in `#{hook_session_name}`.
 - Hooks run in the tmux server, with its environment and `PATH`: name
-  `$UDO_BIN` and `$UDO_ROOT` in the hook command.
+  `$UDO_BIN`, `$UDO_ROOT` and `$UDO_DATA` in the hook command, so the hook's
+  udo uses the same tree and the same `udo.db`. Hooks from older examples
+  name only `UDO_ROOT`: fine with the default root. If you set `UDO_DATA`
+  yourself, the global hooks pick it up the next time the example runs, a
+  session's own hooks when that session is made anew.
 - `set-hook -g client-detached …` replaces the user's own hook of that
   name; an array index (`client-detached[77]`) adds one next to it.
 - `=name` targets the exact session; commands that take a pane

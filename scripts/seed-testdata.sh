@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Create a fresh, throwaway udo test dataset.
 #
-#   scripts/seed-testdata.sh                 # root /tmp/udo-test, data /tmp/udo-data
-#   UDO_ROOT=/tmp/a UDO_DATA=/tmp/b scripts/seed-testdata.sh
+#   scripts/seed-testdata.sh                 # root /tmp/udo-test, folders /tmp/udo-dirs
+#   UDO_ROOT=/tmp/a UDO_SEED_DIRS=/tmp/b scripts/seed-testdata.sh
+#
+# The root holds the tree and udo.db (a custom root keeps its database);
+# the workspace folders go below UDO_SEED_DIRS.
 #
 # Then use it with:  UDO_ROOT=/tmp/udo-test cargo run [-- ls]
 #
@@ -20,10 +23,13 @@
 set -euo pipefail
 
 export UDO_ROOT="${UDO_ROOT:-/tmp/udo-test}"
-DATA="${UDO_DATA:-/tmp/udo-data}"
+DIRS="${UDO_SEED_DIRS:-/tmp/udo-dirs}"
+# udo.db stays in the root: an exported UDO_DATA (maybe the real one) must
+# not get the test sessions
+unset UDO_DATA
 
 # Both dirs get wiped, so only allow throwaway locations.
-for d in "$UDO_ROOT" "$DATA"; do
+for d in "$UDO_ROOT" "$DIRS"; do
   case "$d" in
     *..*) echo "refusing to wipe $d (no '..' allowed)" >&2; exit 1 ;;
     /tmp/?* | /private/tmp/?*) ;;
@@ -44,7 +50,7 @@ day() {
   fi
 }
 
-rm -rf "$UDO_ROOT" "$DATA"
+rm -rf "$UDO_ROOT" "$DIRS"
 
 {
   # root tasks
@@ -54,9 +60,9 @@ rm -rf "$UDO_ROOT" "$DATA"
   $udo "done" call-grandma # quoted: shellcheck reads a bare `done` as the keyword
 
   # uni: workspace with archive, task folders, a deadline rule, three projects
-  $udo add workspace uni --dir "$DATA/uni"
+  $udo add workspace uni --dir "$DIRS/uni"
   $udo settings set uni task_folders=auto default_deadline="+7d 23:59" \
-    archive_dir="$DATA/uni/archive"
+    archive_dir="$DIRS/uni/archive"
   $udo add task uni/enrol-exams --due "$(day +11) 23:59"
 
   $udo add project uni/algorithms
@@ -74,7 +80,7 @@ rm -rf "$UDO_ROOT" "$DATA"
   $udo add project uni/thesis # empty project
 
   # home: workspace with tasks only, no folders
-  $udo add workspace home --dir "$DATA/home"
+  $udo add workspace home --dir "$DIRS/home"
   $udo add task home/tax-return --due "$(day +27) 12:00" --no-dir
   $udo add task home/dentist --due "$(day +31) 08:30" --no-dir
 
@@ -109,7 +115,7 @@ EOF
   $udo track start --task lexer --source tmux --owner tmux:seed
 } >/dev/null
 
-echo "Test data ready:  root $UDO_ROOT, data $DATA"
+echo "Test data ready:  root $UDO_ROOT (tree and udo.db), folders $DIRS"
 echo
 $udo ls
 echo

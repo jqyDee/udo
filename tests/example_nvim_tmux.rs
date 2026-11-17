@@ -110,6 +110,7 @@ impl Setup {
         let socket = self.tmux_ok(&["display-message", "-p", "#{socket_path}"]);
         let out = Command::new(common::UDO)
             .env("UDO_ROOT", self.root())
+            .env_remove("UDO_DATA") // see tests/common
             .env("TMUX_TMPDIR", &self.tmux_dir)
             .env("PATH", path_with(&self.bin))
             .env("TMUX", format!("{},0,0", socket.trim()))

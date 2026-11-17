@@ -27,7 +27,7 @@ flowchart TD
     core --> estimate["estimate<br/>pure: History, estimators"]
     core --> stats["stats<br/>pure: Query, dims, measures"]
     tree --> persist["persist<br/>.udo.toml, one per container"]
-    storage --> db[("udo.db<br/>SQLite")]
+    storage --> db[("udo.db<br/>SQLite, in the data dir")]
     run["run<br/>run configs: find + launch scripts"] --> scripts[["scripts in run_dir"]]
     scripts -. "udo track start / stop" .-> cli
 ```
@@ -38,7 +38,9 @@ flowchart TD
 - **`model`** (`src/model/`) is the data and its rules, without I/O apart
   from loading and saving the tree's files.
 - **`storage`** (`src/storage/`) keeps what is recorded over time
-  (sessions, estimate rows) in `udo.db`, each behind a trait.
+  (sessions, estimate rows) in `udo.db`, each behind a trait. `udo.db`
+  lives in the data dir, apart from the config root with the tree
+  ([storage.md](storage.md#where-the-database-lives)).
 - **`estimate`** (`src/estimate/`) computes estimates from a snapshot
   (`History`), the totals per container and the texts shared by the TUI
   and `udo show` ([what they mean](../estimates.md)); no I/O, no async.

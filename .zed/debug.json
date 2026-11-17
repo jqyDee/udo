@@ -1,0 +1,15 @@
+// Project-local debug tasks
+//
+// For more documentation on how to configure debug tasks,
+// see: https://zed.dev/docs/debugger
+[
+    {
+        "label": "Debug udo",
+        "adapter": "CodeLLDB",
+        "program": "./target/debug/udo",
+        "request": "launch",
+        "env": {
+            "UDO_ROOT": "/tmp/udo-test"
+        }
+    }
+]

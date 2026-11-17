@@ -25,9 +25,17 @@ Other platforms build from source:
 cargo install --git https://github.com/jqyDee/udo
 ```
 
-Data lives in `~/.config/udo` (or `$UDO_ROOT`): the tree, its settings,
-and the recorded sessions (`udo.db`). Workspaces, projects and tasks can
-have folders of their own anywhere on disk.
+The config root `~/.config/udo` (or `$UDO_ROOT`) holds the tree, its
+settings and the run configs. The recorded sessions (`udo.db`) live in the
+platform data dir, `~/Library/Application Support/udo` on macOS and
+`~/.local/share/udo` on Linux (or `$UDO_DATA`), so a dotfiles repo or a
+reset of the config folder never takes them along. With `$UDO_ROOT` set to
+another dir, `udo.db` stays in that dir, unless `$UDO_DATA` is set too: then
+it moves there like below. Upgrading from 0.5 or older moves
+an existing `udo.db` there on the first start; the old file is kept as
+`udo.db.moved.<time>.bak`. While an older udo still has it open, udo keeps
+using it where it is and moves it on a later start. Workspaces,
+projects and tasks can have folders of their own anywhere on disk.
 
 ## Use
 
@@ -77,6 +85,12 @@ node; udo hands them the node in `UDO_*` variables and the terminal. They
 track time through `udo track`, so a tmux session or an editor window can
 time a task by itself. See [docs/run-configs.md](docs/run-configs.md) and
 the examples in [examples/run/](examples/run/).
+
+## Showcase
+
+[udo-dash](https://github.com/jqyDee/udo-dash) is a small local browser
+dashboard for your tracked time, built on `--json` alone. It was created by
+Claude Opus 5.5 in about 1 hour.
 
 ## Develop
 

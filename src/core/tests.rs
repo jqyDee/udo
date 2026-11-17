@@ -1,5 +1,6 @@
 use crate::{
     core::Core,
+    dir::Dirs,
     model::{
         node::{HeaderPatch, NodePatch},
         sessions::{Owner, SessionPatch, SessionStore},
@@ -10,15 +11,56 @@ use crate::{
 };
 
 #[tokio::test]
-async fn open_on_a_missing_dir_creates_the_root_and_the_database() {
+async fn open_creates_the_root_and_the_database_in_the_data_dir() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dirs = Dirs {
+        root: tmp.path().join("udo"),
+        data: tmp.path().join("data").join("udo"), // parent missing too
+        move_old_db: false,
+    };
+
+    let core = Core::open(&dirs).await.unwrap();
+
+    assert!(dirs.root.join(crate::UDO_FILE_NAME).exists());
+    assert!(dirs.data.join(DB_FILE_NAME).exists());
+    assert!(!dirs.root.join(DB_FILE_NAME).exists());
+    assert_eq!(core.data_dir(), dirs.data);
+    assert!(core.tree().get(&[]).is_some());
+}
+
+/// In-use fallback: the db stays in the root for this run, but scripts
+/// and hooks still learn the real data dir (`UDO_DATA`).
+#[tokio::test]
+async fn open_db_in_keeps_the_data_dir_for_scripts() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dirs = Dirs {
+        root: tmp.path().join("udo"),
+        data: tmp.path().join("data"),
+        move_old_db: true,
+    };
+
+    let core = Core::open_db_in(&dirs, &dirs.root).await.unwrap();
+
+    assert!(dirs.root.join(DB_FILE_NAME).exists());
+    assert!(!dirs.data.join(DB_FILE_NAME).exists());
+    assert_eq!(core.data_dir(), dirs.data);
+}
+
+/// A custom root keeps everything in one dir, as before #93.
+#[tokio::test]
+async fn open_with_data_in_the_root_keeps_both_there() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("udo");
+    let dirs = Dirs {
+        root: root.clone(),
+        data: root.clone(),
+        move_old_db: false,
+    };
 
-    let core = Core::open(&root).await.unwrap();
+    Core::open(&dirs).await.unwrap();
 
     assert!(root.join(crate::UDO_FILE_NAME).exists());
     assert!(root.join(DB_FILE_NAME).exists());
-    assert!(core.tree().get(&[]).is_some());
 }
 
 #[tokio::test]
@@ -29,6 +71,7 @@ async fn new_reads_back_the_tree_it_was_given() {
 
     assert_eq!(core.tree().get(&[0]).unwrap().name(), "a");
     assert_eq!(core.sessions().running().await.unwrap(), None);
+    assert_eq!(core.data_dir(), core.tree().root.dir().unwrap());
 }
 
 // ---------- warnings ----------

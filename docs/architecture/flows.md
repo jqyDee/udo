@@ -19,7 +19,12 @@ sequenceDiagram
     participant fs as .udo.toml files
     participant Storage
 
-    main->>Core: open(root)
+    main->>main: dirs(): config root + data dir (UDO_ROOT, UDO_DATA)
+    Note over main: debug build: refuse the real root / data dir
+    opt default root or UDO_DATA set, and udo.db still in the root
+        main->>Storage: relocate::settle_old_db: move (copy, check, place,<br/>old file → udo.db.moved.TIME.bak),<br/>or in use: keep it in the root for this run
+    end
+    main->>Core: open_db_in(dirs, db_dir)
     Core->>Tree: load_from(root)
     alt no .udo.toml in root (first run)
         Tree->>fs: save the new root
@@ -29,7 +34,7 @@ sequenceDiagram
         Tree->>Tree: fix_duplicate_ids()
         Tree->>fs: save the containers whose ids changed
     end
-    Core->>Storage: open_db(root): udo.db, run new migrations
+    Core->>Storage: open_db(data dir): udo.db, run new migrations
     main->>main: CLI command, or tui::run(core)
     Note over main: TUI: TreeState::load reads view.toml<br/>(folded containers, selected node by id)
 ```
