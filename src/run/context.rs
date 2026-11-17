@@ -104,8 +104,10 @@ impl RunContext {
 
     /// The `UDO_*` variables, in a fixed order. A missing folder is an
     /// empty value; without a task the `UDO_TASK_*` ones are left out.
-    /// `bin`: the running udo (`UDO_BIN`, for hooks a script installs).
-    pub fn env(&self, bin: &Path) -> Vec<(&'static str, OsString)> {
+    /// `bin`: the running udo (`UDO_BIN`, for hooks a script installs);
+    /// `data`: where its `udo.db` lives (`UDO_DATA`, for the same hooks:
+    /// they run later, in another environment).
+    pub fn env(&self, bin: &Path, data: &Path) -> Vec<(&'static str, OsString)> {
         let dir = |d: &Option<PathBuf>| d.clone().map(OsString::from).unwrap_or_default();
         let mut vars = vec![
             ("UDO_EVENT", self.event.as_str().into()),
@@ -122,6 +124,7 @@ impl RunContext {
         }
         vars.push(("UDO_CONTAINER_DIR", self.container_dir.clone().into()));
         vars.push(("UDO_ROOT", self.root.clone().into()));
+        vars.push(("UDO_DATA", data.into()));
         vars.push(("UDO_BIN", bin.into()));
         vars
     }
@@ -164,7 +167,7 @@ mod tests {
 
     /// The variables as text, for comparing.
     fn vars(ctx: &RunContext) -> Vec<(&'static str, String)> {
-        ctx.env(Path::new("/bin/udo"))
+        ctx.env(Path::new("/bin/udo"), Path::new("/tmp/data"))
             .into_iter()
             .map(|(k, v)| (k, v.into_string().unwrap()))
             .collect()
@@ -195,6 +198,7 @@ mod tests {
                 ("UDO_TASK_DIR", "/tmp/uni/lab_3".into()),
                 ("UDO_CONTAINER_DIR", "/tmp/uni".into()),
                 ("UDO_ROOT", "/tmp/root".into()),
+                ("UDO_DATA", "/tmp/data".into()),
                 ("UDO_BIN", "/bin/udo".into()),
             ]
         );

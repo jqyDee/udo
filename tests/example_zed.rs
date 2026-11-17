@@ -53,6 +53,7 @@ impl Setup {
     fn open(&self, task: &str) {
         let out = Command::new(UDO)
             .env("UDO_ROOT", self.root.path())
+            .env_remove("UDO_DATA") // see tests/common
             .env("PATH", path_with(&self.bin))
             .args(["run", task])
             .output()
@@ -133,6 +134,7 @@ fn a_container_opens_its_folder_for_the_picked_task() {
 
     let out = Command::new(UDO)
         .env("UDO_ROOT", s.root.path())
+        .env_remove("UDO_DATA") // see tests/common
         .env("PATH", path_with(&s.bin))
         .args(["run", "cs", "--task", "cs/lab 1"])
         .output()

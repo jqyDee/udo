@@ -3,7 +3,7 @@
 //! so rules that span tree and sessions live in one place.
 
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     sync::{
         Mutex,
         atomic::{AtomicU64, Ordering},
@@ -12,6 +12,7 @@ use std::{
 
 use crate::{
     Res,
+    dir::Dirs,
     model::tree::Tree,
     storage::{Storage, sessions::Sessions},
 };
@@ -34,6 +35,7 @@ pub use timer::IsDone;
 pub struct Core {
     tree: Tree, // private: every write goes through a `Core` method
     storage: Storage,
+    data_dir: PathBuf,
     /// What went wrong after an action succeeded (`estimate not recorded:
     /// ...`): the action stands, the CLI / TUI show these after each call.
     /// A `Mutex`: `&self` methods (`add_session`) warn too.
@@ -46,19 +48,35 @@ pub struct Core {
 }
 
 impl Core {
-    /// Load the tree at `root` (created on the first run), then open
-    /// `udo.db` inside it: the dir must exist before the database file.
-    pub async fn open(root: &Path) -> Res<Self> {
-        let tree = Tree::load_from(root).await?;
-        let storage = Storage::open_db(root)?;
-        Ok(Self::new(tree, storage))
+    /// `open_db_in` the data dir.
+    pub async fn open(dirs: &Dirs) -> Res<Self> {
+        Self::open_db_in(dirs, &dirs.data).await
+    }
+
+    /// Load the tree at `dirs.root` (created on the first run), then open
+    /// `udo.db` in `db_dir` (normally `dirs.data`; the root while an old
+    /// one there is in use). Scripts always get `dirs.data`.
+    pub async fn open_db_in(dirs: &Dirs, db_dir: &Path) -> Res<Self> {
+        let tree = Tree::load_from(&dirs.root).await?;
+        let storage = Storage::open_db(db_dir)?;
+        Ok(Self::with_data_dir(tree, storage, dirs.data.clone()))
     }
 
     /// A `Core` from parts (tests: a built tree + `Storage::in_memory()`).
     pub fn new(tree: Tree, storage: Storage) -> Self {
+        let data_dir = tree
+            .root
+            .dir()
+            .expect("the root has a folder")
+            .to_path_buf();
+        Self::with_data_dir(tree, storage, data_dir)
+    }
+
+    fn with_data_dir(tree: Tree, storage: Storage, data_dir: PathBuf) -> Self {
         Self {
             tree,
             storage,
+            data_dir,
             warnings: Mutex::default(),
             changes: AtomicU64::default(),
         }
@@ -95,5 +113,10 @@ impl Core {
     /// left. The CLI / TUI call this after every action.
     pub fn take_warnings(&self) -> Vec<String> {
         std::mem::take(&mut self.warnings.lock().unwrap())
+    }
+
+    /// Where `udo.db` lives.
+    pub fn data_dir(&self) -> &Path {
+        &self.data_dir
     }
 }
